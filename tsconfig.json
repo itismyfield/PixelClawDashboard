@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src", "server", "vite.config.ts"],
+  "exclude": [
+    "src/components/office-view",
+    "src/components/agent-manager",
+    "src/components/dashboard",
+    "src/components/AgentAvatar.tsx",
+    "src/app/office-workflow-pack.ts",
+    "src/app/office-pack-display.ts",
+    "**/*.test.ts"
+  ]
+}
