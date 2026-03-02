@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   Agent,
   Department,
+  Office,
   DispatchedSession,
   DashboardStats,
   CompanySettings,
@@ -13,6 +14,8 @@ import { SessionPanel } from "./components/session-panel/SessionPanel";
 import OfficeView from "./components/OfficeView";
 import DashboardPageView from "./components/DashboardPageView";
 import AgentManagerView from "./components/AgentManagerView";
+import OfficeSelectorBar from "./components/OfficeSelectorBar";
+import OfficeManagerModal from "./components/OfficeManagerModal";
 import {
   Building2,
   LayoutDashboard,
@@ -24,12 +27,16 @@ type ViewMode = "office" | "dashboard" | "agents" | "sessions";
 
 export default function App() {
   const [view, setView] = useState<ViewMode>("sessions");
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [sessions, setSessions] = useState<DispatchedSession[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [showOfficeManager, setShowOfficeManager] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -38,19 +45,26 @@ export default function App() {
     (async () => {
       try {
         await api.getSession();
-        const [ag, dep, ses, st, set] = await Promise.all([
+        const [off, ag, dep, ses, st, set] = await Promise.all([
+          api.getOffices(),
           api.getAgents(),
           api.getDepartments(),
           api.getDispatchedSessions(),
           api.getStats(),
           api.getSettings(),
         ]);
+        setOffices(off);
+        setAllAgents(ag);
         setAgents(ag);
         setDepartments(dep);
         setSessions(ses);
         setStats(st);
         if (set.companyName) {
           setSettings((prev) => ({ ...prev, ...set } as CompanySettings));
+        }
+        // Auto-select first office if any
+        if (off.length > 0) {
+          setSelectedOfficeId(off[0].id);
         }
       } catch (e) {
         console.error("Bootstrap failed:", e);
@@ -59,6 +73,25 @@ export default function App() {
       }
     })();
   }, []);
+
+  // Reload scoped data when office selection changes
+  useEffect(() => {
+    if (loading) return;
+    (async () => {
+      try {
+        const [ag, dep, st] = await Promise.all([
+          api.getAgents(selectedOfficeId ?? undefined),
+          api.getDepartments(selectedOfficeId ?? undefined),
+          api.getStats(selectedOfficeId ?? undefined),
+        ]);
+        setAgents(ag);
+        setDepartments(dep);
+        setStats(st);
+      } catch (e) {
+        console.error("Office scope reload failed:", e);
+      }
+    })();
+  }, [selectedOfficeId, loading]);
 
   // WebSocket
   useEffect(() => {
@@ -75,7 +108,6 @@ export default function App() {
 
     ws.onclose = () => {
       setTimeout(() => {
-        // Reconnect
         wsRef.current = null;
       }, 3000);
     };
@@ -90,17 +122,28 @@ export default function App() {
           const a = event.payload as Agent;
           return prev.map((p) => (p.id === a.id ? { ...p, ...a } : p));
         });
+        setAllAgents((prev) => {
+          const a = event.payload as Agent;
+          return prev.map((p) => (p.id === a.id ? { ...p, ...a } : p));
+        });
         break;
       case "agent_created":
-        api.getAgents().then(setAgents).catch(() => {});
+        refreshAgents();
+        refreshAllAgents();
         break;
       case "agent_deleted":
         setAgents((prev) =>
           prev.filter((a) => a.id !== (event.payload as { id: string }).id),
         );
+        setAllAgents((prev) =>
+          prev.filter((a) => a.id !== (event.payload as { id: string }).id),
+        );
         break;
       case "departments_changed":
-        api.getDepartments().then(setDepartments).catch(() => {});
+        refreshDepartments();
+        break;
+      case "offices_changed":
+        refreshOffices();
         break;
       case "dispatched_session_new":
         setSessions((prev) => [event.payload as DispatchedSession, ...prev]);
@@ -122,17 +165,32 @@ export default function App() {
     }
   }, []);
 
-  const refreshStats = useCallback(() => {
-    api.getStats().then(setStats).catch(() => {});
+  const refreshOffices = useCallback(() => {
+    api.getOffices().then(setOffices).catch(() => {});
   }, []);
 
+  const refreshStats = useCallback(() => {
+    api.getStats(selectedOfficeId ?? undefined).then(setStats).catch(() => {});
+  }, [selectedOfficeId]);
+
   const refreshAgents = useCallback(() => {
-    api.getAgents().then(setAgents).catch(() => {});
+    api.getAgents(selectedOfficeId ?? undefined).then(setAgents).catch(() => {});
+  }, [selectedOfficeId]);
+
+  const refreshAllAgents = useCallback(() => {
+    api.getAgents().then(setAllAgents).catch(() => {});
   }, []);
 
   const refreshDepartments = useCallback(() => {
-    api.getDepartments().then(setDepartments).catch(() => {});
-  }, []);
+    api.getDepartments(selectedOfficeId ?? undefined).then(setDepartments).catch(() => {});
+  }, [selectedOfficeId]);
+
+  const handleOfficeChanged = useCallback(() => {
+    refreshOffices();
+    refreshAgents();
+    refreshAllAgents();
+    refreshDepartments();
+  }, [refreshOffices, refreshAgents, refreshAllAgents, refreshDepartments]);
 
   if (loading) {
     return (
@@ -146,6 +204,7 @@ export default function App() {
   }
 
   const activeSessions = sessions.filter((s) => s.status !== "disconnected");
+  const isKo = settings.language === "ko";
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -180,49 +239,74 @@ export default function App() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        {view === "sessions" && (
-          <SessionPanel
-            sessions={sessions}
-            departments={departments}
-            agents={agents}
-            onAssign={async (id, patch) => {
-              const updated = await api.assignDispatchedSession(id, patch);
-              setSessions((prev) =>
-                prev.map((s) => (s.id === updated.id ? updated : s)),
-              );
-            }}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Office selector bar */}
+        {offices.length > 0 && (
+          <OfficeSelectorBar
+            offices={offices}
+            selectedOfficeId={selectedOfficeId}
+            onSelectOffice={setSelectedOfficeId}
+            onManageOffices={() => setShowOfficeManager(true)}
+            isKo={isKo}
           />
         )}
-        {view === "office" && (
-          <OfficeView
-            agents={agents}
-            departments={departments}
-            language={settings.language}
-            theme={settings.theme}
-            onSelectAgent={(agent) => console.log("Select agent:", agent.name)}
-            onSelectDepartment={(dept) => console.log("Select dept:", dept.name)}
-            customDeptThemes={settings.roomThemes}
-          />
-        )}
-        {view === "dashboard" && (
-          <DashboardPageView
-            stats={stats}
-            agents={agents}
-            settings={settings}
-            onNavigateToOffice={() => setView("office")}
-          />
-        )}
-        {view === "agents" && (
-          <AgentManagerView
-            agents={agents}
-            departments={departments}
-            language={settings.language}
-            onAgentsChange={refreshAgents}
-            onDepartmentsChange={refreshDepartments}
-          />
-        )}
-      </main>
+
+        <main className="flex-1 overflow-hidden">
+          {view === "sessions" && (
+            <SessionPanel
+              sessions={sessions}
+              departments={departments}
+              agents={agents}
+              onAssign={async (id, patch) => {
+                const updated = await api.assignDispatchedSession(id, patch);
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === updated.id ? updated : s)),
+                );
+              }}
+            />
+          )}
+          {view === "office" && (
+            <OfficeView
+              agents={agents}
+              departments={departments}
+              language={settings.language}
+              theme={settings.theme}
+              onSelectAgent={(agent) => console.log("Select agent:", agent.name)}
+              onSelectDepartment={(dept) => console.log("Select dept:", dept.name)}
+              customDeptThemes={settings.roomThemes}
+            />
+          )}
+          {view === "dashboard" && (
+            <DashboardPageView
+              stats={stats}
+              agents={agents}
+              settings={settings}
+              onNavigateToOffice={() => setView("office")}
+            />
+          )}
+          {view === "agents" && (
+            <AgentManagerView
+              agents={agents}
+              departments={departments}
+              language={settings.language}
+              officeId={selectedOfficeId}
+              onAgentsChange={() => { refreshAgents(); refreshAllAgents(); refreshOffices(); }}
+              onDepartmentsChange={() => { refreshDepartments(); refreshOffices(); }}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Office Manager Modal */}
+      {showOfficeManager && (
+        <OfficeManagerModal
+          offices={offices}
+          allAgents={allAgents}
+          isKo={isKo}
+          onClose={() => setShowOfficeManager(false)}
+          onChanged={handleOfficeChanged}
+        />
+      )}
     </div>
   );
 }

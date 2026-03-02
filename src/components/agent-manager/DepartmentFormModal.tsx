@@ -11,6 +11,7 @@ export default function DepartmentFormModal({
   tr,
   department,
   departments,
+  officeId,
   onSave,
   onClose,
   onSaveDepartment,
@@ -20,6 +21,7 @@ export default function DepartmentFormModal({
   tr: Translator;
   department: Department | null;
   departments: Department[];
+  officeId?: string | null;
   onSave: () => void;
   onClose: () => void;
   onSaveDepartment?: (input: {
@@ -140,7 +142,8 @@ export default function DepartmentFormModal({
             color: payload.color,
             description: payload.description ?? undefined,
             prompt: payload.prompt ?? undefined,
-          });
+            office_id: officeId ?? undefined,
+          } as Partial<Department> & { office_id?: string });
         }
       }
       onSave();

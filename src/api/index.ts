@@ -1,5 +1,13 @@
 export {
   getSession,
+  getOffices,
+  createOffice,
+  updateOffice,
+  deleteOffice,
+  addAgentToOffice,
+  removeAgentFromOffice,
+  updateOfficeAgent,
+  batchAddAgentsToOffice,
   getAgents,
   createAgent,
   updateAgent,

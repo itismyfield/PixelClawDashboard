@@ -5,15 +5,33 @@ import { broadcast } from "../ws.js";
 
 const router = Router();
 
-router.get("/api/agents", (_req, res) => {
+router.get("/api/agents", (req, res) => {
   const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
-       FROM agents a LEFT JOIN departments d ON a.department_id = d.id
-       ORDER BY a.created_at`,
-    )
-    .all();
+  const officeId = req.query.officeId as string | undefined;
+
+  let rows;
+  if (officeId) {
+    // Return agents in a specific office, with their office-specific department
+    rows = db
+      .prepare(
+        `SELECT a.*, oa.department_id as office_department_id,
+                d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+         FROM office_agents oa
+         JOIN agents a ON a.id = oa.agent_id
+         LEFT JOIN departments d ON d.id = oa.department_id
+         WHERE oa.office_id = ?
+         ORDER BY a.created_at`,
+      )
+      .all(officeId);
+  } else {
+    rows = db
+      .prepare(
+        `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+         FROM agents a LEFT JOIN departments d ON a.department_id = d.id
+         ORDER BY a.created_at`,
+      )
+      .all();
+  }
   res.json({ agents: rows });
 });
 
@@ -36,9 +54,8 @@ router.post("/api/agents", (req, res) => {
   const b = req.body;
   db.prepare(
     `INSERT INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
-      department_id, role, avatar_emoji, sprite_number, personality, status,
-      workflow_pack_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      department_id, role, avatar_emoji, sprite_number, personality, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.openclaw_id ?? null,
@@ -52,8 +69,15 @@ router.post("/api/agents", (req, res) => {
     b.sprite_number ?? null,
     b.personality ?? null,
     b.status ?? "idle",
-    b.workflow_pack_key ?? null,
   );
+
+  // If office_id provided, also assign to that office
+  if (b.office_id) {
+    db.prepare(
+      "INSERT OR IGNORE INTO office_agents (office_id, agent_id, department_id) VALUES (?, ?, ?)",
+    ).run(b.office_id, id, b.department_id ?? null);
+  }
+
   const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
   broadcast("agent_created", agent);
   res.status(201).json(agent);
@@ -80,7 +104,6 @@ router.patch("/api/agents/:id", (req, res) => {
     "session_info",
     "stats_tasks_done",
     "stats_xp",
-    "workflow_pack_key",
     "openclaw_id",
   ];
   const sets: string[] = [];
@@ -111,6 +134,7 @@ router.patch("/api/agents/:id", (req, res) => {
 
 router.delete("/api/agents/:id", (req, res) => {
   const db = getDb();
+  // office_agents cascade-deletes automatically
   db.prepare("DELETE FROM agents WHERE id = ?").run(req.params.id);
   broadcast("agent_deleted", { id: req.params.id });
   res.json({ ok: true });

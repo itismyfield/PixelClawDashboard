@@ -16,6 +16,7 @@ interface AgentManagerViewProps {
   agents: Agent[];
   departments: Department[];
   language: UiLanguage;
+  officeId?: string | null;
   onAgentsChange: () => void;
   onDepartmentsChange: () => void;
 }
@@ -26,6 +27,7 @@ export default function AgentManagerView({
   agents,
   departments,
   language,
+  officeId,
   onAgentsChange,
   onDepartmentsChange,
 }: AgentManagerViewProps) {
@@ -117,7 +119,7 @@ export default function AgentManagerView({
   const handleSaveAgent = useCallback(async () => {
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: form.name.trim(),
         name_ko: form.name_ko.trim() || form.name.trim(),
         name_ja: form.name_ja.trim() || undefined,
@@ -129,6 +131,9 @@ export default function AgentManagerView({
         sprite_number: form.sprite_number,
         personality: form.personality.trim() || null,
       };
+      if (!agentModal.editAgent && officeId) {
+        payload.office_id = officeId;
+      }
       if (agentModal.editAgent) {
         await api.updateAgent(agentModal.editAgent.id, payload);
       } else {
@@ -355,6 +360,7 @@ export default function AgentManagerView({
           tr={tr}
           department={deptModal.editDept}
           departments={departments}
+          officeId={officeId}
           onSave={() => {
             setDeptModal({ open: false, editDept: null });
             onDepartmentsChange();

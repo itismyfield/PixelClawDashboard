@@ -2,6 +2,20 @@ import type { UiLanguage } from "../i18n";
 
 export type { UiLanguage };
 
+// Office
+export interface Office {
+  id: string;
+  name: string;
+  name_ko: string;
+  icon: string;
+  color: string;
+  description: string | null;
+  sort_order: number;
+  created_at: number;
+  agent_count?: number;
+  department_count?: number;
+}
+
 // Department
 export interface Department {
   id: string;
@@ -13,6 +27,7 @@ export interface Department {
   color: string;
   description: string | null;
   prompt: string | null;
+  office_id?: string | null;
   sort_order: number;
   created_at: number;
   agent_count?: number;
@@ -278,6 +293,7 @@ export type WSEventType =
   | "agent_created"
   | "agent_deleted"
   | "departments_changed"
+  | "offices_changed"
   | "new_message"
   | "announcement"
   | "cli_output"

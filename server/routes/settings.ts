@@ -32,42 +32,82 @@ router.put("/api/settings", (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/api/stats", (_req, res) => {
+router.get("/api/stats", (req, res) => {
   const db = getDb();
+  const officeId = req.query.officeId as string | undefined;
 
-  const agentRows = db
-    .prepare("SELECT status, COUNT(*) as cnt FROM agents GROUP BY status")
-    .all() as Array<{ status: string; cnt: number }>;
-  const agentStats: Record<string, number> = {
-    total: 0,
-    working: 0,
-    idle: 0,
-    break: 0,
-    offline: 0,
-  };
-  for (const r of agentRows) {
-    agentStats[r.status] = r.cnt;
-    agentStats.total += r.cnt;
+  let agentStats: Record<string, number>;
+  let topAgents;
+  let deptStats;
+
+  if (officeId) {
+    // Office-scoped stats
+    const agentRows = db
+      .prepare(
+        `SELECT a.status, COUNT(*) as cnt
+         FROM office_agents oa JOIN agents a ON a.id = oa.agent_id
+         WHERE oa.office_id = ?
+         GROUP BY a.status`,
+      )
+      .all(officeId) as Array<{ status: string; cnt: number }>;
+    agentStats = { total: 0, working: 0, idle: 0, break: 0, offline: 0 };
+    for (const r of agentRows) {
+      agentStats[r.status] = r.cnt;
+      agentStats.total += r.cnt;
+    }
+
+    topAgents = db
+      .prepare(
+        `SELECT a.id, a.name, a.name_ko, a.avatar_emoji, a.stats_tasks_done, a.stats_xp
+         FROM office_agents oa JOIN agents a ON a.id = oa.agent_id
+         WHERE oa.office_id = ?
+         ORDER BY a.stats_xp DESC LIMIT 10`,
+      )
+      .all(officeId);
+
+    deptStats = db
+      .prepare(
+        `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
+                COUNT(oa.agent_id) as total_agents,
+                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents
+         FROM departments d
+         LEFT JOIN office_agents oa ON oa.department_id = d.id AND oa.office_id = ?
+         LEFT JOIN agents a ON a.id = oa.agent_id
+         WHERE d.office_id = ?
+         GROUP BY d.id
+         ORDER BY d.sort_order`,
+      )
+      .all(officeId, officeId);
+  } else {
+    // Global stats
+    const agentRows = db
+      .prepare("SELECT status, COUNT(*) as cnt FROM agents GROUP BY status")
+      .all() as Array<{ status: string; cnt: number }>;
+    agentStats = { total: 0, working: 0, idle: 0, break: 0, offline: 0 };
+    for (const r of agentRows) {
+      agentStats[r.status] = r.cnt;
+      agentStats.total += r.cnt;
+    }
+
+    topAgents = db
+      .prepare(
+        `SELECT id, name, name_ko, avatar_emoji, stats_tasks_done, stats_xp
+         FROM agents ORDER BY stats_xp DESC LIMIT 10`,
+      )
+      .all();
+
+    deptStats = db
+      .prepare(
+        `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
+                COUNT(a.id) as total_agents,
+                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents
+         FROM departments d
+         LEFT JOIN agents a ON a.department_id = d.id
+         GROUP BY d.id
+         ORDER BY d.sort_order`,
+      )
+      .all();
   }
-
-  const topAgents = db
-    .prepare(
-      `SELECT id, name, name_ko, avatar_emoji, stats_tasks_done, stats_xp
-       FROM agents ORDER BY stats_xp DESC LIMIT 10`,
-    )
-    .all();
-
-  const deptStats = db
-    .prepare(
-      `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
-              COUNT(a.id) as total_agents,
-              SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents
-       FROM departments d
-       LEFT JOIN agents a ON a.department_id = d.id
-       GROUP BY d.id
-       ORDER BY d.sort_order`,
-    )
-    .all();
 
   const dispatchedCount = (
     db

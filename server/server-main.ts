@@ -8,6 +8,7 @@ import { authMiddleware, sessionRoute } from "./auth.js";
 import agentRoutes from "./routes/agents.js";
 import departmentRoutes from "./routes/departments.js";
 import settingsRoutes from "./routes/settings.js";
+import officeRoutes from "./routes/offices.js";
 import hookRoutes from "./routes/hook.js";
 import dispatchedRoutes from "./routes/dispatched.js";
 import spriteRoutes from "./routes/sprites.js";
@@ -46,6 +47,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // Routes
+app.use(officeRoutes);
 app.use(agentRoutes);
 app.use(departmentRoutes);
 app.use(settingsRoutes);

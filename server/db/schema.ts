@@ -2,6 +2,17 @@ import type { DatabaseSync } from "node:sqlite";
 
 export function initSchema(db: DatabaseSync): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS offices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      name_ko TEXT NOT NULL DEFAULT '',
+      icon TEXT NOT NULL DEFAULT '🏢',
+      color TEXT NOT NULL DEFAULT '#6366f1',
+      description TEXT DEFAULT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
     CREATE TABLE IF NOT EXISTS departments (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -11,7 +22,7 @@ export function initSchema(db: DatabaseSync): void {
       icon TEXT NOT NULL DEFAULT '',
       color TEXT NOT NULL DEFAULT '#3b82f6',
       description TEXT DEFAULT NULL,
-      workflow_pack_key TEXT DEFAULT NULL,
+      office_id TEXT DEFAULT NULL REFERENCES offices(id) ON DELETE SET NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
@@ -34,8 +45,15 @@ export function initSchema(db: DatabaseSync): void {
       session_info TEXT DEFAULT NULL,
       stats_tasks_done INTEGER NOT NULL DEFAULT 0,
       stats_xp INTEGER NOT NULL DEFAULT 0,
-      workflow_pack_key TEXT DEFAULT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS office_agents (
+      office_id TEXT NOT NULL REFERENCES offices(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      department_id TEXT DEFAULT NULL REFERENCES departments(id) ON DELETE SET NULL,
+      joined_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      PRIMARY KEY (office_id, agent_id)
     );
 
     CREATE TABLE IF NOT EXISTS dispatched_sessions (
@@ -59,4 +77,59 @@ export function initSchema(db: DatabaseSync): void {
       value TEXT NOT NULL DEFAULT ''
     );
   `);
+
+  migrate(db);
+}
+
+function migrate(db: DatabaseSync): void {
+  // Add office_id column to departments if missing (existing DB upgrade)
+  const deptCols = db
+    .prepare("PRAGMA table_info(departments)")
+    .all() as Array<{ name: string }>;
+  if (!deptCols.some((c) => c.name === "office_id")) {
+    db.exec(
+      "ALTER TABLE departments ADD COLUMN office_id TEXT DEFAULT NULL",
+    );
+  }
+
+  // If no offices exist and there are agents or departments, seed default office
+  const officeCount = (
+    db.prepare("SELECT COUNT(*) as cnt FROM offices").get() as { cnt: number }
+  ).cnt;
+
+  if (officeCount === 0) {
+    const agentCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM agents").get() as {
+        cnt: number;
+      }
+    ).cnt;
+    const deptCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM departments").get() as {
+        cnt: number;
+      }
+    ).cnt;
+
+    if (agentCount > 0 || deptCount > 0) {
+      db.prepare(
+        `INSERT INTO offices (id, name, name_ko, icon, color, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run("main", "Main Office", "메인 오피스", "🏢", "#6366f1", 0);
+
+      // Assign existing departments to main office
+      db.exec(
+        "UPDATE departments SET office_id = 'main' WHERE office_id IS NULL",
+      );
+
+      // Assign existing agents to main office
+      const existingAgents = db
+        .prepare("SELECT id, department_id FROM agents")
+        .all() as Array<{ id: string; department_id: string | null }>;
+      const ins = db.prepare(
+        "INSERT OR IGNORE INTO office_agents (office_id, agent_id, department_id) VALUES (?, ?, ?)",
+      );
+      for (const a of existingAgents) {
+        ins.run("main", a.id, a.department_id);
+      }
+    }
+  }
 }
