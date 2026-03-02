@@ -10,6 +10,7 @@ import type {
 import { DEFAULT_SETTINGS } from "./types";
 import * as api from "./api/client";
 import { SessionPanel } from "./components/session-panel/SessionPanel";
+import OfficeView from "./components/OfficeView";
 import {
   Building2,
   LayoutDashboard,
@@ -184,11 +185,15 @@ export default function App() {
           />
         )}
         {view === "office" && (
-          <div className="p-8 text-center text-gray-500">
-            <div className="text-6xl mb-4">🏢</div>
-            <p>Pixi.js 오피스 뷰 (준비 중)</p>
-            <p className="text-sm mt-2">에이전트 {agents.length}명 | 부서 {departments.length}개 | 파견 {activeSessions.length}명</p>
-          </div>
+          <OfficeView
+            agents={agents}
+            departments={departments}
+            language={settings.language}
+            theme={settings.theme}
+            onSelectAgent={(agent) => console.log("Select agent:", agent.name)}
+            onSelectDepartment={(dept) => console.log("Select dept:", dept.name)}
+            customDeptThemes={settings.roomThemes}
+          />
         )}
         {view === "dashboard" && (
           <DashboardView stats={stats} settings={settings} />
