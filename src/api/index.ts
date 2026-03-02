@@ -7,13 +7,13 @@ export {
   getDepartments,
   createDepartment,
   updateDepartment,
+  deleteDepartment,
   getSettings,
   saveSettings,
   getStats,
   getDispatchedSessions,
   assignDispatchedSession,
 } from "./client";
-export { deleteDepartment } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──
 

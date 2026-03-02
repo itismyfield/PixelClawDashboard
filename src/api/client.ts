@@ -61,12 +61,9 @@ export async function deleteAgent(id: string): Promise<void> {
 }
 
 // Departments
-export async function getDepartments(
-  packKey?: string,
-): Promise<Department[]> {
-  const q = packKey ? `?workflowPackKey=${packKey}` : "";
+export async function getDepartments(): Promise<Department[]> {
   const data = await request<{ departments: Department[] }>(
-    `/api/departments${q}`,
+    "/api/departments",
   );
   return data.departments;
 }
@@ -90,14 +87,8 @@ export async function updateDepartment(
   });
 }
 
-export async function deleteDepartment(
-  id: string,
-  opts?: { workflowPackKey?: string },
-): Promise<void> {
-  const q = opts?.workflowPackKey
-    ? `?workflowPackKey=${opts.workflowPackKey}`
-    : "";
-  await request(`/api/departments/${id}${q}`, { method: "DELETE" });
+export async function deleteDepartment(id: string): Promise<void> {
+  await request(`/api/departments/${id}`, { method: "DELETE" });
 }
 
 // Settings

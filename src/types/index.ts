@@ -16,7 +16,6 @@ export interface Department {
   sort_order: number;
   created_at: number;
   agent_count?: number;
-  workflow_pack_key?: string | null;
 }
 
 // Agent roles
@@ -394,8 +393,6 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   theme: "dark",
   language: "ko",
   defaultProvider: "claude",
-  officeWorkflowPack: "cookingheart",
-  officePackProfiles: {},
 };
 
 // Dispatched Session (파견 인력)
