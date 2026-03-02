@@ -11,6 +11,8 @@ import { DEFAULT_SETTINGS } from "./types";
 import * as api from "./api/client";
 import { SessionPanel } from "./components/session-panel/SessionPanel";
 import OfficeView from "./components/OfficeView";
+import DashboardPageView from "./components/DashboardPageView";
+import AgentManagerView from "./components/AgentManagerView";
 import {
   Building2,
   LayoutDashboard,
@@ -124,6 +126,14 @@ export default function App() {
     api.getStats().then(setStats).catch(() => {});
   }, []);
 
+  const refreshAgents = useCallback(() => {
+    api.getAgents().then(setAgents).catch(() => {});
+  }, []);
+
+  const refreshDepartments = useCallback(() => {
+    api.getDepartments().then(setDepartments).catch(() => {});
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-400">
@@ -170,7 +180,7 @@ export default function App() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-hidden">
         {view === "sessions" && (
           <SessionPanel
             sessions={sessions}
@@ -196,10 +206,21 @@ export default function App() {
           />
         )}
         {view === "dashboard" && (
-          <DashboardView stats={stats} settings={settings} />
+          <DashboardPageView
+            stats={stats}
+            agents={agents}
+            settings={settings}
+            onNavigateToOffice={() => setView("office")}
+          />
         )}
         {view === "agents" && (
-          <AgentListView agents={agents} departments={departments} />
+          <AgentManagerView
+            agents={agents}
+            departments={departments}
+            language={settings.language}
+            onAgentsChange={refreshAgents}
+            onDepartmentsChange={refreshDepartments}
+          />
         )}
       </main>
     </div>
@@ -236,144 +257,5 @@ function NavBtn({
         </span>
       )}
     </button>
-  );
-}
-
-function DashboardView({
-  stats,
-  settings,
-}: {
-  stats: DashboardStats | null;
-  settings: CompanySettings;
-}) {
-  if (!stats) return <div className="p-8 text-gray-500">Loading stats...</div>;
-
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">{settings.companyName}</h1>
-
-      {/* Agent stats */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatCard label="전체" value={stats.agents.total} color="text-white" />
-        <StatCard label="근무 중" value={stats.agents.working} color="text-emerald-400" />
-        <StatCard label="대기" value={stats.agents.idle} color="text-gray-400" />
-        <StatCard label="파견" value={stats.dispatched_count} color="text-amber-400" />
-      </div>
-
-      {/* Department stats */}
-      <h2 className="text-lg font-semibold mb-3">부서별 현황</h2>
-      <div className="space-y-2 mb-8">
-        {stats.departments.map((d) => (
-          <div key={d.id} className="bg-gray-800 rounded-lg p-3 flex items-center gap-3">
-            <span className="text-xl">{d.icon}</span>
-            <span className="flex-1 font-medium">{d.name_ko || d.name}</span>
-            <span className="text-sm text-gray-400">
-              {d.working_agents}/{d.total_agents} 근무중
-            </span>
-            <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${d.total_agents ? (d.working_agents / d.total_agents) * 100 : 0}%`,
-                  backgroundColor: d.color,
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Top agents */}
-      <h2 className="text-lg font-semibold mb-3">랭킹</h2>
-      <div className="bg-gray-800 rounded-lg overflow-hidden">
-        {stats.top_agents.map((a, i) => (
-          <div key={a.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-700 last:border-0">
-            <span className="text-gray-500 w-6 text-center font-bold">{i + 1}</span>
-            <span className="text-xl">{a.avatar_emoji}</span>
-            <span className="flex-1">{a.name_ko || a.name}</span>
-            <span className="text-amber-400 text-sm font-medium">{a.stats_xp} XP</span>
-            <span className="text-gray-500 text-sm">{a.stats_tasks_done} tasks</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div className="bg-gray-800 rounded-lg p-4 text-center">
-      <div className={`text-3xl font-bold ${color}`}>{value}</div>
-      <div className="text-sm text-gray-400 mt-1">{label}</div>
-    </div>
-  );
-}
-
-function AgentListView({
-  agents,
-  departments,
-}: {
-  agents: Agent[];
-  departments: Department[];
-}) {
-  const deptMap = new Map(departments.map((d) => [d.id, d]));
-  const statusColor: Record<string, string> = {
-    working: "bg-emerald-500",
-    idle: "bg-gray-500",
-    break: "bg-amber-500",
-    offline: "bg-red-500",
-  };
-  const roleLabel: Record<string, string> = {
-    team_leader: "팀장",
-    senior: "시니어",
-    junior: "주니어",
-    intern: "인턴",
-  };
-
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">직원 관리 ({agents.length}명)</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {agents.map((a) => {
-          const dept = a.department_id ? deptMap.get(a.department_id) : null;
-          return (
-            <div key={a.id} className="bg-gray-800 rounded-lg p-4">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-2xl">{a.avatar_emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{a.name_ko || a.name}</div>
-                  <div className="text-xs text-gray-400">{roleLabel[a.role] || a.role}</div>
-                </div>
-                <span className={`w-2.5 h-2.5 rounded-full ${statusColor[a.status] || "bg-gray-500"}`} />
-              </div>
-              {dept && (
-                <div className="text-xs text-gray-400 flex items-center gap-1">
-                  <span>{dept.icon}</span>
-                  <span>{dept.name_ko || dept.name}</span>
-                </div>
-              )}
-              {a.session_info && (
-                <div className="text-xs text-indigo-400 mt-1 truncate">
-                  {a.session_info}
-                </div>
-              )}
-              {a.personality && (
-                <div className="text-xs text-gray-500 mt-1 truncate">
-                  {a.personality}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }

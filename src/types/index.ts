@@ -16,6 +16,7 @@ export interface Department {
   sort_order: number;
   created_at: number;
   agent_count?: number;
+  workflow_pack_key?: string | null;
 }
 
 // Agent roles

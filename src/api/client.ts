@@ -90,8 +90,14 @@ export async function updateDepartment(
   });
 }
 
-export async function deleteDepartment(id: string): Promise<void> {
-  await request(`/api/departments/${id}`, { method: "DELETE" });
+export async function deleteDepartment(
+  id: string,
+  opts?: { workflowPackKey?: string },
+): Promise<void> {
+  const q = opts?.workflowPackKey
+    ? `?workflowPackKey=${opts.workflowPackKey}`
+    : "";
+  await request(`/api/departments/${id}${q}`, { method: "DELETE" });
 }
 
 // Settings
