@@ -2,6 +2,7 @@ import { Router } from "express";
 import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
+import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
 
 const router = Router();
 
@@ -37,6 +38,13 @@ router.patch("/api/hook/agent-status", (req, res) => {
     .get(agent.id as string);
   broadcast("agent_status", updated);
   res.json({ ok: true });
+});
+
+// Force sync OpenClaw agent list into PCD (upsert missing agents)
+router.post("/api/hook/sync-agents", (_req, res) => {
+  const created = syncAgentsOnce();
+  const reconciled = reconcileAgentStatusOnce();
+  res.json({ ok: true, created, reconciled });
 });
 
 // Reset all working agents to idle (called by gateway on startup)

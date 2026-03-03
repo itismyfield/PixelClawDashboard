@@ -227,6 +227,7 @@ export interface CronJobState {
 export interface CronJob {
   id: string;
   name: string;
+  description_ko?: string;
   enabled: boolean;
   schedule: CronSchedule;
   state?: CronJobState;
@@ -253,4 +254,35 @@ export interface AgentSkillsResponse {
 
 export async function getAgentSkills(agentId: string): Promise<AgentSkillsResponse> {
   return request(`/api/agents/${agentId}/skills`);
+}
+
+// ── Skill Ranking ──
+
+export interface SkillRankingOverallRow {
+  skill_name: string;
+  skill_desc_ko: string;
+  calls: number;
+  last_used_at: number;
+}
+
+export interface SkillRankingByAgentRow {
+  agent_openclaw_id: string;
+  agent_name: string;
+  skill_name: string;
+  skill_desc_ko: string;
+  calls: number;
+  last_used_at: number;
+}
+
+export interface SkillRankingResponse {
+  window: string;
+  overall: SkillRankingOverallRow[];
+  byAgent: SkillRankingByAgentRow[];
+}
+
+export async function getSkillRanking(
+  window: "7d" | "30d" | "90d" | "all" = "7d",
+  limit = 20,
+): Promise<SkillRankingResponse> {
+  return request(`/api/skills/ranking?window=${window}&limit=${limit}`);
 }

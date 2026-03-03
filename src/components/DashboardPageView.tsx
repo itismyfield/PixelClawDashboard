@@ -1,5 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, DashboardStats, CompanySettings } from "../types";
+import { getSkillRanking, type SkillRankingResponse } from "../api";
+import TooltipLabel from "./common/TooltipLabel";
 import { localeName } from "../i18n";
 import { useNow, type TFunction, DEPT_COLORS } from "./dashboard/model";
 import {
@@ -37,6 +39,28 @@ export default function DashboardPageView({
   );
 
   const { date, time, briefing } = useNow(localeTag, t);
+
+  const [skillRanking, setSkillRanking] = useState<SkillRankingResponse | null>(null);
+  const [skillWindow, setSkillWindow] = useState<"7d" | "30d" | "all">("7d");
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const data = await getSkillRanking(skillWindow, 10);
+        if (mounted) setSkillRanking(data);
+      } catch {
+        // ignore auth/network errors in dashboard widgets
+      }
+    };
+
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [skillWindow]);
 
   if (!stats) {
     return (
@@ -151,6 +175,90 @@ export default function DashboardPageView({
         numberFormatter={numberFormatter}
         t={t}
       />
+
+      <section
+        className="rounded-2xl border p-4 sm:p-5"
+        style={{
+          borderColor: "var(--th-border)",
+          background: "linear-gradient(145deg, color-mix(in srgb, var(--th-surface) 92%, #f59e0b 8%), var(--th-surface))",
+        }}
+      >
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <h3 className="text-lg font-semibold" style={{ color: "var(--th-text)" }}>
+            {t({ ko: "스킬 랭킹", en: "Skill Ranking", ja: "スキルランキング", zh: "技能排行" })}
+          </h3>
+          <div className="flex items-center gap-2">
+            {(["7d", "30d", "all"] as const).map((w) => (
+              <button
+                key={w}
+                onClick={() => setSkillWindow(w)}
+                className="text-[11px] px-2 py-1 rounded-md border"
+                style={{
+                  borderColor: skillWindow === w ? "#f59e0b" : "var(--th-border)",
+                  color: skillWindow === w ? "#f59e0b" : "var(--th-text-muted)",
+                  background: skillWindow === w ? "rgba(245,158,11,0.12)" : "transparent",
+                }}
+              >
+                {w}
+              </button>
+            ))}
+            <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+              {t({ ko: "1분 갱신", en: "1m refresh", ja: "1分更新", zh: "1分钟刷新" })}
+            </span>
+          </div>
+        </div>
+
+        {!skillRanking || skillRanking.overall.length === 0 ? (
+          <div className="text-sm" style={{ color: "var(--th-text-muted)" }}>
+            {t({ ko: "아직 집계된 스킬 호출이 없습니다.", en: "No skill usage aggregated yet.", ja: "まだ集計されたスキル呼び出しがありません。", zh: "尚无技能调用统计。" })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
+                {t({ ko: "전체 TOP 10", en: "Overall TOP 10", ja: "全体 TOP 10", zh: "全体 TOP 10" })}
+              </div>
+              <ol className="space-y-1.5">
+                {skillRanking.overall.map((row, idx) => (
+                  <li key={`${row.skill_name}-${idx}`} className="flex items-center justify-between text-sm gap-3">
+                    <div className="min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
+                      <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
+                        {idx + 1}.
+                      </span>
+                      <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
+                    </div>
+                    <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
+                      {numberFormatter.format(row.calls)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
+                {t({ ko: "에이전트별 TOP", en: "Top by Agent", ja: "エージェント別TOP", zh: "按代理 TOP" })}
+              </div>
+              <ul className="space-y-1.5">
+                {skillRanking.byAgent.slice(0, 10).map((row, idx) => (
+                  <li key={`${row.agent_openclaw_id}-${row.skill_name}-${idx}`} className="text-sm flex items-center justify-between gap-3">
+                    <div className="truncate min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
+                      <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
+                        {idx + 1}.
+                      </span>
+                      <span className="truncate">{row.agent_name} · </span>
+                      <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
+                    </div>
+                    <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
+                      {numberFormatter.format(row.calls)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </section>
 
       <DashboardDeptAndSquad
         deptData={deptData}

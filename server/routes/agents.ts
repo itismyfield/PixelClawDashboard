@@ -167,7 +167,7 @@ router.get("/api/agents/:id/cron", (req, res) => {
       .filter((j: Record<string, unknown>) => j.agentId === openclawId)
       .map((j: Record<string, unknown>) => ({
         id: j.id,
-        name: j.name,
+        name: String(j.name || ""),
         enabled: j.enabled,
         schedule: j.schedule,
         state: j.state,

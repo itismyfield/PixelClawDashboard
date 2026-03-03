@@ -76,6 +76,26 @@ export function initSchema(db: DatabaseSync): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS skill_usage_events (
+      event_key TEXT PRIMARY KEY,
+      skill_name TEXT NOT NULL,
+      session_key TEXT DEFAULT NULL,
+      agent_openclaw_id TEXT DEFAULT NULL,
+      agent_name TEXT DEFAULT NULL,
+      used_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_sync_offsets (
+      file_path TEXT PRIMARY KEY,
+      offset INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_usage_name_time
+      ON skill_usage_events (skill_name, used_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_skill_usage_agent_time
+      ON skill_usage_events (agent_openclaw_id, used_at DESC);
   `);
 
   migrate(db);

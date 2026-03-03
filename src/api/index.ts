@@ -23,6 +23,7 @@ export {
   assignDispatchedSession,
   getAgentCron,
   getAgentSkills,
+  getSkillRanking,
 } from "./client";
 
 export type {
@@ -31,6 +32,9 @@ export type {
   CronJobState,
   AgentSkill,
   AgentSkillsResponse,
+  SkillRankingOverallRow,
+  SkillRankingByAgentRow,
+  SkillRankingResponse,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──
