@@ -1,13 +1,13 @@
 /**
- * Seed PixelClawDashboard DB from Claw Empire data.
- * Run: npx tsx server/seed-from-claw-empire.ts
+ * Seed PixelClawDashboard DB from an external source API.
+ * Run: npx tsx server/seed-initial-agents.ts
  */
 import { getDb, closeDb } from "./db/runtime.js";
 
-const CE_URL = "http://127.0.0.1:8790";
+const SOURCE_API_URL = "http://127.0.0.1:8790";
 
-async function getCeSession(): Promise<string> {
-  const res = await fetch(`${CE_URL}/api/auth/session`);
+async function getSourceSession(): Promise<string> {
+  const res = await fetch(`${SOURCE_API_URL}/api/auth/session`);
   const cookies = res.headers.getSetCookie?.() ?? [];
   for (const c of cookies) {
     const m = c.match(/^(claw_session=[^;]+)/);
@@ -19,25 +19,25 @@ async function getCeSession(): Promise<string> {
 }
 
 async function main() {
-  const cookie = await getCeSession();
+  const cookie = await getSourceSession();
   const headers: Record<string, string> = {};
   if (cookie) headers["Cookie"] = cookie;
 
-  // Fetch CE agents
-  const agentsRes = await fetch(`${CE_URL}/api/agents`, { headers });
+  // Fetch agents
+  const agentsRes = await fetch(`${SOURCE_API_URL}/api/agents`, { headers });
   const { agents } = (await agentsRes.json()) as {
     agents: Array<Record<string, unknown>>;
   };
 
-  // Fetch CE departments
-  const deptRes = await fetch(`${CE_URL}/api/departments`, { headers });
+  // Fetch departments
+  const deptRes = await fetch(`${SOURCE_API_URL}/api/departments`, { headers });
   const { departments } = (await deptRes.json()) as {
     departments: Array<Record<string, unknown>>;
   };
 
   const db = getDb();
 
-  // Mapping from claw-empire-sync hook
+  // Legacy source-id -> openclaw_id mapping
   const openclawMapping: Record<string, string> = {
     "e58c1719-aed8-4219-b692-307ac46b08bd": "main",
     "2a55915f-3d6f-405d-b52e-886c8424eb2e": "family-routine",
@@ -84,10 +84,10 @@ async function main() {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const a of agents) {
-    const ceId = a.id as string;
-    const openclawId = openclawMapping[ceId] || null;
+    const sourceAgentId = a.id as string;
+    const openclawId = openclawMapping[sourceAgentId] || null;
     agentStmt.run(
-      ceId,
+      sourceAgentId,
       openclawId,
       (a.name as string) || "",
       (a.name_ko as string) || "",
@@ -115,7 +115,7 @@ async function main() {
   settStmt.run("officeWorkflowPack", JSON.stringify("cookingheart"));
 
   closeDb();
-  console.log("Done! Seeded departments and agents from Claw Empire.");
+  console.log("Done! Seeded departments and agents from source API.");
 }
 
 main().catch(console.error);
