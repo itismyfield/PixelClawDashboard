@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Department } from "../../types";
 import { localeName, useI18n } from "../../i18n";
 import * as api from "../../api";
-import { CLI_PROVIDERS, ROLE_BADGE, ROLE_LABEL, ROLES } from "./constants";
 import EmojiPicker from "./EmojiPicker";
 import type { FormData } from "./types";
 
@@ -247,63 +246,13 @@ export default function AgentFormModal({
             </div>
           </div>
 
-          {/* ── Right column: 역할 설정 ── */}
+          {/* ── Right column ── */}
           <div className="space-y-4">
             <div
               className="text-[10px] font-semibold uppercase tracking-widest"
               style={{ color: "var(--th-text-muted)" }}
             >
-              {tr("역할 설정", "Role Config")}
-            </div>
-            {/* 직급 */}
-            <div>
-              <label className="block text-xs mb-1.5 font-medium" style={{ color: "var(--th-text-secondary)" }}>
-                {tr("직급", "Role")}
-              </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {ROLES.map((r) => {
-                  const active = form.role === r;
-                  return (
-                    <button
-                      key={r}
-                      onClick={() => setForm({ ...form, role: r })}
-                      className={`py-2 rounded-lg text-xs font-medium border transition-all ${
-                        active ? ROLE_BADGE[r] : ""
-                      }`}
-                      style={
-                        !active ? { borderColor: "var(--th-input-border)", color: "var(--th-text-muted)" } : undefined
-                      }
-                    >
-                      {isKo ? ROLE_LABEL[r].ko : ROLE_LABEL[r].en}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {/* CLI Provider */}
-            <div>
-              <label className="block text-xs mb-1.5 font-medium" style={{ color: "var(--th-text-secondary)" }}>
-                {tr("CLI 도구", "CLI Provider")}
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {CLI_PROVIDERS.map((p) => {
-                  const active = form.cli_provider === p;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => setForm({ ...form, cli_provider: p })}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono border transition-all ${
-                        active ? "bg-blue-500/15 text-blue-400 border-blue-500/30" : ""
-                      }`}
-                      style={
-                        !active ? { borderColor: "var(--th-input-border)", color: "var(--th-text-muted)" } : undefined
-                      }
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
-              </div>
+              {tr("추가 정보", "Details")}
             </div>
             {/* 성격/프롬프트 */}
             <div>
@@ -313,7 +262,7 @@ export default function AgentFormModal({
               <textarea
                 value={form.personality}
                 onChange={(e) => setForm({ ...form, personality: e.target.value })}
-                rows={3}
+                rows={6}
                 placeholder={tr("전문 분야나 성격 설명...", "Expertise or personality...")}
                 className={`${inputCls} resize-none`}
                 style={inputStyle}

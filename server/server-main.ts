@@ -12,9 +12,10 @@ import officeRoutes from "./routes/offices.js";
 import hookRoutes from "./routes/hook.js";
 import dispatchedRoutes from "./routes/dispatched.js";
 import spriteRoutes from "./routes/sprites.js";
+import { startXpSync, stopXpSync } from "./xp-sync.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -73,11 +74,13 @@ createWsServer(server);
 
 server.listen(PORT, HOST, () => {
   console.log(`[PCD] PixelClawDashboard listening on http://${HOST}:${PORT}`);
+  startXpSync();
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("[PCD] shutting down...");
+  stopXpSync();
   server.close();
   closeDb();
   process.exit(0);
@@ -85,6 +88,7 @@ process.on("SIGTERM", () => {
 
 process.on("SIGINT", () => {
   console.log("[PCD] shutting down...");
+  stopXpSync();
   server.close();
   closeDb();
   process.exit(0);

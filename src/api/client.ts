@@ -207,3 +207,50 @@ export async function assignDispatchedSession(
     body: JSON.stringify(patch),
   });
 }
+
+// ── Agent Cron Jobs ──
+
+export interface CronSchedule {
+  kind: "every" | "cron" | "at";
+  everyMs?: number;
+  cron?: string;
+  atMs?: number;
+}
+
+export interface CronJobState {
+  lastStatus?: string;
+  lastRunAtMs?: number;
+  lastDurationMs?: number;
+  nextRunAtMs?: number;
+}
+
+export interface CronJob {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: CronSchedule;
+  state?: CronJobState;
+}
+
+export async function getAgentCron(agentId: string): Promise<CronJob[]> {
+  const data = await request<{ jobs: CronJob[] }>(`/api/agents/${agentId}/cron`);
+  return data.jobs;
+}
+
+// ── Agent Skills ──
+
+export interface AgentSkill {
+  name: string;
+  description: string;
+  shared: boolean;
+}
+
+export interface AgentSkillsResponse {
+  skills: AgentSkill[];
+  sharedSkills: AgentSkill[];
+  totalCount: number;
+}
+
+export async function getAgentSkills(agentId: string): Promise<AgentSkillsResponse> {
+  return request(`/api/agents/${agentId}/skills`);
+}

@@ -26,7 +26,7 @@ import {
 type ViewMode = "office" | "dashboard" | "agents" | "sessions";
 
 export default function App() {
-  const [view, setView] = useState<ViewMode>("sessions");
+  const [view, setView] = useState<ViewMode>("office");
   const [offices, setOffices] = useState<Office[]>([]);
   const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -212,17 +212,16 @@ export default function App() {
       <nav className="w-14 bg-gray-950 border-r border-gray-800 flex flex-col items-center py-4 gap-2">
         <div className="text-2xl mb-4">🐾</div>
         <NavBtn
-          icon={<Zap size={20} />}
-          active={view === "sessions"}
-          badge={activeSessions.length}
-          onClick={() => setView("sessions")}
-          label="파견"
-        />
-        <NavBtn
           icon={<Building2 size={20} />}
           active={view === "office"}
           onClick={() => setView("office")}
           label="오피스"
+        />
+        <NavBtn
+          icon={<Users size={20} />}
+          active={view === "agents"}
+          onClick={() => setView("agents")}
+          label="직원"
         />
         <NavBtn
           icon={<LayoutDashboard size={20} />}
@@ -231,10 +230,11 @@ export default function App() {
           label="대시보드"
         />
         <NavBtn
-          icon={<Users size={20} />}
-          active={view === "agents"}
-          onClick={() => setView("agents")}
-          label="직원"
+          icon={<Zap size={20} />}
+          active={view === "sessions"}
+          badge={activeSessions.length}
+          onClick={() => setView("sessions")}
+          label="파견"
         />
       </nav>
 

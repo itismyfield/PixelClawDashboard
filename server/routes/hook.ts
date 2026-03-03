@@ -39,6 +39,20 @@ router.patch("/api/hook/agent-status", (req, res) => {
   res.json({ ok: true });
 });
 
+// Reset all working agents to idle (called by gateway on startup)
+router.post("/api/hook/reset-status", (_req, res) => {
+  const db = getDb();
+  const count = (
+    db.prepare("SELECT COUNT(*) as cnt FROM agents WHERE status = 'working'").get() as { cnt: number }
+  ).cnt;
+  if (count > 0) {
+    db.exec("UPDATE agents SET status = 'idle' WHERE status = 'working'");
+    broadcast("agent_status", { _reset: true });
+    console.log(`[PCD] Hook reset: ${count} agent(s) → idle`);
+  }
+  res.json({ ok: true, reset: count });
+});
+
 // Dispatched session: register / heartbeat
 router.post("/api/hook/session", (req, res) => {
   const db = getDb();

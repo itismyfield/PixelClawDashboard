@@ -16,7 +16,7 @@ import {
   drawWaterCooler,
 } from "./drawing-core";
 import { drawChair, drawPlant } from "./drawing-furniture-a";
-import { formatPeopleCount, formatTaskCount } from "./drawing-furniture-b";
+import { formatPeopleCount } from "./drawing-furniture-b";
 
 interface BuildCeoAndHallwayParams {
   app: Application;
@@ -117,7 +117,7 @@ export function buildCeoAndHallway({
   );
 
   const cdx = 50;
-  const cdy = 28;
+  const cdy = 24;
   const cdg = new Graphics();
   const deskEdge = isDark ? 0x3a2a18 : 0xb8925c;
   const deskTop = isDark ? 0x4a3828 : 0xd0a870;
@@ -139,78 +139,12 @@ export function buildCeoAndHallway({
   ceoLayer.addChild(ceoPlateText);
   drawChair(ceoLayer, cdx + 32, cdy + 46, 0xd4a860);
 
-  const mtW = 220;
-  const mtH = 28;
-  const mtX = Math.floor((OFFICE_W - mtW) / 2);
-  const mtY = 48;
-  const mt = new Graphics();
-  const tableEdge = isDark ? 0x2a2018 : 0xb89060;
-  const tableTop = isDark ? 0x382818 : 0xd0a878;
-  const tableInlay = isDark ? 0x4a3828 : 0xf7e4c0;
-  mt.roundRect(mtX, mtY, mtW, mtH, 12).fill(tableEdge);
-  mt.roundRect(mtX + 3, mtY + 3, mtW - 6, mtH - 6, 10).fill(tableTop);
-  mt.roundRect(mtX + 64, mtY + 8, 92, 12, 5).fill({ color: tableInlay, alpha: isDark ? 0.3 : 0.45 });
-  if (activeMeetingTaskId && onOpenActiveMeetingMinutes) {
-    mt.eventMode = "static";
-    mt.cursor = "pointer";
-    mt.on("pointerdown", () => {
-      if (!activeMeetingTaskId) return;
-      onOpenActiveMeetingMinutes(activeMeetingTaskId);
-    });
-  }
-  ceoLayer.addChild(mt);
-
-  const meetingSeatX = [mtX + 40, mtX + 110, mtX + 180];
-  for (const sx of meetingSeatX) {
-    drawChair(ceoLayer, sx, mtY - 4, 0xc4a070);
-    drawChair(ceoLayer, sx, mtY + mtH + 10, 0xc4a070);
-  }
-
-  const meetingLabel = new Text({
-    text: pickLocale(activeLocale, LOCALE_TEXT.collabTable),
-    style: new TextStyle({
-      fontSize: 7,
-      fill: 0x7a5c2a,
-      fontWeight: "bold",
-      fontFamily: "monospace",
-      letterSpacing: 1,
-    }),
-  });
-  meetingLabel.anchor.set(0.5, 0.5);
-  meetingLabel.position.set(mtX + mtW / 2, mtY + mtH / 2);
-  ceoLayer.addChild(meetingLabel);
-
-  ceoMeetingSeatsRef.current = [
-    { x: meetingSeatX[0], y: mtY + 2 },
-    { x: meetingSeatX[1], y: mtY + 2 },
-    { x: meetingSeatX[2], y: mtY + 2 },
-    { x: meetingSeatX[0], y: mtY + mtH + 20 },
-    { x: meetingSeatX[1], y: mtY + mtH + 20 },
-    { x: meetingSeatX[2], y: mtY + mtH + 20 },
-  ];
-
-  deliveriesRef.current = deliveriesRef.current.filter((delivery) => !delivery.sprite.destroyed);
-  for (const delivery of deliveriesRef.current) {
-    if (!delivery.holdAtSeat || typeof delivery.meetingSeatIndex !== "number") continue;
-    const seat = ceoMeetingSeatsRef.current[delivery.meetingSeatIndex % ceoMeetingSeatsRef.current.length];
-    if (!seat) continue;
-    delivery.toX = seat.x;
-    delivery.toY = seat.y;
-    if (delivery.arrived) {
-      delivery.sprite.position.set(seat.x, seat.y);
-    } else {
-      delivery.fromX = delivery.sprite.position.x;
-      delivery.fromY = delivery.sprite.position.y;
-      delivery.progress = 0;
-    }
-  }
+  ceoMeetingSeatsRef.current = [];
 
   drawPictureFrame(ceoLayer, 14, 14);
   wallClocksRef.current.push(drawWallClock(ceoLayer, OFFICE_W - 30, 18));
 
   const workingCount = agents.filter((agent) => agent.status === "working").length;
-  const doneCount = tasks.filter((task) => task.status === "done").length;
-  const inProgress = tasks.filter((task) => task.status === "in_progress").length;
   const stats = [
     {
       icon: "🤖",
@@ -222,20 +156,10 @@ export function buildCeoAndHallway({
       label: pickLocale(activeLocale, LOCALE_TEXT.statsWorking),
       val: formatPeopleCount(workingCount, activeLocale),
     },
-    {
-      icon: "📋",
-      label: pickLocale(activeLocale, LOCALE_TEXT.statsProgress),
-      val: formatTaskCount(inProgress, activeLocale),
-    },
-    {
-      icon: "✅",
-      label: pickLocale(activeLocale, LOCALE_TEXT.statsDone),
-      val: `${doneCount}/${tasks.length}`,
-    },
   ];
   stats.forEach((stat, index) => {
-    const sx = OFFICE_W - 340 + index * 82;
-    const sy = 12;
+    const sx = OFFICE_W - 180 + index * 82;
+    const sy = 8;
     const statCard = new Graphics();
     statCard.roundRect(sx, sy, 74, 26, 4).fill({ color: 0xfff4d8, alpha: 0.85 });
     statCard.roundRect(sx, sy, 74, 26, 4).stroke({ width: 1, color: 0xe8c870, alpha: 0.5 });
@@ -275,25 +199,11 @@ export function buildCeoAndHallway({
   hint.anchor.set(1, 1);
   hint.position.set(OFFICE_W - 16, CEO_ZONE_H - 8);
   ceoLayer.addChild(hint);
-  if (activeMeetingTaskId) {
-    const meetingHint = new Text({
-      text: pickLocale(activeLocale, LOCALE_TEXT.meetingTableHint),
-      style: new TextStyle({
-        fontSize: 12,
-        fill: 0x8b6b30,
-        fontWeight: "bold",
-        fontFamily: "system-ui, sans-serif",
-      }),
-    });
-    meetingHint.anchor.set(1, 1);
-    meetingHint.position.set(hint.position.x - hint.width - 18, hint.position.y);
-    ceoLayer.addChild(meetingHint);
-  }
 
   drawAmbientGlow(ceoLayer, OFFICE_W / 2, CEO_ZONE_H / 2, OFFICE_W * 0.35, ceoTheme.accent, 0.08);
-  drawPlant(ceoLayer, 18, 62, 0);
-  drawPlant(ceoLayer, OFFICE_W - 22, 62, 2);
-  drawWaterCooler(ceoLayer, 28, 30);
+  drawPlant(ceoLayer, 18, 56, 0);
+  drawPlant(ceoLayer, OFFICE_W - 22, 56, 2);
+  drawWaterCooler(ceoLayer, 28, 26);
 
   ceoLayer.addChild(ceoLabelBg);
   ceoLayer.addChild(ceoLabel);

@@ -79,6 +79,16 @@ export function initSchema(db: DatabaseSync): void {
   `);
 
   migrate(db);
+
+  // Reset stale working agents to idle on startup
+  // (gateway restarts can cause "sent" events to be lost, leaving agents stuck in working)
+  const staleCount = (
+    db.prepare("SELECT COUNT(*) as cnt FROM agents WHERE status = 'working'").get() as { cnt: number }
+  ).cnt;
+  if (staleCount > 0) {
+    db.exec("UPDATE agents SET status = 'idle' WHERE status = 'working'");
+    console.log(`[PCD] Reset ${staleCount} stale working agent(s) to idle`);
+  }
 }
 
 function migrate(db: DatabaseSync): void {

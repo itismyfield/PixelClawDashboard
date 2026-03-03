@@ -59,7 +59,10 @@ export function buildBreakRoom({
   wallClocksRef,
   agentPosRef,
 }: BuildBreakRoomParams): void {
-  const breakAgents = agents.filter((agent) => agent.status === "break");
+  // Show break agents AND unassigned agents (no department) in break room
+  const breakAgents = agents.filter(
+    (agent) => agent.status === "break" || !agent.department_id,
+  );
   breakAnimItemsRef.current = [];
   breakBubblesRef.current = [];
 

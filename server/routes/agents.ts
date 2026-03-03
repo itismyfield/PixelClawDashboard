@@ -1,5 +1,8 @@
 import { Router } from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import nodePath from "node:path";
+import os from "node:os";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 
@@ -138,6 +141,115 @@ router.delete("/api/agents/:id", (req, res) => {
   db.prepare("DELETE FROM agents WHERE id = ?").run(req.params.id);
   broadcast("agent_deleted", { id: req.params.id });
   res.json({ ok: true });
+});
+
+// ── Cron jobs for an agent ──
+router.get("/api/agents/:id/cron", (req, res) => {
+  const db = getDb();
+  const agent = db
+    .prepare("SELECT * FROM agents WHERE id = ?")
+    .get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: "not_found" });
+
+  const openclawId = agent.openclaw_id as string | null;
+  if (!openclawId) return res.json({ jobs: [] });
+
+  try {
+    const cronPath = nodePath.join(
+      os.homedir(),
+      ".openclaw",
+      "cron",
+      "jobs.json",
+    );
+    if (!fs.existsSync(cronPath)) return res.json({ jobs: [] });
+    const data = JSON.parse(fs.readFileSync(cronPath, "utf-8"));
+    const jobs = (data.jobs || [])
+      .filter((j: Record<string, unknown>) => j.agentId === openclawId)
+      .map((j: Record<string, unknown>) => ({
+        id: j.id,
+        name: j.name,
+        enabled: j.enabled,
+        schedule: j.schedule,
+        state: j.state,
+      }));
+    res.json({ jobs });
+  } catch {
+    res.json({ jobs: [] });
+  }
+});
+
+// ── Skills for an agent ──
+router.get("/api/agents/:id/skills", (req, res) => {
+  const db = getDb();
+  const agent = db
+    .prepare("SELECT * FROM agents WHERE id = ?")
+    .get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: "not_found" });
+
+  const openclawId = agent.openclaw_id as string | null;
+  if (!openclawId) return res.json({ skills: [], shared: true });
+
+  const homeDir = os.homedir();
+  const agentWsDir = nodePath.join(
+    homeDir,
+    ".openclaw",
+    `workspace-${openclawId}`,
+    "skills",
+    "public",
+  );
+  const mainWsDir = nodePath.join(
+    homeDir,
+    ".openclaw",
+    "workspace",
+    "skills",
+    "public",
+  );
+
+  // Determine which workspace to read
+  const wsDir = fs.existsSync(agentWsDir) ? agentWsDir : mainWsDir;
+  if (!fs.existsSync(wsDir)) return res.json({ skills: [], shared: true });
+
+  try {
+    // Get main workspace skills for comparison
+    const mainSkillNames = new Set<string>();
+    if (fs.existsSync(mainWsDir)) {
+      for (const name of fs.readdirSync(mainWsDir)) {
+        if (fs.existsSync(nodePath.join(mainWsDir, name, "SKILL.md"))) {
+          mainSkillNames.add(name);
+        }
+      }
+    }
+
+    const skillDirs = fs.readdirSync(wsDir).filter((name) => {
+      return fs.existsSync(nodePath.join(wsDir, name, "SKILL.md"));
+    });
+
+    const skills = skillDirs.map((name) => {
+      const skillMdPath = nodePath.join(wsDir, name, "SKILL.md");
+      const content = fs.readFileSync(skillMdPath, "utf-8");
+      // Parse frontmatter description
+      let description = "";
+      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      if (fmMatch) {
+        const descMatch = fmMatch[1].match(/description:\s*(.+)/);
+        if (descMatch) description = descMatch[1].trim().replace(/^["']|["']$/g, "");
+      }
+      const isShared = mainSkillNames.has(name);
+      return { name, description, shared: isShared };
+    });
+
+    // Separate: agent-specific (not in main workspace) vs shared
+    const agentSpecific = skills.filter((s) => !s.shared);
+    const shared = skills.filter((s) => s.shared);
+
+    res.json({
+      skills: agentSpecific,
+      sharedSkills: shared,
+      totalCount: skills.length,
+    });
+  } catch {
+    res.json({ skills: [], shared: true });
+  }
 });
 
 export default router;

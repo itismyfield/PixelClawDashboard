@@ -1,7 +1,7 @@
 import type { Agent, Department } from "../../types";
 import { localeName } from "../../i18n";
 import AgentAvatar from "../AgentAvatar";
-import { ROLE_BADGE, ROLE_LABEL, STATUS_DOT } from "./constants";
+import { STATUS_DOT } from "./constants";
 import type { Translator } from "./types";
 
 interface AgentCardProps {
@@ -63,19 +63,16 @@ export default function AgentCard({
               })()}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium ${ROLE_BADGE[agent.role] || ""}`}>
-              {isKo ? ROLE_LABEL[agent.role]?.ko : ROLE_LABEL[agent.role]?.en}
-            </span>
-            {dept && (
+          {dept && (
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded-md"
                 style={{ background: "var(--th-bg-surface)", color: "var(--th-text-muted)" }}
               >
                 {dept.icon} {localeName(locale, dept)}
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -84,15 +81,9 @@ export default function AgentCard({
         style={{ borderTop: "1px solid var(--th-card-border)" }}
       >
         <div className="flex items-center gap-2">
-          <span
-            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-            style={{ background: "var(--th-bg-surface)", color: "var(--th-text-muted)" }}
-          >
-            {agent.cli_provider}
-          </span>
           {agent.personality && (
             <span
-              className="text-[10px] truncate max-w-[120px]"
+              className="text-[10px] truncate max-w-[180px]"
               style={{ color: "var(--th-text-muted)" }}
               title={agent.personality}
             >

@@ -21,6 +21,16 @@ export {
   getStats,
   getDispatchedSessions,
   assignDispatchedSession,
+  getAgentCron,
+  getAgentSkills,
+} from "./client";
+
+export type {
+  CronJob,
+  CronSchedule,
+  CronJobState,
+  AgentSkill,
+  AgentSkillsResponse,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──
