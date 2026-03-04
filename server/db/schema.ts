@@ -112,6 +112,16 @@ export function initSchema(db: DatabaseSync): void {
 }
 
 function migrate(db: DatabaseSync): void {
+  // Add stats_xp column to dispatched_sessions if missing
+  const dsCols = db
+    .prepare("PRAGMA table_info(dispatched_sessions)")
+    .all() as Array<{ name: string }>;
+  if (!dsCols.some((c) => c.name === "stats_xp")) {
+    db.exec(
+      "ALTER TABLE dispatched_sessions ADD COLUMN stats_xp INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
   // Add office_id column to departments if missing (existing DB upgrade)
   const deptCols = db
     .prepare("PRAGMA table_info(departments)")
@@ -120,6 +130,14 @@ function migrate(db: DatabaseSync): void {
     db.exec(
       "ALTER TABLE departments ADD COLUMN office_id TEXT DEFAULT NULL",
     );
+  }
+
+  // Add alias column to agents if missing
+  const agentCols = db
+    .prepare("PRAGMA table_info(agents)")
+    .all() as Array<{ name: string }>;
+  if (!agentCols.some((c) => c.name === "alias")) {
+    db.exec("ALTER TABLE agents ADD COLUMN alias TEXT DEFAULT NULL");
   }
 
   // If no offices exist and there are agents or departments, seed default office

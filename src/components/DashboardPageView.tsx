@@ -21,6 +21,7 @@ interface DashboardPageViewProps {
   agents: Agent[];
   settings: CompanySettings;
   onNavigateToOffice?: () => void;
+  onSelectAgent?: (agent: Agent) => void;
 }
 
 export default function DashboardPageView({
@@ -28,6 +29,7 @@ export default function DashboardPageView({
   agents,
   settings,
   onNavigateToOffice,
+  onSelectAgent,
 }: DashboardPageViewProps) {
   const language = settings.language;
   const localeTag = language === "ko" ? "ko-KR" : language === "ja" ? "ja-JP" : language === "zh" ? "zh-CN" : "en-US";
@@ -113,7 +115,7 @@ export default function DashboardPageView({
   const deptMap = new Map(stats.departments.map((d) => [d.id, d]));
   const topAgents: RankedAgent[] = stats.top_agents.map((a) => ({
     id: a.id,
-    name: a.name_ko || a.name,
+    name: a.alias || a.name_ko || a.name,
     department: "",
     tasksDone: a.stats_tasks_done,
     xp: a.stats_xp,
@@ -268,6 +270,7 @@ export default function DashboardPageView({
         language={language}
         numberFormatter={numberFormatter}
         t={t}
+        onSelectAgent={onSelectAgent}
       />
     </div>
   );

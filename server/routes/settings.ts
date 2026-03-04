@@ -58,7 +58,7 @@ router.get("/api/stats", (req, res) => {
 
     topAgents = db
       .prepare(
-        `SELECT a.id, a.name, a.name_ko, a.avatar_emoji, a.stats_tasks_done, a.stats_xp
+        `SELECT a.id, a.name, a.alias, a.name_ko, a.avatar_emoji, a.stats_tasks_done, a.stats_xp
          FROM office_agents oa JOIN agents a ON a.id = oa.agent_id
          WHERE oa.office_id = ?
          ORDER BY a.stats_xp DESC LIMIT 10`,
@@ -91,7 +91,7 @@ router.get("/api/stats", (req, res) => {
 
     topAgents = db
       .prepare(
-        `SELECT id, name, name_ko, avatar_emoji, stats_tasks_done, stats_xp
+        `SELECT id, name, alias, name_ko, avatar_emoji, stats_tasks_done, stats_xp
          FROM agents ORDER BY stats_xp DESC LIMIT 10`,
       )
       .all();

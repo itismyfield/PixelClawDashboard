@@ -353,6 +353,7 @@ export default function AgentManagerView({
           tr={tr}
           departments={departments}
           onClose={() => setInfoAgent(null)}
+          onAgentUpdated={onAgentsChange}
         />
       )}
 

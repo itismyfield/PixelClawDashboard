@@ -57,8 +57,8 @@ router.post("/api/agents", (req, res) => {
   const b = req.body;
   db.prepare(
     `INSERT INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
-      department_id, role, avatar_emoji, sprite_number, personality, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      department_id, role, avatar_emoji, sprite_number, personality, status, alias)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.openclaw_id ?? null,
@@ -72,6 +72,7 @@ router.post("/api/agents", (req, res) => {
     b.sprite_number ?? null,
     b.personality ?? null,
     b.status ?? "idle",
+    b.alias ?? null,
   );
 
   // If office_id provided, also assign to that office
@@ -108,6 +109,7 @@ router.patch("/api/agents/:id", (req, res) => {
     "stats_tasks_done",
     "stats_xp",
     "openclaw_id",
+    "alias",
   ];
   const sets: string[] = [];
   const vals: (string | number | null)[] = [];

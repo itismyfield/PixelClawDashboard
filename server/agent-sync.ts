@@ -9,6 +9,9 @@ import { broadcast } from "./ws.js";
 const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), ".openclaw", "openclaw.json");
 const AGENT_SYNC_INTERVAL_MS = 3 * 60 * 1000; // 3 min
 const STATUS_RECONCILE_INTERVAL_MS = 45 * 1000; // 45 sec
+// Keep reconcile window short so finished work returns to idle quickly.
+// Real-time transition should come from pcd-status-sync hook events.
+const STATUS_ACTIVE_WINDOW_MIN = 3;
 
 interface OpenClawAgent {
   id: string;
@@ -33,10 +36,12 @@ function getOpenClawAgents(): OpenClawAgent[] {
   }
 }
 
-function getActiveAgentIds(): Set<string> {
+function getActiveAgentIds(activeWindowMin: number): Set<string> {
   const out = new Set<string>();
   try {
-    const text = execSync("openclaw sessions --active 5 --json 2>/dev/null", {
+    const text = execSync(
+      `openclaw sessions --active ${activeWindowMin} --json 2>/dev/null`,
+      {
       timeout: 5000,
       encoding: "utf-8",
     });
@@ -96,7 +101,7 @@ export function syncAgentsOnce(): number {
 }
 
 export function reconcileAgentStatusOnce(): number {
-  const active = getActiveAgentIds();
+  const active = getActiveAgentIds(STATUS_ACTIVE_WINDOW_MIN);
   const db = getDb();
 
   const workingNow = db
@@ -152,7 +157,7 @@ export function startAgentSync(): void {
   }, STATUS_RECONCILE_INTERVAL_MS);
 
   console.log(
-    `[PCD] agent-sync started (sync=${AGENT_SYNC_INTERVAL_MS / 1000}s, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s)`,
+    `[PCD] agent-sync started (sync=${AGENT_SYNC_INTERVAL_MS / 1000}s, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s, activeWindow=${STATUS_ACTIVE_WINDOW_MIN}m)`,
   );
 }
 

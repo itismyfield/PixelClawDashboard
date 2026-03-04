@@ -24,6 +24,7 @@ interface DashboardDeptAndSquadProps {
   language: UiLanguage;
   numberFormatter: Intl.NumberFormat;
   t: TFunction;
+  onSelectAgent?: (agent: Agent) => void;
 }
 
 export function DashboardDeptAndSquad({
@@ -34,6 +35,7 @@ export function DashboardDeptAndSquad({
   language,
   numberFormatter,
   t,
+  onSelectAgent,
 }: DashboardDeptAndSquadProps) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
@@ -158,8 +160,9 @@ export function DashboardDeptAndSquad({
                     ? t({ ko: "작업 중", en: "Working", ja: "作業中", zh: "工作中" })
                     : t({ ko: "대기 중", en: "Idle", ja: "待機中", zh: "空闲" })
                 } — ${tier.name}`}
-                className={`group relative flex flex-col items-center gap-1.5 ${isWorking ? "animate-bubble-float" : ""}`}
+                className={`group relative flex flex-col items-center gap-1.5 cursor-pointer ${isWorking ? "animate-bubble-float" : ""}`}
                 style={isWorking ? { animationDelay: `${delay}ms` } : {}}
+                onClick={() => onSelectAgent?.(agent)}
               >
                 <div className="relative">
                   <div

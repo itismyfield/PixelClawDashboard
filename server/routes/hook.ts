@@ -64,9 +64,12 @@ router.post("/api/hook/reset-status", (_req, res) => {
 // Dispatched session: register / heartbeat
 router.post("/api/hook/session", (req, res) => {
   const db = getDb();
-  const { session_key, name, model, status, session_info } = req.body;
+  const { session_key, name, model, status, session_info, tokens } = req.body;
   if (!session_key)
     return res.status(400).json({ error: "session_key required" });
+
+  // Convert tokens → XP (1000 tokens = 1 XP, matching agent XP formula)
+  const xpDelta = typeof tokens === "number" && tokens > 0 ? Math.floor(tokens / 1000) : 0;
 
   const existing = db
     .prepare("SELECT * FROM dispatched_sessions WHERE session_key = ?")
@@ -87,6 +90,10 @@ router.post("/api/hook/session", (req, res) => {
     if (model) {
       sets.push("model = ?");
       vals.push(model);
+    }
+    if (xpDelta > 0) {
+      sets.push("stats_xp = stats_xp + ?");
+      vals.push(xpDelta);
     }
     vals.push(existing.id as string);
     db.prepare(

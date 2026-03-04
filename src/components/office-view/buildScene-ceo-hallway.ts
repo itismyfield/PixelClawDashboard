@@ -1,22 +1,7 @@
-import type { MutableRefObject } from "react";
-import { type Application, Container, Graphics, Text, TextStyle } from "pixi.js";
-import type { Agent, Task } from "../../types";
-import type { Delivery, RoomTheme, WallClockVisual } from "./model";
+import { type Application, type Container, Graphics } from "pixi.js";
 import { CEO_ZONE_H, HALLWAY_H, TILE } from "./model";
-import { LOCALE_TEXT, type SupportedLocale, pickLocale } from "./themes-locale";
-import {
-  blendColor,
-  drawAmbientGlow,
-  drawBandGradient,
-  drawBunting,
-  drawPictureFrame,
-  drawRoomAtmosphere,
-  drawTiledFloor,
-  drawWallClock,
-  drawWaterCooler,
-} from "./drawing-core";
-import { drawChair, drawPlant } from "./drawing-furniture-a";
-import { formatPeopleCount } from "./drawing-furniture-b";
+import { drawBandGradient } from "./drawing-core";
+import { drawPlant } from "./drawing-furniture-a";
 
 interface BuildCeoAndHallwayParams {
   app: Application;
@@ -24,16 +9,6 @@ interface BuildCeoAndHallwayParams {
   totalH: number;
   breakRoomY: number;
   isDark: boolean;
-  activeLocale: SupportedLocale;
-  ceoTheme: RoomTheme;
-  activeMeetingTaskId: string | null;
-  onOpenActiveMeetingMinutes?: (taskId: string) => void;
-  agents: Agent[];
-  tasks: Task[];
-  deliveriesRef: MutableRefObject<Delivery[]>;
-  ceoMeetingSeatsRef: MutableRefObject<Array<{ x: number; y: number }>>;
-  wallClocksRef: MutableRefObject<WallClockVisual[]>;
-  ceoOfficeRectRef: MutableRefObject<{ x: number; y: number; w: number; h: number } | null>;
 }
 
 export function buildCeoAndHallway({
@@ -42,16 +17,6 @@ export function buildCeoAndHallway({
   totalH,
   breakRoomY,
   isDark,
-  activeLocale,
-  ceoTheme,
-  activeMeetingTaskId,
-  onOpenActiveMeetingMinutes,
-  agents,
-  tasks,
-  deliveriesRef,
-  ceoMeetingSeatsRef,
-  wallClocksRef,
-  ceoOfficeRectRef,
 }: BuildCeoAndHallwayParams): void {
   const bg = new Graphics();
   const bgFill = isDark ? 0x0e0e1c : 0xf5f0e8;
@@ -70,144 +35,6 @@ export function buildCeoAndHallway({
     bg.circle(sx, sy, i % 3 === 0 ? 1.1 : 0.8).fill({ color: bgDotColor, alpha: i % 2 === 0 ? 0.12 : 0.08 });
   }
   app.stage.addChild(bg);
-
-  const ceoLayer = new Container();
-  ceoOfficeRectRef.current = { x: 4, y: 4, w: OFFICE_W - 8, h: CEO_ZONE_H - 4 };
-  const ceoFloor = new Graphics();
-  drawTiledFloor(ceoFloor, 4, 4, OFFICE_W - 8, CEO_ZONE_H - 4, ceoTheme.floor1, ceoTheme.floor2);
-  ceoLayer.addChild(ceoFloor);
-  drawRoomAtmosphere(ceoLayer, 4, 4, OFFICE_W - 8, CEO_ZONE_H - 4, ceoTheme.wall, ceoTheme.accent);
-  const ceoBorder = new Graphics();
-  ceoBorder
-    .roundRect(4, 4, OFFICE_W - 8, CEO_ZONE_H - 4, 3)
-    .stroke({ width: 2, color: blendColor(ceoTheme.wall, ceoTheme.accent, 0.55) });
-  ceoBorder
-    .roundRect(3, 3, OFFICE_W - 6, CEO_ZONE_H - 2, 4)
-    .stroke({ width: 1, color: blendColor(ceoTheme.accent, 0xffffff, 0.2), alpha: 0.35 });
-  ceoLayer.addChild(ceoBorder);
-
-  const ceoLabel = new Text({
-    text: pickLocale(activeLocale, LOCALE_TEXT.ceoOffice),
-    style: new TextStyle({
-      fontSize: 10,
-      fill: 0xffffff,
-      fontWeight: "bold",
-      fontFamily: "monospace",
-      letterSpacing: 2,
-    }),
-  });
-  const ceoLabelBg = new Graphics();
-  ceoLabelBg
-    .roundRect(10, 6, ceoLabel.width + 8, 14, 3)
-    .fill({ color: blendColor(ceoTheme.accent, ceoTheme.wall, 0.35), alpha: 1 });
-  ceoLabelBg
-    .roundRect(10, 6, ceoLabel.width + 8, 14, 3)
-    .stroke({ width: 1, color: blendColor(ceoTheme.accent, 0xffffff, 0.2), alpha: 0.8 });
-  ceoLabel.position.set(12, 8);
-  ceoLayer.addChild(ceoLabelBg);
-  ceoLayer.addChild(ceoLabel);
-  drawBunting(
-    ceoLayer,
-    148,
-    11,
-    Math.max(120, OFFICE_W - 300),
-    blendColor(ceoTheme.accent, 0xffffff, 0.2),
-    blendColor(ceoTheme.wall, ceoTheme.accent, 0.45),
-    0.7,
-  );
-
-  const cdx = 50;
-  const cdy = 24;
-  const cdg = new Graphics();
-  const deskEdge = isDark ? 0x3a2a18 : 0xb8925c;
-  const deskTop = isDark ? 0x4a3828 : 0xd0a870;
-  const monitorFrame = isDark ? 0x1a1a2a : 0x2a2a3a;
-  const monitorScreen = isDark ? 0x2255aa : 0x4488cc;
-  const namePlate = isDark ? 0x5a4820 : 0xe8c060;
-  cdg.roundRect(cdx, cdy, 64, 34, 3).fill(deskEdge);
-  cdg.roundRect(cdx + 1, cdy + 1, 62, 32, 2).fill(deskTop);
-  cdg.roundRect(cdx + 19, cdy + 2, 26, 16, 2).fill(monitorFrame);
-  cdg.roundRect(cdx + 20.5, cdy + 3.5, 23, 12, 1).fill(monitorScreen);
-  cdg.roundRect(cdx + 22, cdy + 24, 20, 7, 2).fill(namePlate);
-  ceoLayer.addChild(cdg);
-  const ceoPlateText = new Text({
-    text: "CEO",
-    style: new TextStyle({ fontSize: 5, fill: 0x000000, fontWeight: "bold", fontFamily: "monospace" }),
-  });
-  ceoPlateText.anchor.set(0.5, 0.5);
-  ceoPlateText.position.set(cdx + 32, cdy + 27.5);
-  ceoLayer.addChild(ceoPlateText);
-  drawChair(ceoLayer, cdx + 32, cdy + 46, 0xd4a860);
-
-  ceoMeetingSeatsRef.current = [];
-
-  drawPictureFrame(ceoLayer, 14, 14);
-  wallClocksRef.current.push(drawWallClock(ceoLayer, OFFICE_W - 30, 18));
-
-  const workingCount = agents.filter((agent) => agent.status === "working").length;
-  const stats = [
-    {
-      icon: "🤖",
-      label: pickLocale(activeLocale, LOCALE_TEXT.statsEmployees),
-      val: formatPeopleCount(agents.length, activeLocale),
-    },
-    {
-      icon: "⚡",
-      label: pickLocale(activeLocale, LOCALE_TEXT.statsWorking),
-      val: formatPeopleCount(workingCount, activeLocale),
-    },
-  ];
-  stats.forEach((stat, index) => {
-    const sx = OFFICE_W - 180 + index * 82;
-    const sy = 8;
-    const statCard = new Graphics();
-    statCard.roundRect(sx, sy, 74, 26, 4).fill({ color: 0xfff4d8, alpha: 0.85 });
-    statCard.roundRect(sx, sy, 74, 26, 4).stroke({ width: 1, color: 0xe8c870, alpha: 0.5 });
-    ceoLayer.addChild(statCard);
-    const iconText = new Text({ text: stat.icon, style: new TextStyle({ fontSize: 10 }) });
-    iconText.position.set(sx + 4, sy + 4);
-    ceoLayer.addChild(iconText);
-    ceoLayer.addChild(
-      Object.assign(
-        new Text({
-          text: stat.label,
-          style: new TextStyle({ fontSize: 7, fill: 0x8b7040, fontFamily: "monospace" }),
-        }),
-        { x: sx + 18, y: sy + 2 },
-      ),
-    );
-    ceoLayer.addChild(
-      Object.assign(
-        new Text({
-          text: stat.val,
-          style: new TextStyle({ fontSize: 10, fill: 0x5a4020, fontWeight: "bold", fontFamily: "monospace" }),
-        }),
-        { x: sx + 18, y: sy + 13 },
-      ),
-    );
-  });
-
-  const hint = new Text({
-    text: pickLocale(activeLocale, LOCALE_TEXT.hint),
-    style: new TextStyle({
-      fontSize: 10,
-      fontWeight: "bold",
-      fill: 0x8b7040,
-      fontFamily: "monospace",
-    }),
-  });
-  hint.anchor.set(1, 1);
-  hint.position.set(OFFICE_W - 16, CEO_ZONE_H - 8);
-  ceoLayer.addChild(hint);
-
-  drawAmbientGlow(ceoLayer, OFFICE_W / 2, CEO_ZONE_H / 2, OFFICE_W * 0.35, ceoTheme.accent, 0.08);
-  drawPlant(ceoLayer, 18, 56, 0);
-  drawPlant(ceoLayer, OFFICE_W - 22, 56, 2);
-  drawWaterCooler(ceoLayer, 28, 26);
-
-  ceoLayer.addChild(ceoLabelBg);
-  ceoLayer.addChild(ceoLabel);
-  app.stage.addChild(ceoLayer);
 
   const hallY = CEO_ZONE_H;
   const hallG = new Graphics();

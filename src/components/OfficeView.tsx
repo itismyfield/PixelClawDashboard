@@ -19,18 +19,16 @@ import type {
   SubCloneBurstParticle,
   WallClockVisual,
 } from "./office-view/model";
-import { findScrollContainer, MOBILE_MOVE_CODES } from "./office-view/model";
 import type { OfficeTickerContext } from "./office-view/officeTicker";
 import { useOfficePixiRuntime } from "./office-view/useOfficePixiRuntime";
 import type { SupportedLocale } from "./office-view/themes-locale";
-import VirtualPadOverlay from "./office-view/VirtualPadOverlay";
-import type { MobileMoveDirection } from "./office-view/model";
 
 interface OfficeViewProps {
   agents: Agent[];
   departments: Department[];
   language: UiLanguage;
   theme: ThemeMode;
+  subAgents?: SubAgent[];
   onSelectAgent?: (agent: Agent) => void;
   onSelectDepartment?: (dept: Department) => void;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
@@ -44,6 +42,7 @@ export default function OfficeView({
   departments,
   language,
   theme,
+  subAgents = EMPTY_SUB_AGENTS,
   onSelectAgent,
   onSelectDepartment,
   customDeptThemes,
@@ -67,7 +66,7 @@ export default function OfficeView({
   const spriteMapRef = useRef<Map<string, number>>(new Map());
   const ceoMeetingSeatsRef = useRef<Array<{ x: number; y: number }>>([]);
   const totalHRef = useRef(0);
-  const ceoPosRef = useRef({ x: 200, y: 50 });
+  const ceoPosRef = useRef({ x: 200, y: 16 });
   const ceoSpriteRef = useRef<Container | null>(null);
   const crownRef = useRef<Text | null>(null);
   const highlightRef = useRef<Graphics | null>(null);
@@ -98,10 +97,10 @@ export default function OfficeView({
     departments,
     agents,
     tasks: EMPTY_TASKS,
-    subAgents: EMPTY_SUB_AGENTS,
+    subAgents,
     customDeptThemes,
   });
-  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents: EMPTY_SUB_AGENTS, customDeptThemes };
+  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes };
 
   const cbRef = useRef<CallbackSnapshot>({
     onSelectAgent: onSelectAgent ?? (() => {}),
@@ -238,36 +237,16 @@ export default function OfficeView({
     departments,
     agents,
     tasks: EMPTY_TASKS,
-    subAgents: EMPTY_SUB_AGENTS,
+    subAgents,
     language,
     activeMeetingTaskId: null,
     customDeptThemes,
     currentTheme: theme,
   });
 
-  // ── Virtual pad for mobile ──
-  const [showVirtualPad] = useState(() => "ontouchstart" in window);
-
-  const handleSetMoveDirectionPressed = useCallback((direction: MobileMoveDirection, pressed: boolean) => {
-    for (const code of MOBILE_MOVE_CODES[direction]) {
-      keysRef.current[code] = pressed;
-    }
-  }, []);
-
-  const t = useCallback(
-    (messages: Record<UiLanguage, string>) => messages[language] ?? messages.ko,
-    [language],
-  );
-
   return (
     <div className="relative w-full h-full overflow-auto">
-      <div ref={containerRef} className="w-full min-h-full" style={{ imageRendering: "pixelated" }} />
-      <VirtualPadOverlay
-        showVirtualPad={showVirtualPad}
-        t={t}
-        onInteract={triggerDepartmentInteract}
-        onSetMoveDirectionPressed={handleSetMoveDirectionPressed}
-      />
+      <div ref={containerRef} className="w-full min-h-full pb-40" style={{ imageRendering: "pixelated" }} />
     </div>
   );
 }

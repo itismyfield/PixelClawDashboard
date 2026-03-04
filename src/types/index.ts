@@ -42,6 +42,7 @@ export type MeetingReviewDecision = "reviewing" | "approved" | "hold";
 export interface Agent {
   id: string;
   name: string;
+  alias?: string | null;
   name_ko: string;
   name_ja?: string | null;
   name_zh?: string | null;
@@ -253,6 +254,7 @@ export interface CompanyStats {
   top_agents: Array<{
     id: string;
     name: string;
+    alias?: string | null;
     avatar_emoji: string;
     stats_tasks_done: number;
     stats_xp: number;
@@ -425,6 +427,7 @@ export interface DispatchedSession {
   session_info: string | null;
   sprite_number: number | null;
   avatar_emoji: string;
+  stats_xp: number;
   connected_at: number;
   last_seen_at: number | null;
   department_name?: string | null;
@@ -444,6 +447,7 @@ export interface DashboardStats {
   top_agents: Array<{
     id: string;
     name: string;
+    alias?: string | null;
     name_ko: string;
     avatar_emoji: string;
     stats_tasks_done: number;

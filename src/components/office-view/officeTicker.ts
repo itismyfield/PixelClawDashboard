@@ -6,8 +6,6 @@ import {
   type RoomRect,
   type SubCloneBurstParticle,
   type WallClockVisual,
-  CEO_SIZE,
-  CEO_SPEED,
   SUB_CLONE_FIREWORK_INTERVAL,
   SUB_CLONE_FLOAT_DRIFT,
   SUB_CLONE_MOVE_X_AMPLITUDE,
@@ -87,36 +85,12 @@ export interface OfficeTickerContext {
 
 export function runOfficeTickerStep(ctx: OfficeTickerContext): void {
   const tick = ++ctx.tickRef.current;
-  const keys = ctx.keysRef.current;
-  const ceo = ctx.ceoSpriteRef.current;
   const wallClockNow = new Date();
   const wallClockSecond = wallClockNow.getHours() * 3600 + wallClockNow.getMinutes() * 60 + wallClockNow.getSeconds();
 
   if (ctx.wallClockSecondRef.current !== wallClockSecond) {
     ctx.wallClockSecondRef.current = wallClockSecond;
     for (const clock of ctx.wallClocksRef.current) applyWallClockTime(clock, wallClockNow);
-  }
-
-  if (ceo) {
-    let dx = 0;
-    let dy = 0;
-    if (keys["ArrowLeft"] || keys["KeyA"]) dx -= CEO_SPEED;
-    if (keys["ArrowRight"] || keys["KeyD"]) dx += CEO_SPEED;
-    if (keys["ArrowUp"] || keys["KeyW"]) dy -= CEO_SPEED;
-    if (keys["ArrowDown"] || keys["KeyS"]) dy += CEO_SPEED;
-
-    if (dx || dy) {
-      ctx.ceoPosRef.current.x = Math.max(28, Math.min(ctx.officeWRef.current - 28, ctx.ceoPosRef.current.x + dx));
-      ctx.ceoPosRef.current.y = Math.max(18, Math.min(ctx.totalHRef.current - 28, ctx.ceoPosRef.current.y + dy));
-      ceo.position.set(ctx.ceoPosRef.current.x, ctx.ceoPosRef.current.y);
-      ctx.followCeoInView();
-    }
-
-    const crown = ctx.crownRef.current;
-    if (crown) {
-      crown.position.y = -CEO_SIZE / 2 + 2 + Math.sin(tick * 0.06) * 2;
-      crown.rotation = Math.sin(tick * 0.03) * 0.06;
-    }
   }
 
   const highlight = ctx.highlightRef.current;
@@ -158,49 +132,6 @@ export function runOfficeTickerStep(ctx: OfficeTickerContext): void {
           color: blendColor(targetAccent, 0xffffff, 0.22),
           alpha: 0.35 + Math.sin(tick * 0.06) * 0.08,
         });
-      }
-    }
-
-    const ceoX = ctx.ceoPosRef.current.x;
-    const ceoY = ctx.ceoPosRef.current.y;
-    let highlighted = false;
-
-    for (const roomRect of ctx.roomRectsRef.current) {
-      if (
-        ceoX >= roomRect.x &&
-        ceoX <= roomRect.x + roomRect.w &&
-        ceoY >= roomRect.y - 10 &&
-        ceoY <= roomRect.y + roomRect.h
-      ) {
-        const theme =
-          ctx.dataRef.current.customDeptThemes?.[roomRect.dept.id] || DEPT_THEME[roomRect.dept.id] || DEPT_THEME.dev;
-        highlight.roundRect(roomRect.x - 2, roomRect.y - 2, roomRect.w + 4, roomRect.h + 4, 5).stroke({
-          width: 3,
-          color: theme.accent,
-          alpha: 0.5 + Math.sin(tick * 0.08) * 0.2,
-        });
-        highlighted = true;
-        break;
-      }
-    }
-
-    if (!highlighted) {
-      const breakRoomRect = ctx.breakRoomRectRef.current;
-      if (
-        breakRoomRect &&
-        ceoX >= breakRoomRect.x &&
-        ceoX <= breakRoomRect.x + breakRoomRect.w &&
-        ceoY >= breakRoomRect.y - 10 &&
-        ceoY <= breakRoomRect.y + breakRoomRect.h
-      ) {
-        const breakTheme = ctx.dataRef.current.customDeptThemes?.breakRoom ?? DEFAULT_BREAK_THEME;
-        highlight
-          .roundRect(breakRoomRect.x - 2, breakRoomRect.y - 2, breakRoomRect.w + 4, breakRoomRect.h + 4, 5)
-          .stroke({
-            width: 3,
-            color: breakTheme.accent,
-            alpha: 0.5 + Math.sin(tick * 0.08) * 0.2,
-          });
       }
     }
   }

@@ -138,14 +138,31 @@ export function buildBreakRoom({
   breakRoom.addChild(steamContainer);
   breakSteamParticlesRef.current = steamContainer;
 
-  breakAgents.forEach((agent, index) => {
-    const spot = BREAK_SPOTS[index % BREAK_SPOTS.length];
-    const seed = hashStr(agent.id);
-    const offsetX = (seed % 7) - 3;
-    const offsetY = ((seed % 5) - 2) * 0.6;
+  const spotCount = BREAK_SPOTS.length;
+  function resolveSpotPos(idx: number, seed: number) {
+    const ox = (seed % 21) - 10;
+    const oy = (seed % 9) - 4;
+    if (idx < spotCount) {
+      const s = BREAK_SPOTS[idx];
+      const x = s.center
+        ? brx + brw / 2 + s.x + ox
+        : s.x >= 0
+          ? brx + s.x + ox
+          : brx + brw - 16 + s.x + ox;
+      return { x, y: bry + s.y + oy, dir: s.dir };
+    }
+    const overflow = breakAgents.length - spotCount;
+    const col = idx - spotCount;
+    return {
+      x: brx + 40 + ((brw - 80) * (col + 1)) / (overflow + 1) + ox,
+      y: bry + 66 + oy,
+      dir: "D",
+    };
+  }
 
-    const spotX = spot.x >= 0 ? brx + spot.x + offsetX : brx + brw - 16 + spot.x + offsetX;
-    const spotY = bry + spot.y + offsetY;
+  breakAgents.forEach((agent, index) => {
+    const seed = hashStr(agent.id);
+    const { x: spotX, y: spotY, dir } = resolveSpotPos(index, seed);
 
     agentPosRef.current.set(agent.id, { x: spotX, y: spotY });
 
@@ -156,7 +173,7 @@ export function buildBreakRoom({
     charContainer.cursor = "pointer";
     charContainer.on("pointerdown", () => cbRef.current.onSelectAgent(agent));
 
-    const dirKey = `${spriteNum}-${spot.dir}-1`;
+    const dirKey = `${spriteNum}-${dir}-1`;
     const fallbackKey = `${spriteNum}-D-1`;
     const texture = textures[dirKey] || textures[fallbackKey];
 
@@ -203,10 +220,8 @@ export function buildBreakRoom({
     for (let speakerIndex = 0; speakerIndex < speakerCount; speakerIndex++) {
       const speakerIdx = (phase + speakerIndex) % breakAgents.length;
       const agent = breakAgents[speakerIdx];
-      const spot = BREAK_SPOTS[speakerIdx % BREAK_SPOTS.length];
       const seed = hashStr(agent.id);
-      const spotX = spot.x >= 0 ? brx + spot.x + ((seed % 7) - 3) : brx + brw - 16 + spot.x + ((seed % 7) - 3);
-      const spotY = bry + spot.y + ((seed % 5) - 2) * 0.6;
+      const { x: spotX, y: spotY } = resolveSpotPos(speakerIdx, seed);
 
       const chatPool = BREAK_CHAT_MESSAGES[activeLocale] || BREAK_CHAT_MESSAGES.ko;
       const msg = chatPool[(seed + phase) % chatPool.length];

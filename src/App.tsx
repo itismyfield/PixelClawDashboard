@@ -4,6 +4,7 @@ import type {
   Department,
   Office,
   DispatchedSession,
+  SubAgent,
   DashboardStats,
   CompanySettings,
   WSEvent,
@@ -16,6 +17,8 @@ import DashboardPageView from "./components/DashboardPageView";
 import AgentManagerView from "./components/AgentManagerView";
 import OfficeSelectorBar from "./components/OfficeSelectorBar";
 import OfficeManagerModal from "./components/OfficeManagerModal";
+import AgentInfoCard from "./components/agent-manager/AgentInfoCard";
+import { useSpriteMap } from "./components/AgentAvatar";
 import {
   Building2,
   LayoutDashboard,
@@ -37,7 +40,9 @@ export default function App() {
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [showOfficeManager, setShowOfficeManager] = useState(false);
+  const [officeInfoAgent, setOfficeInfoAgent] = useState<Agent | null>(null);
 
+  const spriteMap = useSpriteMap(agents);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Bootstrap
@@ -204,8 +209,17 @@ export default function App() {
   }
 
   const activeSessions = sessions.filter((s) => s.status !== "disconnected");
+  const subAgents: SubAgent[] = activeSessions
+    .filter((s) => s.linked_agent_id)
+    .map((s) => ({
+      id: s.id,
+      parentAgentId: s.linked_agent_id!,
+      task: s.name || s.session_info || "파견 세션",
+      status: "working" as const,
+    }));
   const isKo = settings.language === "ko";
-
+  const locale = settings.language;
+  const tr = (ko: string, en: string) => (isKo ? ko : en);
   return (
     <div className="flex h-screen bg-gray-900">
       {/* Sidebar */}
@@ -271,7 +285,8 @@ export default function App() {
               departments={departments}
               language={settings.language}
               theme={settings.theme}
-              onSelectAgent={(agent) => console.log("Select agent:", agent.name)}
+              subAgents={subAgents}
+              onSelectAgent={(agent) => setOfficeInfoAgent(agent)}
               onSelectDepartment={(dept) => console.log("Select dept:", dept.name)}
               customDeptThemes={settings.roomThemes}
             />
@@ -282,6 +297,7 @@ export default function App() {
               agents={agents}
               settings={settings}
               onNavigateToOffice={() => setView("office")}
+              onSelectAgent={(agent) => setOfficeInfoAgent(agent)}
             />
           )}
           {view === "agents" && (
@@ -296,6 +312,20 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Agent Info Card (from Office View click) */}
+      {officeInfoAgent && (
+        <AgentInfoCard
+          agent={officeInfoAgent}
+          spriteMap={spriteMap}
+          isKo={isKo}
+          locale={locale}
+          tr={tr}
+          departments={departments}
+          onClose={() => setOfficeInfoAgent(null)}
+          onAgentUpdated={() => { refreshAgents(); refreshAllAgents(); }}
+        />
+      )}
 
       {/* Office Manager Modal */}
       {showOfficeManager && (

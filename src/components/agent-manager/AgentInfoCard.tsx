@@ -15,6 +15,7 @@ interface AgentInfoCardProps {
   tr: Translator;
   departments: Department[];
   onClose: () => void;
+  onAgentUpdated?: () => void;
 }
 
 function formatSchedule(schedule: CronJob["schedule"], isKo: boolean): string {
@@ -59,6 +60,7 @@ export default function AgentInfoCard({
   tr,
   departments,
   onClose,
+  onAgentUpdated,
 }: AgentInfoCardProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
@@ -67,6 +69,28 @@ export default function AgentInfoCard({
   const [loadingCron, setLoadingCron] = useState(true);
   const [loadingSkills, setLoadingSkills] = useState(true);
   const [showSharedSkills, setShowSharedSkills] = useState(false);
+  const [editingAlias, setEditingAlias] = useState(false);
+  const [aliasValue, setAliasValue] = useState(agent.alias ?? "");
+  const [savingAlias, setSavingAlias] = useState(false);
+
+  const saveAlias = async () => {
+    const trimmed = aliasValue.trim();
+    const newAlias = trimmed || null;
+    if (newAlias === (agent.alias ?? null)) {
+      setEditingAlias(false);
+      return;
+    }
+    setSavingAlias(true);
+    try {
+      await api.updateAgent(agent.id, { alias: newAlias });
+      setEditingAlias(false);
+      onAgentUpdated?.();
+    } catch (e) {
+      console.error("Alias save failed:", e);
+    } finally {
+      setSavingAlias(false);
+    }
+  };
 
   const dept = departments.find((d) => d.id === agent.department_id);
 
@@ -140,6 +164,35 @@ export default function AgentInfoCard({
                 </div>
               ) : null;
             })()}
+            <div className="flex items-center gap-1 mt-1">
+              {editingAlias ? (
+                <input
+                  autoFocus
+                  value={aliasValue}
+                  onChange={(e) => setAliasValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveAlias(); if (e.key === "Escape") { setEditingAlias(false); setAliasValue(agent.alias ?? ""); } }}
+                  onBlur={saveAlias}
+                  disabled={savingAlias}
+                  placeholder={tr("별명 입력", "Enter alias")}
+                  className="text-[11px] px-1.5 py-0.5 rounded border outline-none"
+                  style={{
+                    background: "var(--th-bg-surface)",
+                    borderColor: "var(--th-input-border)",
+                    color: "var(--th-text-primary)",
+                    width: "120px",
+                  }}
+                />
+              ) : (
+                <button
+                  onClick={() => { setAliasValue(agent.alias ?? ""); setEditingAlias(true); }}
+                  className="text-[10px] px-1.5 py-0.5 rounded hover:bg-[var(--th-bg-surface-hover)] transition-colors"
+                  style={{ color: agent.alias ? "var(--th-text-secondary)" : "var(--th-text-muted)" }}
+                  title={tr("별명 편집", "Edit alias")}
+                >
+                  {agent.alias ? `aka ${agent.alias}` : `+ ${tr("별명", "alias")}`}
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-1.5">
               <span
                 className="text-[10px] px-2 py-0.5 rounded-full font-medium"

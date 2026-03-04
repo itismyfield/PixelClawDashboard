@@ -386,12 +386,6 @@ export default function OfficeManagerModal({
                       >
                         {isKo ? a.name_ko || a.name : a.name}
                       </div>
-                      <div
-                        className="text-xs"
-                        style={{ color: "var(--th-text-muted)" }}
-                      >
-                        {a.role}
-                      </div>
                     </div>
                     {inOffice ? (
                       <UserMinus size={14} className="text-red-400 shrink-0" />

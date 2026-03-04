@@ -298,29 +298,6 @@ function renderAgentHeader(
     room.addChild(bangTxt);
   }
 
-  const roleText = new Text({
-    text: pickLocale(
-      activeLocale,
-      LOCALE_TEXT.role[agent.role as keyof typeof LOCALE_TEXT.role] || {
-        ko: agent.role,
-        en: agent.role,
-        ja: agent.role,
-        zh: agent.role,
-      },
-    ),
-    style: new TextStyle({
-      fontSize: 6,
-      fill: contrastTextColor(accent),
-      fontFamily: "system-ui, sans-serif",
-    }),
-  });
-  roleText.anchor.set(0.5, 0.5);
-  const roleTagW = roleText.width + 5;
-  const roleTagBg = new Graphics();
-  roleTagBg.roundRect(ax - roleTagW / 2, nameY + 13, roleTagW, 9, 2).fill({ color: accent, alpha: 0.82 });
-  room.addChild(roleTagBg);
-  roleText.position.set(ax, nameY + 17.5);
-  room.addChild(roleText);
 }
 
 function drawBreakAwayTag(

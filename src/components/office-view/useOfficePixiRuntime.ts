@@ -95,6 +95,7 @@ export function useOfficePixiRuntime({
       appRef.current = app;
       const canvas = app.canvas as HTMLCanvasElement;
       canvas.style.imageRendering = "pixelated";
+      canvas.style.touchAction = "manipulation";
       element.innerHTML = "";
       element.appendChild(canvas);
 
@@ -130,14 +131,6 @@ export function useOfficePixiRuntime({
         }
       }
 
-      loads.push(
-        Assets.load<Texture>("/sprites/ceo-lobster.png")
-          .then((texture) => {
-            textures.ceo = texture;
-          })
-          .catch(() => {}),
-      );
-
       await Promise.all(loads);
 
       if (initIdRef.current !== currentInitId) {
@@ -150,43 +143,12 @@ export function useOfficePixiRuntime({
       texturesRef.current = textures;
       buildScene();
       initDoneRef.current = true;
-      followCeoInView();
 
       app.ticker.add(() => {
         if (destroyedRef.current || appRef.current !== app) return;
         runOfficeTickerStep(tickerContext);
       });
     }
-
-    const isInputFocused = () => {
-      const tag = document.activeElement?.tagName;
-      return (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        (document.activeElement as HTMLElement)?.isContentEditable
-      );
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isInputFocused()) return;
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
-        event.preventDefault();
-        keysRef.current[event.code] = true;
-      }
-      if (event.code === "Enter" || event.code === "Space") {
-        event.preventDefault();
-        triggerDepartmentInteract();
-      }
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (isInputFocused()) return;
-      keysRef.current[event.code] = false;
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
 
     init();
 
@@ -206,8 +168,6 @@ export function useOfficePixiRuntime({
       destroyedRef.current = true;
       initIdRef.current++;
       resizeObserver.disconnect();
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
       deliveriesRef.current = [];
       initDoneRef.current = false;
       scrollHostXRef.current = null;

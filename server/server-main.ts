@@ -16,6 +16,7 @@ import skillRoutes from "./routes/skills.js";
 import { startXpSync, stopXpSync } from "./xp-sync.js";
 import { startAgentSync, stopAgentSync } from "./agent-sync.js";
 import { startSkillSync, stopSkillSync } from "./skill-sync.js";
+import { startDispatchedSync, stopDispatchedSync } from "./dispatched-sync.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -81,6 +82,7 @@ server.listen(PORT, HOST, () => {
   startXpSync();
   startAgentSync();
   startSkillSync();
+  startDispatchedSync();
 });
 
 // Graceful shutdown
@@ -89,6 +91,7 @@ process.on("SIGTERM", () => {
   stopXpSync();
   stopAgentSync();
   stopSkillSync();
+  stopDispatchedSync();
   server.close();
   closeDb();
   process.exit(0);
@@ -99,6 +102,7 @@ process.on("SIGINT", () => {
   stopXpSync();
   stopAgentSync();
   stopSkillSync();
+  stopDispatchedSync();
   server.close();
   closeDb();
   process.exit(0);

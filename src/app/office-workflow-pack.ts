@@ -12,7 +12,6 @@ type DeptPreset = {
 
 type StaffPreset = {
   nonLeaderDeptCycle: string[];
-  roleTitles?: Partial<Record<AgentRole, Localized>>;
   planningLeadDeptIds?: string[];
 };
 
@@ -526,10 +525,6 @@ const PACK_PRESETS: Record<WorkflowPackKey, PackPreset> = {
     },
     staff: {
       nonLeaderDeptCycle: ["planning", "design", "dev", "qa", "devsecops", "operations", "dev"],
-      roleTitles: {
-        leader: { ko: "디렉터", en: "Director", ja: "ディレクタ", zh: "总监" },
-        member: { ko: "팀원", en: "Member", ja: "メンバー", zh: "成员" },
-      },
       planningLeadDeptIds: ["planning"],
     },
   },
@@ -627,45 +622,18 @@ function buildSeedPersonality(params: {
   const tone = PACK_SEED_PROFILE[params.packKey]?.tone;
   if (!tone) return null;
   const locale = params.locale;
-  const roleLabelMap: Record<UiLanguageLike, Record<AgentRole, string>> = {
-    ko: {
-      team_leader: "팀 리드",
-      senior: "시니어",
-      junior: "주니어",
-      intern: "인턴",
-    },
-    en: {
-      team_leader: "team lead",
-      senior: "senior member",
-      junior: "junior member",
-      intern: "intern",
-    },
-    ja: {
-      team_leader: "チームリーダー",
-      senior: "シニア",
-      junior: "ジュニア",
-      intern: "インターン",
-    },
-    zh: {
-      team_leader: "团队负责人",
-      senior: "高级成员",
-      junior: "初级成员",
-      intern: "实习成员",
-    },
-  };
   const focusByLocale: Record<UiLanguageLike, string> = {
     ko: params.defaultPrefix.ko?.trim() || `${params.departmentName.ko} 담당`,
     en: params.defaultPrefix.en?.trim() || `${params.departmentName.en} coverage`,
     ja: params.defaultPrefix.ja?.trim() || `${params.departmentName.ja}担当`,
     zh: params.defaultPrefix.zh?.trim() || `${params.departmentName.zh}职责`,
   };
-  const roleLabel = roleLabelMap[locale][params.role];
   const focus = focusByLocale[locale];
   const toneText = pickText(locale, tone);
-  if (locale === "ko") return `${toneText} ${focus} 역할의 ${roleLabel}입니다.`;
-  if (locale === "ja") return `${toneText} ${focus}を担当する${roleLabel}として動きます。`;
-  if (locale === "zh") return `${toneText} 作为负责${focus}的${roleLabel}推进工作。`;
-  return `${toneText} Serves as a ${roleLabel} focused on ${focus}.`;
+  if (locale === "ko") return `${toneText} ${focus}을 맡고 있습니다.`;
+  if (locale === "ja") return `${toneText} ${focus}を担当しています。`;
+  if (locale === "zh") return `${toneText} 负责${focus}的工作。`;
+  return `${toneText} Focused on ${focus}.`;
 }
 
 function buildPackDepartmentDescription(params: {

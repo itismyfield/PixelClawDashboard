@@ -106,19 +106,6 @@ const LOCALE_TEXT = {
     ja: "☕ 休憩室",
     zh: "☕ 休息室",
   },
-  role: {
-    team_leader: { ko: "팀장", en: "Lead", ja: "リーダー", zh: "组长" },
-    senior: { ko: "시니어", en: "Senior", ja: "シニア", zh: "资深" },
-    junior: { ko: "주니어", en: "Junior", ja: "ジュニア", zh: "初级" },
-    intern: { ko: "인턴", en: "Intern", ja: "インターン", zh: "实习" },
-    part_time: { ko: "알바", en: "Part-time", ja: "アルバイト", zh: "兼职" },
-  },
-  partTime: {
-    ko: "알바",
-    en: "Part-time",
-    ja: "アルバイト",
-    zh: "兼职",
-  },
   collabBadge: {
     ko: "🤝 협업",
     en: "🤝 Collaboration",
@@ -396,16 +383,23 @@ function paintMeetingBadge(
 }
 
 // Break spots: positive x = offset from room left; negative x = offset from room right
-// These are calibrated to match furniture positions drawn in buildScene
-const BREAK_SPOTS = [
-  { x: 86, y: 72, dir: "D" }, // 왼쪽 소파 좌측 (sofa at baseX+50, width 80)
-  { x: 110, y: 72, dir: "D" }, // 왼쪽 소파 중앙
-  { x: 134, y: 72, dir: "D" }, // 왼쪽 소파 우측
-  { x: 30, y: 58, dir: "R" }, // 커피머신 앞 (machine at baseX, y+20)
-  { x: -112, y: 72, dir: "D" }, // 우측 소파 좌측 (sofa at rightX-120, width 80)
-  { x: -82, y: 72, dir: "D" }, // 우측 소파 우측
-  { x: -174, y: 56, dir: "L" }, // 하이테이블 왼쪽 (table at rightX-170, width 36)
-  { x: -144, y: 56, dir: "R" }, // 하이테이블 오른쪽
+// center = true → x is relative to room center (brx + brw/2)
+// Interleaved left→right→center so even a few agents spread evenly
+const BREAK_SPOTS: { x: number; y: number; dir: string; center?: boolean }[] = [
+  { x: 110, y: 72, dir: "D" },                  // 1  왼쪽 소파 중앙
+  { x: -112, y: 72, dir: "D" },                  // 2  우측 소파 좌측
+  { x: -20, y: 68, dir: "D", center: true },     // 3  러그 중앙 좌
+  { x: 86, y: 72, dir: "D" },                    // 4  왼쪽 소파 좌측
+  { x: -144, y: 56, dir: "R" },                  // 5  하이테이블 오른쪽
+  { x: 20, y: 68, dir: "D", center: true },      // 6  러그 중앙 우
+  { x: 30, y: 58, dir: "R" },                    // 7  커피머신 앞
+  { x: -82, y: 72, dir: "D" },                   // 8  우측 소파 우측
+  { x: 0, y: 60, dir: "D", center: true },       // 9  러그 한가운데
+  { x: 134, y: 72, dir: "D" },                   // 10 왼쪽 소파 우측
+  { x: -174, y: 56, dir: "L" },                  // 11 하이테이블 왼쪽
+  { x: -40, y: 56, dir: "D", center: true },     // 12 러그 뒤쪽 좌
+  { x: 40, y: 56, dir: "D", center: true },      // 13 러그 뒤쪽 우
+  { x: 0, y: 76, dir: "D", center: true },       // 14 러그 앞쪽
 ];
 
 const DEPT_THEME_LIGHT: Record<string, RoomTheme> = {
