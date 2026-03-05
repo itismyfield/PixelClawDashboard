@@ -13,6 +13,7 @@ import hookRoutes from "./routes/hook.js";
 import dispatchedRoutes from "./routes/dispatched.js";
 import spriteRoutes from "./routes/sprites.js";
 import skillRoutes from "./routes/skills.js";
+import messageRoutes from "./routes/messages.js";
 import { startXpSync, stopXpSync } from "./xp-sync.js";
 import { startAgentSync, stopAgentSync } from "./agent-sync.js";
 import { startSkillSync, stopSkillSync } from "./skill-sync.js";
@@ -60,6 +61,7 @@ app.use(hookRoutes);
 app.use(dispatchedRoutes);
 app.use(spriteRoutes);
 app.use(skillRoutes);
+app.use(messageRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
