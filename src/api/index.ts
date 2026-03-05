@@ -22,8 +22,18 @@ export {
   getDispatchedSessions,
   assignDispatchedSession,
   getAgentCron,
+  getAgentDispatchedSessions,
   getAgentSkills,
   getSkillRanking,
+  getDiscordBindings,
+  getCronJobs,
+  getMachineStatus,
+  getActivityHeatmap,
+  getStreaks,
+  getAchievements,
+  getGitHubIssues,
+  getMessages,
+  sendMessage,
 } from "./client";
 
 export type {
@@ -35,6 +45,15 @@ export type {
   SkillRankingOverallRow,
   SkillRankingByAgentRow,
   SkillRankingResponse,
+  DiscordBinding,
+  CronJobGlobal,
+  MachineStatus,
+  HeatmapData,
+  AgentStreak,
+  Achievement,
+  GitHubIssue,
+  GitHubIssuesResponse,
+  ChatMessage,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──

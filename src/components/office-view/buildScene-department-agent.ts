@@ -131,11 +131,21 @@ export function renderDeskAgentAndSubClones({
     blanketG,
   });
 
+  const sourceLabel =
+    agent.activity_source === "both"
+      ? "⚡ OpenClaw+Claude"
+      : agent.activity_source === "claude"
+        ? "🛠 Claude"
+        : agent.activity_source === "openclaw"
+          ? "🧠 OpenClaw"
+          : "";
+
   const activeTask = tasks.find((task) => task.assigned_agent_id === agent.id && task.status === "in_progress");
   if (activeTask) {
     const txt = activeTask.title.length > 16 ? `${activeTask.title.slice(0, 16)}...` : activeTask.title;
+    const bubbleBody = sourceLabel ? `${sourceLabel}\n💬 ${txt}` : `💬 ${txt}`;
     const bubbleText = new Text({
-      text: `💬 ${txt}`,
+      text: bubbleBody,
       style: new TextStyle({
         fontSize: 6.5,
         fill: 0x333333,
@@ -162,6 +172,34 @@ export function renderDeskAgentAndSubClones({
   }
 
   const workingSubs = subAgents.filter((sub) => sub.parentAgentId === agent.id && sub.status === "working");
+  if (!activeTask && isWorking && sourceLabel) {
+    const sourceText = new Text({
+      text: sourceLabel,
+      style: new TextStyle({
+        fontSize: 6.8,
+        fill: 0x1f2937,
+        fontFamily: "system-ui, sans-serif",
+      }),
+    });
+    sourceText.anchor.set(0.5, 1);
+    const bw = Math.min(sourceText.width + 10, 90);
+    const bh = sourceText.height + 6;
+    const bubbleTop = charFeetY - TARGET_CHAR_H - bh - 6;
+    const sourceBg = new Graphics();
+    sourceBg.roundRect(ax - bw / 2, bubbleTop, bw, bh, 4).fill(0xffffff);
+    sourceBg
+      .roundRect(ax - bw / 2, bubbleTop, bw, bh, 4)
+      .stroke({ width: 1.2, color: themeAccent, alpha: 0.42 });
+    sourceBg
+      .moveTo(ax - 3, bubbleTop + bh)
+      .lineTo(ax, bubbleTop + bh + 4)
+      .lineTo(ax + 3, bubbleTop + bh)
+      .fill(0xffffff);
+    room.addChild(sourceBg);
+    sourceText.position.set(ax, bubbleTop + bh - 3);
+    room.addChild(sourceText);
+  }
+
   if (isWorking && workingSubs.length > 0) {
     const visibleSubs = workingSubs.slice(0, MAX_VISIBLE_SUB_CLONES_PER_AGENT);
     visibleSubs.forEach((sub, index) => {

@@ -191,9 +191,10 @@ export async function getStats(officeId?: string): Promise<DashboardStats> {
 
 // ── Dispatched Sessions ──
 
-export async function getDispatchedSessions(): Promise<DispatchedSession[]> {
+export async function getDispatchedSessions(includeMerged = false): Promise<DispatchedSession[]> {
+  const q = includeMerged ? "?includeMerged=1" : "";
   const data = await request<{ sessions: DispatchedSession[] }>(
-    "/api/dispatched-sessions",
+    `/api/dispatched-sessions${q}`,
   );
   return data.sessions;
 }
@@ -238,6 +239,11 @@ export async function getAgentCron(agentId: string): Promise<CronJob[]> {
   return data.jobs;
 }
 
+export async function getAgentDispatchedSessions(agentId: string): Promise<DispatchedSession[]> {
+  const data = await request<{ sessions: DispatchedSession[] }>(`/api/agents/${agentId}/dispatched-sessions`);
+  return data.sessions;
+}
+
 // ── Agent Skills ──
 
 export interface AgentSkill {
@@ -254,6 +260,64 @@ export interface AgentSkillsResponse {
 
 export async function getAgentSkills(agentId: string): Promise<AgentSkillsResponse> {
   return request(`/api/agents/${agentId}/skills`);
+}
+
+// ── Discord Bindings ──
+
+export interface DiscordBinding {
+  agentId: string;
+  channelId: string;
+  channelName?: string;
+}
+
+export async function getDiscordBindings(): Promise<DiscordBinding[]> {
+  const data = await request<{ bindings: DiscordBinding[] }>("/api/discord-bindings");
+  return data.bindings;
+}
+
+// ── Cron Jobs (global) ──
+
+export interface CronJobGlobal {
+  id: string;
+  name: string;
+  agentId?: string;
+  enabled: boolean;
+  schedule: CronSchedule;
+  state?: CronJobState;
+  discordChannelId?: string;
+  description_ko?: string;
+}
+
+export async function getCronJobs(): Promise<CronJobGlobal[]> {
+  const data = await request<{ jobs: CronJobGlobal[] }>("/api/cron-jobs");
+  return data.jobs;
+}
+
+// ── Machine Status ──
+
+export interface MachineStatus {
+  name: string;
+  online: boolean;
+  lastChecked: number;
+}
+
+export async function getMachineStatus(): Promise<MachineStatus[]> {
+  return request("/api/machine-status");
+}
+
+// ── Activity Heatmap ──
+
+export interface HeatmapData {
+  hours: Array<{
+    hour: number;
+    agents: Record<string, number>; // agentId → event count
+  }>;
+  date: string;
+}
+
+export async function getActivityHeatmap(date?: string): Promise<HeatmapData> {
+  const q = date ? `?date=${date}` : "";
+  return request(`/api/activity-heatmap${q}`);
 }
 
 // ── Skill Ranking ──
@@ -285,4 +349,113 @@ export async function getSkillRanking(
   limit = 20,
 ): Promise<SkillRankingResponse> {
   return request(`/api/skills/ranking?window=${window}&limit=${limit}`);
+}
+
+// ── GitHub Issues ──
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: string;
+  labels: Array<{ name: string; color: string }>;
+  assignees: Array<{ login: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubIssuesResponse {
+  issues: GitHubIssue[];
+  repo: string;
+  error?: string;
+}
+
+// ── Streaks ──
+
+export interface AgentStreak {
+  agent_id: string;
+  name: string;
+  avatar_emoji: string;
+  streak: number;
+  last_active: string;
+}
+
+export async function getStreaks(): Promise<{ streaks: AgentStreak[] }> {
+  return request("/api/streaks");
+}
+
+// ── Achievements ──
+
+export interface Achievement {
+  id: string;
+  agent_id: string;
+  type: string;
+  name: string;
+  description: string | null;
+  earned_at: number;
+  agent_name: string;
+  agent_name_ko: string;
+  avatar_emoji: string;
+}
+
+export async function getAchievements(agentId?: string): Promise<{ achievements: Achievement[] }> {
+  const q = agentId ? `?agentId=${agentId}` : "";
+  return request(`/api/achievements${q}`);
+}
+
+// ── Messages (Chat) ──
+
+export interface ChatMessage {
+  id: number;
+  sender_type: "ceo" | "agent" | "system";
+  sender_id: string | null;
+  receiver_type: "agent" | "department" | "all";
+  receiver_id: string | null;
+  content: string;
+  message_type: string;
+  created_at: number;
+  sender_name?: string | null;
+  sender_name_ko?: string | null;
+  sender_avatar?: string | null;
+}
+
+export async function getMessages(opts?: {
+  receiverId?: string;
+  receiverType?: string;
+  limit?: number;
+  before?: number;
+}): Promise<{ messages: ChatMessage[] }> {
+  const params = new URLSearchParams();
+  if (opts?.receiverId) params.set("receiverId", opts.receiverId);
+  if (opts?.receiverType) params.set("receiverType", opts.receiverType);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.before) params.set("before", String(opts.before));
+  const q = params.toString();
+  return request(`/api/messages${q ? `?${q}` : ""}`);
+}
+
+export async function sendMessage(payload: {
+  sender_type?: string;
+  sender_id?: string | null;
+  receiver_type: string;
+  receiver_id?: string | null;
+  content: string;
+  message_type?: string;
+}): Promise<ChatMessage> {
+  return request("/api/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── GitHub Issues ──
+
+export async function getGitHubIssues(
+  repo?: string,
+  state: "open" | "closed" | "all" = "open",
+  limit = 20,
+): Promise<GitHubIssuesResponse> {
+  const params = new URLSearchParams({ state, limit: String(limit) });
+  if (repo) params.set("repo", repo);
+  return request(`/api/github-issues?${params}`);
 }

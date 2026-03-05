@@ -1,10 +1,96 @@
 import { Router } from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
 
 const router = Router();
+const ROLE_MAP_PATH = path.join(os.homedir(), ".remotecc", "role_map.json");
+
+function extractChannelNameFromSession(sessionKey: string, name?: string | null): string | null {
+  const m = sessionKey.match(/:remoteCC-(.+)$/i);
+  if (m?.[1]) return m[1].trim();
+  if (name && name.trim().length > 0) return name.trim();
+  return null;
+}
+
+function resolveRoleIdByChannelName(channelName: string): string | null {
+  try {
+    if (!fs.existsSync(ROLE_MAP_PATH)) return null;
+    const raw = fs.readFileSync(ROLE_MAP_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    const byName = parsed?.byChannelName || {};
+    const exact = byName[channelName];
+    if (exact?.roleId) return String(exact.roleId);
+
+    const key = Object.keys(byName).find(
+      (k) => k.toLowerCase() === channelName.toLowerCase(),
+    );
+    if (key && byName[key]?.roleId) return String(byName[key].roleId);
+  } catch {
+    // ignore parsing errors
+  }
+  return null;
+}
+
+function resolveLinkedAgentId(sessionKey: string, name?: string | null): string | null {
+  const channelName = extractChannelNameFromSession(sessionKey, name);
+  if (!channelName) return null;
+
+  const roleId = resolveRoleIdByChannelName(channelName);
+  if (!roleId) return null;
+
+  const db = getDb();
+  const row = db
+    .prepare("SELECT id FROM agents WHERE openclaw_id = ? LIMIT 1")
+    .get(roleId) as { id: string } | undefined;
+
+  return row?.id ?? null;
+}
+
+function emitLinkedAgentStatus(agentId: string): void {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
+              COALESCE(ds.claude_working_count, 0) AS claude_working_count
+       FROM agents a
+       LEFT JOIN departments d ON a.department_id = d.id
+       LEFT JOIN (
+         SELECT linked_agent_id as aid,
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+         FROM dispatched_sessions
+         WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
+         GROUP BY linked_agent_id
+       ) ds ON ds.aid = a.id
+       WHERE a.id = ?`,
+    )
+    .get(agentId) as Record<string, unknown> | undefined;
+
+  if (!row) return;
+
+  const claudeWorking = Number(row.claude_working_count || 0);
+  const baseStatus = String(row.status || "idle");
+  const activitySource =
+    baseStatus === "working" && claudeWorking > 0
+      ? "both"
+      : claudeWorking > 0
+        ? "claude"
+        : baseStatus === "working"
+          ? "openclaw"
+          : "idle";
+  const effectiveStatus = claudeWorking > 0 ? "working" : baseStatus;
+
+  broadcast("agent_status", {
+    ...row,
+    status: effectiveStatus,
+    activity_source: activitySource,
+    claude_working_count: claudeWorking,
+  });
+}
 
 // OpenClaw hook: agent status update
 router.patch("/api/hook/agent-status", (req, res) => {
@@ -79,6 +165,17 @@ router.post("/api/hook/session", (req, res) => {
     // Heartbeat / update
     const sets = ["last_seen_at = ?"];
     const vals: (string | number | null)[] = [Date.now()];
+
+    const hadLinkedAgent = Boolean(existing.linked_agent_id);
+    let linkedAgentId = (existing.linked_agent_id as string | null) ?? null;
+    if (!linkedAgentId) {
+      linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
+      if (linkedAgentId) {
+        sets.push("linked_agent_id = ?");
+        vals.push(linkedAgentId);
+      }
+    }
+
     if (status) {
       sets.push("status = ?");
       vals.push(status);
@@ -91,7 +188,7 @@ router.post("/api/hook/session", (req, res) => {
       sets.push("model = ?");
       vals.push(model);
     }
-    if (xpDelta > 0) {
+    if (xpDelta > 0 && !linkedAgentId) {
       sets.push("stats_xp = stats_xp + ?");
       vals.push(xpDelta);
     }
@@ -99,18 +196,40 @@ router.post("/api/hook/session", (req, res) => {
     db.prepare(
       `UPDATE dispatched_sessions SET ${sets.join(", ")} WHERE id = ?`,
     ).run(...vals);
+
+    // If this session is linked to an existing OpenClaw agent, merge XP there too.
+    if (linkedAgentId && xpDelta > 0) {
+      db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(
+        xpDelta,
+        linkedAgentId,
+      );
+    }
+
     const updated = db
       .prepare("SELECT * FROM dispatched_sessions WHERE id = ?")
-      .get(existing.id as string);
+      .get(existing.id as string) as Record<string, unknown>;
+
+    // Backfill previously accumulated dispatched XP into linked agent once.
+    if (linkedAgentId && !hadLinkedAgent) {
+      const carry = Number(existing.stats_xp || 0);
+      if (carry > 0) {
+        db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(carry, linkedAgentId);
+        db.prepare("UPDATE dispatched_sessions SET stats_xp = 0 WHERE id = ?").run(existing.id as string);
+        updated.stats_xp = 0;
+      }
+    }
+
     broadcast("dispatched_session_update", updated);
+    if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
     return res.json(updated);
   }
 
   // New session
   const id = crypto.randomUUID();
+  const linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
   db.prepare(
-    `INSERT INTO dispatched_sessions (id, session_key, name, model, status, session_info, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dispatched_sessions (id, session_key, name, model, status, session_info, linked_agent_id, stats_xp, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     session_key,
@@ -118,12 +237,22 @@ router.post("/api/hook/session", (req, res) => {
     model ?? null,
     status ?? "working",
     session_info ?? null,
+    linkedAgentId,
+    0,
     Date.now(),
   );
+
+  if (linkedAgentId && xpDelta > 0) {
+    db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(xpDelta, linkedAgentId);
+  } else if (xpDelta > 0) {
+    db.prepare("UPDATE dispatched_sessions SET stats_xp = stats_xp + ? WHERE id = ?").run(xpDelta, id);
+  }
+
   const session = db
     .prepare("SELECT * FROM dispatched_sessions WHERE id = ?")
-    .get(id);
+    .get(id) as Record<string, unknown>;
   broadcast("dispatched_session_new", session);
+  if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
   res.status(201).json(session);
 });
 
@@ -139,6 +268,9 @@ router.delete("/api/hook/session/:sessionKey", (req, res) => {
     "UPDATE dispatched_sessions SET status = 'disconnected', last_seen_at = ? WHERE id = ?",
   ).run(Date.now(), row.id as string);
   broadcast("dispatched_session_disconnect", { id: row.id });
+  if (row.linked_agent_id) {
+    emitLinkedAgentStatus(String(row.linked_agent_id));
+  }
   res.json({ ok: true });
 });
 

@@ -153,12 +153,13 @@ export function runOfficeTickerStep(ctx: OfficeTickerContext): void {
     sprite.position.y = baseY;
 
     if (status === "working") {
-      if (tick % 10 === 0) {
+      // Stronger working FX (2~3x): more frequent spawn, bigger particles, longer life.
+      if (tick % 4 === 0) {
         const particle = new Graphics();
-        const colors = [0x55aaff, 0x55ff88, 0xffaa33, 0xff5577, 0xaa77ff];
-        particle.star(0, 0, 4, 2, 1, 0).fill(colors[Math.floor(Math.random() * colors.length)]);
-        particle.position.set(baseX + (Math.random() - 0.5) * 24, baseY - 16 - Math.random() * 8);
-        (particle as any)._vy = -0.4 - Math.random() * 0.3;
+        const colors = [0x55aaff, 0x55ff88, 0xffaa33, 0xff5577, 0xaa77ff, 0x7dd3fc, 0x34d399];
+        particle.star(0, 0, 5, 2.8, 1.3, 0).fill(colors[Math.floor(Math.random() * colors.length)]);
+        particle.position.set(baseX + (Math.random() - 0.5) * 30, baseY - 18 - Math.random() * 11);
+        (particle as any)._vy = -0.55 - Math.random() * 0.4;
         (particle as any)._life = 0;
         particles.addChild(particle);
       }
@@ -167,11 +168,11 @@ export function runOfficeTickerStep(ctx: OfficeTickerContext): void {
         const particle = particles.children[i] as any;
         if (particle._sweat) continue;
         particle._life++;
-        particle.position.y += particle._vy ?? -0.4;
-        particle.position.x += Math.sin(particle._life * 0.2) * 0.2;
-        particle.alpha = Math.max(0, 1 - particle._life * 0.03);
-        particle.scale.set(Math.max(0.1, 1 - particle._life * 0.02));
-        if (particle._life > 35) {
+        particle.position.y += particle._vy ?? -0.45;
+        particle.position.x += Math.sin(particle._life * 0.24) * 0.35;
+        particle.alpha = Math.max(0, 1 - particle._life * 0.02);
+        particle.scale.set(Math.max(0.16, 1.2 - particle._life * 0.018));
+        if (particle._life > 58) {
           particles.removeChild(particle);
           particle.destroy();
         }

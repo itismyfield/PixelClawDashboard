@@ -4,15 +4,20 @@ import { broadcast } from "../ws.js";
 
 const router = Router();
 
-// List active dispatched sessions
-router.get("/api/dispatched-sessions", (_req, res) => {
+// List active dispatched sessions (default: unmerged only)
+router.get("/api/dispatched-sessions", (req, res) => {
   const db = getDb();
+  const includeMerged = String(req.query.includeMerged || "0") === "1";
+  const where = includeMerged
+    ? "WHERE ds.status != 'disconnected'"
+    : "WHERE ds.status != 'disconnected' AND ds.linked_agent_id IS NULL";
+
   const rows = db
     .prepare(
       `SELECT ds.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
        FROM dispatched_sessions ds
        LEFT JOIN departments d ON ds.department_id = d.id
-       WHERE ds.status != 'disconnected'
+       ${where}
        ORDER BY ds.connected_at DESC`,
     )
     .all();

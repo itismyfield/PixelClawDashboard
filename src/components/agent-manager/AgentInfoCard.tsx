@@ -5,7 +5,8 @@ import AgentAvatar from "../AgentAvatar";
 import { STATUS_DOT } from "./constants";
 import type { Translator } from "./types";
 import * as api from "../../api";
-import type { CronJob, AgentSkill } from "../../api/client";
+import type { CronJob, AgentSkill, DiscordBinding } from "../../api/client";
+import type { DispatchedSession } from "../../types";
 
 interface AgentInfoCardProps {
   agent: Agent;
@@ -52,6 +53,35 @@ function timeAgo(ms: number, isKo: boolean): string {
   return isKo ? `${days}일 전` : `${days}d ago`;
 }
 
+// Gamification: XP-based level system
+const LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1600, 2500, 4000, 6000, 10000];
+const LEVEL_TITLES_KO = ["신입", "수습", "사원", "주임", "대리", "과장", "차장", "부장", "이사", "사장"];
+const LEVEL_TITLES_EN = ["Newbie", "Trainee", "Staff", "Associate", "Sr. Associate", "Manager", "Asst. Dir.", "Director", "VP", "President"];
+
+export function getAgentLevel(xp: number) {
+  let level = 1;
+  for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (xp >= LEVEL_THRESHOLDS[i]) { level = i + 1; break; }
+  }
+  const nextThreshold = LEVEL_THRESHOLDS[Math.min(level, LEVEL_THRESHOLDS.length - 1)] ?? Infinity;
+  const currentThreshold = LEVEL_THRESHOLDS[level - 1] ?? 0;
+  const progress = nextThreshold === Infinity ? 1 : (xp - currentThreshold) / (nextThreshold - currentThreshold);
+  return { level, progress: Math.min(1, progress), nextThreshold, currentThreshold };
+}
+
+export function getAgentTitle(xp: number, isKo: boolean) {
+  const { level } = getAgentLevel(xp);
+  const idx = Math.min(level - 1, LEVEL_TITLES_KO.length - 1);
+  return isKo ? LEVEL_TITLES_KO[idx] : LEVEL_TITLES_EN[idx];
+}
+
+const ACTIVITY_SOURCE_COLORS: Record<string, string> = {
+  openclaw: "#34d399",
+  claude: "#a78bfa",
+  both: "#fbbf24",
+  idle: "#64748b",
+};
+
 export default function AgentInfoCard({
   agent,
   spriteMap,
@@ -68,7 +98,10 @@ export default function AgentInfoCard({
   const [sharedSkills, setSharedSkills] = useState<AgentSkill[]>([]);
   const [loadingCron, setLoadingCron] = useState(true);
   const [loadingSkills, setLoadingSkills] = useState(true);
+  const [loadingClaudeSessions, setLoadingClaudeSessions] = useState(true);
+  const [claudeSessions, setClaudeSessions] = useState<DispatchedSession[]>([]);
   const [showSharedSkills, setShowSharedSkills] = useState(false);
+  const [discordBindings, setDiscordBindings] = useState<DiscordBinding[]>([]);
   const [editingAlias, setEditingAlias] = useState(false);
   const [aliasValue, setAliasValue] = useState(agent.alias ?? "");
   const [savingAlias, setSavingAlias] = useState(false);
@@ -113,6 +146,15 @@ export default function AgentInfoCard({
       setSharedSkills(data.sharedSkills);
       setLoadingSkills(false);
     }).catch(() => setLoadingSkills(false));
+
+    api.getAgentDispatchedSessions(agent.id).then((rows) => {
+      setClaudeSessions(rows);
+      setLoadingClaudeSessions(false);
+    }).catch(() => setLoadingClaudeSessions(false));
+
+    api.getDiscordBindings().then((bindings) => {
+      setDiscordBindings(bindings.filter((b) => b.agentId === agent.id));
+    }).catch(() => {});
   }, [agent.id]);
 
   const statusLabel: Record<string, { ko: string; en: string }> = {
@@ -121,6 +163,19 @@ export default function AgentInfoCard({
     break: { ko: "휴식", en: "Break" },
     offline: { ko: "오프라인", en: "Offline" },
   };
+
+  const sourceLabel = (() => {
+    switch (agent.activity_source) {
+      case "openclaw":
+        return tr("OpenClaw 작업", "OpenClaw");
+      case "claude":
+        return tr("Claude 작업", "Claude");
+      case "both":
+        return tr("OpenClaw+Claude", "OpenClaw+Claude");
+      default:
+        return null;
+    }
+  })();
 
   return (
     <div
@@ -209,6 +264,14 @@ export default function AgentInfoCard({
               >
                 {isKo ? statusLabel[agent.status]?.ko : statusLabel[agent.status]?.en}
               </span>
+              {agent.status === "working" && sourceLabel && (
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(99,102,241,0.18)", color: "#a5b4fc" }}
+                >
+                  {sourceLabel}
+                </span>
+              )}
               {dept && (
                 <span
                   className="text-[10px] px-2 py-0.5 rounded-full"
@@ -271,6 +334,85 @@ export default function AgentInfoCard({
             </div>
           </div>
         )}
+
+        {/* Discord Bindings */}
+        {discordBindings.length > 0 && (
+          <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+            <div
+              className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+              style={{ color: "var(--th-text-muted)" }}
+            >
+              {tr("Discord 채널", "Discord Channels")} ({discordBindings.length})
+            </div>
+            <div className="space-y-1">
+              {discordBindings.map((b) => (
+                <div
+                  key={b.channelId}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+                  style={{ background: "var(--th-bg-surface)" }}
+                >
+                  <span className="text-sm">💬</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium truncate" style={{ color: "var(--th-text-primary)" }}>
+                      {b.channelName || b.channelId}
+                    </div>
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(88,101,242,0.15)", color: "#7289da" }}>
+                    {b.channelId.startsWith("dm:") ? "DM" : "Channel"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Linked Claude Sessions */}
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("연결된 Claude 세션", "Linked Claude Sessions")}
+            {!loadingClaudeSessions && ` (${claudeSessions.length})`}
+          </div>
+          {loadingClaudeSessions ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("불러오는 중...", "Loading...")}
+            </div>
+          ) : claudeSessions.length === 0 ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("연결된 Claude 세션 없음", "No linked Claude sessions")}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {claudeSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-start justify-between gap-2 px-2.5 py-2 rounded-lg"
+                  style={{ background: "var(--th-bg-surface)" }}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium truncate" style={{ color: "var(--th-text-primary)" }}>
+                      {s.name || s.session_key}
+                    </div>
+                    <div className="text-[10px] truncate mt-0.5" style={{ color: "var(--th-text-muted)" }}>
+                      {s.session_info || s.model || "Claude session"}
+                    </div>
+                  </div>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                    style={{
+                      background: s.status === "working" ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.15)",
+                      color: s.status === "working" ? "#34d399" : "#94a3b8",
+                    }}
+                  >
+                    {s.status === "working" ? tr("작업중", "Working") : tr("대기", "Idle")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Cron Jobs */}
         <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
@@ -417,31 +559,57 @@ export default function AgentInfoCard({
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer with Level */}
         <div
-          className="flex items-center justify-between px-5 py-3"
+          className="px-5 py-3 space-y-2"
           style={{ borderTop: "1px solid var(--th-card-border)" }}
         >
-          <div className="flex items-center gap-3">
-            {agent.openclaw_id && (
-              <span
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                style={{ background: "var(--th-bg-surface)", color: "var(--th-text-muted)" }}
-              >
-                {agent.openclaw_id}
+          {/* Level progress bar */}
+          {(() => {
+            const lv = getAgentLevel(agent.stats_xp);
+            const title = getAgentTitle(agent.stats_xp, isKo);
+            return (
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                  style={{ background: "rgba(99,102,241,0.18)", color: "#a5b4fc" }}
+                >
+                  Lv.{lv.level} {title}
+                </span>
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--th-bg-surface)" }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${Math.round(lv.progress * 100)}%`, background: "linear-gradient(90deg, #6366f1, #a78bfa)" }}
+                  />
+                </div>
+                <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+                  {agent.stats_xp} / {lv.nextThreshold === Infinity ? "MAX" : lv.nextThreshold} XP
+                </span>
+              </div>
+            );
+          })()}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {agent.openclaw_id && (
+                <span
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: "var(--th-bg-surface)", color: "var(--th-text-muted)" }}
+                >
+                  {agent.openclaw_id}
+                </span>
+              )}
+              <span className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                {tr("완료", "Done")} {agent.stats_tasks_done}
               </span>
-            )}
-            <span className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
-              XP {agent.stats_xp} | {tr("완료", "Done")} {agent.stats_tasks_done}
-            </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-[var(--th-bg-surface-hover)]"
+              style={{ border: "1px solid var(--th-input-border)", color: "var(--th-text-secondary)" }}
+            >
+              {tr("닫기", "Close")}
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-[var(--th-bg-surface-hover)]"
-            style={{ border: "1px solid var(--th-input-border)", color: "var(--th-text-secondary)" }}
-          >
-            {tr("닫기", "Close")}
-          </button>
         </div>
       </div>
     </div>

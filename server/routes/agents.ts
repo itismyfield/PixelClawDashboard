@@ -8,9 +8,40 @@ import { broadcast } from "../ws.js";
 
 const router = Router();
 
+function hydrateActivitySource<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((row) => {
+    const claudeWorking = Number(row.claude_working_count || 0);
+    const baseStatus = String(row.status || "idle");
+
+    let activitySource = "idle";
+    if (baseStatus === "working" && claudeWorking > 0) activitySource = "both";
+    else if (claudeWorking > 0) activitySource = "claude";
+    else if (baseStatus === "working") activitySource = "openclaw";
+
+    const effectiveStatus = claudeWorking > 0 ? "working" : baseStatus;
+
+    return {
+      ...row,
+      status: effectiveStatus,
+      activity_source: activitySource,
+      claude_working_count: claudeWorking,
+    } as T;
+  });
+}
+
 router.get("/api/agents", (req, res) => {
   const db = getDb();
   const officeId = req.query.officeId as string | undefined;
+
+  const claudeJoin = `
+    LEFT JOIN (
+      SELECT linked_agent_id as aid,
+             SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+      FROM dispatched_sessions
+      WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
+      GROUP BY linked_agent_id
+    ) ds ON ds.aid = a.id
+  `;
 
   let rows;
   if (officeId) {
@@ -18,37 +49,49 @@ router.get("/api/agents", (req, res) => {
     rows = db
       .prepare(
         `SELECT a.*, oa.department_id as office_department_id,
-                d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+                d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
+                COALESCE(ds.claude_working_count, 0) AS claude_working_count
          FROM office_agents oa
          JOIN agents a ON a.id = oa.agent_id
          LEFT JOIN departments d ON d.id = oa.department_id
+         ${claudeJoin}
          WHERE oa.office_id = ?
          ORDER BY a.created_at`,
       )
-      .all(officeId);
+      .all(officeId) as Array<Record<string, unknown>>;
   } else {
     rows = db
       .prepare(
-        `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+        `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
+                COALESCE(ds.claude_working_count, 0) AS claude_working_count
          FROM agents a LEFT JOIN departments d ON a.department_id = d.id
+         ${claudeJoin}
          ORDER BY a.created_at`,
       )
-      .all();
+      .all() as Array<Record<string, unknown>>;
   }
-  res.json({ agents: rows });
+  res.json({ agents: hydrateActivitySource(rows) });
 });
 
 router.get("/api/agents/:id", (req, res) => {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
+              COALESCE(ds.claude_working_count, 0) AS claude_working_count
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
+       LEFT JOIN (
+         SELECT linked_agent_id as aid,
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+         FROM dispatched_sessions
+         WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
+         GROUP BY linked_agent_id
+       ) ds ON ds.aid = a.id
        WHERE a.id = ?`,
     )
-    .get(req.params.id);
+    .get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: "not_found" });
-  res.json(row);
+  res.json(hydrateActivitySource([row])[0]);
 });
 
 router.post("/api/agents", (req, res) => {
@@ -128,13 +171,22 @@ router.patch("/api/agents/:id", (req, res) => {
 
   const updated = db
     .prepare(
-      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
+      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
+              COALESCE(ds.claude_working_count, 0) AS claude_working_count
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
+       LEFT JOIN (
+         SELECT linked_agent_id as aid,
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+         FROM dispatched_sessions
+         WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
+         GROUP BY linked_agent_id
+       ) ds ON ds.aid = a.id
        WHERE a.id = ?`,
     )
-    .get(req.params.id);
-  broadcast("agent_status", updated);
-  res.json(updated);
+    .get(req.params.id) as Record<string, unknown>;
+  const hydrated = hydrateActivitySource([updated])[0];
+  broadcast("agent_status", hydrated);
+  res.json(hydrated);
 });
 
 router.delete("/api/agents/:id", (req, res) => {
@@ -181,6 +233,23 @@ router.get("/api/agents/:id/cron", (req, res) => {
 });
 
 // ── Skills for an agent ──
+router.get("/api/agents/:id/dispatched-sessions", (req, res) => {
+  const db = getDb();
+  const agent = db
+    .prepare("SELECT * FROM agents WHERE id = ?")
+    .get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: "not_found" });
+
+  const sessions = db
+    .prepare(
+      `SELECT * FROM dispatched_sessions
+       WHERE linked_agent_id = ? AND status != 'disconnected'
+       ORDER BY last_seen_at DESC, connected_at DESC`,
+    )
+    .all(req.params.id);
+  res.json({ sessions });
+});
+
 router.get("/api/agents/:id/skills", (req, res) => {
   const db = getDb();
   const agent = db
@@ -251,6 +320,31 @@ router.get("/api/agents/:id/skills", (req, res) => {
     });
   } catch {
     res.json({ skills: [], shared: true });
+  }
+});
+
+// ── Discord channel mapping (reads openclaw.json bindings) ──
+router.get("/api/discord-bindings", (_req, res) => {
+  try {
+    const ocPath = nodePath.join(os.homedir(), ".openclaw", "openclaw.json");
+    if (!fs.existsSync(ocPath)) return res.json({ bindings: [] });
+    const oc = JSON.parse(fs.readFileSync(ocPath, "utf-8"));
+    const bindings: Array<{ agentId: string; channelId: string; channelName?: string }> = [];
+    const discordChannels = oc?.channels?.discord;
+    if (discordChannels?.bindings && Array.isArray(discordChannels.bindings)) {
+      for (const b of discordChannels.bindings) {
+        if (!b.agentId) continue;
+        if (b.channelId) {
+          bindings.push({ agentId: b.agentId, channelId: b.channelId, channelName: b.channelName });
+        }
+        if (b.dmUserId) {
+          bindings.push({ agentId: b.agentId, channelId: `dm:${b.dmUserId}`, channelName: "DM" });
+        }
+      }
+    }
+    res.json({ bindings });
+  } catch {
+    res.json({ bindings: [] });
   }
 });
 

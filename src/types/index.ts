@@ -39,6 +39,8 @@ export type AgentStatus = "idle" | "working" | "break" | "offline";
 export type CliProvider = "claude" | "codex" | "gemini" | "opencode" | "copilot" | "antigravity" | "api";
 export type MeetingReviewDecision = "reviewing" | "approved" | "hold";
 
+export type ActivitySource = "idle" | "openclaw" | "claude" | "both";
+
 export interface Agent {
   id: string;
   name: string;
@@ -53,6 +55,8 @@ export interface Agent {
   cli_provider?: CliProvider;
   openclaw_id?: string | null;
   session_info?: string | null;
+  activity_source?: ActivitySource;
+  claude_working_count?: number;
   workflow_pack_key?: string | null;
   department_name?: string | null;
   department_name_ko?: string | null;
@@ -393,7 +397,7 @@ export interface CompanySettings {
   autoUpdateEnabled?: boolean;
   autoUpdateNoticePending?: boolean;
   oauthAutoSwap?: boolean;
-  theme: "dark" | "light";
+  theme: "dark" | "light" | "auto";
   language: UiLanguage;
   defaultProvider: CliProvider;
   officeWorkflowPack?: WorkflowPackKey;

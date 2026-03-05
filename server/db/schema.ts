@@ -96,18 +96,58 @@ export function initSchema(db: DatabaseSync): void {
       ON skill_usage_events (skill_name, used_at DESC);
     CREATE INDEX IF NOT EXISTS idx_skill_usage_agent_time
       ON skill_usage_events (agent_openclaw_id, used_at DESC);
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_type TEXT NOT NULL DEFAULT 'ceo' CHECK(sender_type IN ('ceo','agent','system')),
+      sender_id TEXT DEFAULT NULL,
+      receiver_type TEXT NOT NULL DEFAULT 'agent' CHECK(receiver_type IN ('agent','department','all')),
+      receiver_id TEXT DEFAULT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      message_type TEXT NOT NULL DEFAULT 'chat' CHECK(message_type IN ('chat','announcement','directive','report','status_update')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages (receiver_type, receiver_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages (sender_type, sender_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS daily_activity (
+      agent_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      tasks_done INTEGER NOT NULL DEFAULT 0,
+      xp_earned INTEGER NOT NULL DEFAULT 0,
+      skill_calls INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (agent_id, date)
+    );
+
+    CREATE TABLE IF NOT EXISTS achievements (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT NULL,
+      earned_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_achievements_agent ON achievements (agent_id);
   `);
 
   migrate(db);
 
   // Reset stale working agents to idle on startup
-  // (gateway restarts can cause "sent" events to be lost, leaving agents stuck in working)
   const staleCount = (
     db.prepare("SELECT COUNT(*) as cnt FROM agents WHERE status = 'working'").get() as { cnt: number }
   ).cnt;
   if (staleCount > 0) {
     db.exec("UPDATE agents SET status = 'idle' WHERE status = 'working'");
     console.log(`[PCD] Reset ${staleCount} stale working agent(s) to idle`);
+  }
+
+  // Reset stale dispatched sessions to disconnected on startup
+  const staleDispatched = (
+    db.prepare("SELECT COUNT(*) as cnt FROM dispatched_sessions WHERE status != 'disconnected'").get() as { cnt: number }
+  ).cnt;
+  if (staleDispatched > 0) {
+    db.exec("UPDATE dispatched_sessions SET status = 'disconnected' WHERE status != 'disconnected'");
+    console.log(`[PCD] Reset ${staleDispatched} stale dispatched session(s) to disconnected`);
   }
 }
 
@@ -138,6 +178,22 @@ function migrate(db: DatabaseSync): void {
     .all() as Array<{ name: string }>;
   if (!agentCols.some((c) => c.name === "alias")) {
     db.exec("ALTER TABLE agents ADD COLUMN alias TEXT DEFAULT NULL");
+  }
+
+  // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)
+  const linkedXpRows = db
+    .prepare(
+      "SELECT id, linked_agent_id, stats_xp FROM dispatched_sessions WHERE linked_agent_id IS NOT NULL AND stats_xp > 0",
+    )
+    .all() as Array<{ id: string; linked_agent_id: string; stats_xp: number }>;
+  if (linkedXpRows.length > 0) {
+    const addXp = db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?");
+    const clearXp = db.prepare("UPDATE dispatched_sessions SET stats_xp = 0 WHERE id = ?");
+    for (const row of linkedXpRows) {
+      addXp.run(row.stats_xp, row.linked_agent_id);
+      clearXp.run(row.id);
+    }
+    console.log(`[PCD] Migrated dispatched XP into linked agents: ${linkedXpRows.length} row(s)`);
   }
 
   // If no offices exist and there are agents or departments, seed default office
