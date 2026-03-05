@@ -1,4 +1,4 @@
-import { type Container } from "pixi.js";
+import { type Container, Graphics } from "pixi.js";
 import { buildSpriteMap } from "../AgentAvatar";
 import {
   BREAK_ROOM_GAP,
@@ -212,4 +212,34 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     prevAssignRef,
     setSceneRevision,
   });
+
+  // E4: Time-of-day atmosphere overlay
+  {
+    const hour = new Date().getHours();
+    let tintColor = 0x000000;
+    let tintAlpha = 0;
+    if (hour >= 22 || hour < 5) {
+      // Night: deep blue tint
+      tintColor = 0x0a1628;
+      tintAlpha = isDark ? 0.12 : 0.08;
+    } else if (hour >= 5 && hour < 7) {
+      // Dawn: warm orange
+      tintColor = 0xffa040;
+      tintAlpha = isDark ? 0.04 : 0.03;
+    } else if (hour >= 17 && hour < 20) {
+      // Sunset: amber
+      tintColor = 0xff8c30;
+      tintAlpha = isDark ? 0.05 : 0.04;
+    } else if (hour >= 20 && hour < 22) {
+      // Evening: indigo
+      tintColor = 0x1a1a40;
+      tintAlpha = isDark ? 0.08 : 0.05;
+    }
+    if (tintAlpha > 0) {
+      const overlay = new Graphics();
+      overlay.rect(0, 0, OFFICE_W, totalH).fill({ color: tintColor, alpha: tintAlpha });
+      overlay.eventMode = "none";
+      app.stage.addChild(overlay);
+    }
+  }
 }

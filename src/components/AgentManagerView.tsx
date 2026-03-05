@@ -44,6 +44,7 @@ export default function AgentManagerView({
 
   // ── Agent tab state ──
   const [deptTab, setDeptTab] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -78,12 +79,16 @@ export default function AgentManagerView({
     if (deptTab !== "all") {
       filtered = filtered.filter((a) => a.department_id === deptTab);
     }
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((a) => a.status === statusFilter);
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       filtered = filtered.filter(
         (a) =>
           a.name.toLowerCase().includes(q) ||
           a.name_ko.toLowerCase().includes(q) ||
+          (a.alias && a.alias.toLowerCase().includes(q)) ||
           a.avatar_emoji.includes(q),
       );
     }
@@ -94,7 +99,7 @@ export default function AgentManagerView({
       if (sa !== sb) return sa - sb;
       return a.name.localeCompare(b.name);
     });
-  }, [agents, deptTab, search]);
+  }, [agents, deptTab, statusFilter, search]);
 
   // ── Agent CRUD ──
   const openCreateAgent = useCallback(() => {
@@ -235,7 +240,10 @@ export default function AgentManagerView({
   }, []);
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full space-y-4">
+    <div
+      className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full space-y-4 pb-40"
+      style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" style={{ color: "var(--th-text-heading)" }}>
@@ -293,6 +301,8 @@ export default function AgentManagerView({
             setDeptTab={setDeptTab}
             search={search}
             setSearch={setSearch}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
             sortedAgents={sortedAgents}
             spriteMap={spriteMap}
             confirmDeleteId={confirmDeleteId}

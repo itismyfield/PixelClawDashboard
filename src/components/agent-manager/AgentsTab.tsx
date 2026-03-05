@@ -14,6 +14,8 @@ interface AgentsTabProps {
   setDeptTab: (deptId: string) => void;
   search: string;
   setSearch: (next: string) => void;
+  statusFilter: string;
+  setStatusFilter: (next: string) => void;
   sortedAgents: Agent[];
   spriteMap: Map<string, number>;
   confirmDeleteId: string | null;
@@ -37,6 +39,8 @@ export default function AgentsTab({
   setDeptTab,
   search,
   setSearch,
+  statusFilter,
+  setStatusFilter,
   sortedAgents,
   spriteMap,
   confirmDeleteId,
@@ -116,7 +120,23 @@ export default function AgentsTab({
             </button>
           );
         })}
-        <div className="ml-auto pb-1">
+        <div className="ml-auto pb-1 flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-2 py-1.5 rounded-lg text-xs outline-none"
+            style={{
+              background: "var(--th-input-bg)",
+              border: "1px solid var(--th-input-border)",
+              color: "var(--th-text-primary)",
+            }}
+          >
+            <option value="all">{tr("상태: 전체", "Status: All")}</option>
+            <option value="working">{tr("근무 중", "Working")}</option>
+            <option value="idle">{tr("대기", "Idle")}</option>
+            <option value="break">{tr("휴식", "Break")}</option>
+            <option value="offline">{tr("오프라인", "Offline")}</option>
+          </select>
           <input
             type="text"
             placeholder={`${tr("검색", "Search")}...`}

@@ -229,6 +229,30 @@ export function syncSkillUsageOnce(): number {
   if (inserted > 0) {
     console.log(`[PCD] skill-sync: inserted ${inserted} event(s)`);
     broadcast("skill_usage_update", { inserted });
+
+    // Update daily_activity from recent skill_usage_events
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const dayStart = new Date(today).getTime();
+      const dayEnd = dayStart + 86400000;
+      const dailyRows = db.prepare(
+        `SELECT agent_openclaw_id, COUNT(*) as cnt
+         FROM skill_usage_events
+         WHERE agent_openclaw_id IS NOT NULL AND used_at >= ? AND used_at < ?
+         GROUP BY agent_openclaw_id`,
+      ).all(dayStart, dayEnd) as Array<{ agent_openclaw_id: string; cnt: number }>;
+
+      const upsertDaily = db.prepare(
+        `INSERT INTO daily_activity (agent_id, date, skill_calls)
+         VALUES (?, ?, ?)
+         ON CONFLICT(agent_id, date) DO UPDATE SET skill_calls = excluded.skill_calls`,
+      );
+      for (const row of dailyRows) {
+        upsertDaily.run(row.agent_openclaw_id, today, row.cnt);
+      }
+    } catch {
+      // ignore daily_activity update errors
+    }
   }
 
   return inserted;

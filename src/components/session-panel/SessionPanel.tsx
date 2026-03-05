@@ -25,7 +25,10 @@ export function SessionPanel({ sessions, departments, agents, onAssign }: Props)
   const [infoSession, setInfoSession] = useState<DispatchedSession | null>(null);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div
+      className="p-6 max-w-5xl mx-auto h-full overflow-auto pb-40"
+      style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
+    >
       <div className="flex items-center gap-3 mb-6">
         <Monitor className="text-indigo-400" size={24} />
         <h1 className="text-2xl font-bold">파견 인력</h1>
@@ -141,8 +144,8 @@ function SessionCard({
     <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
       <div className="flex items-start gap-3">
         {/* Avatar + status */}
-        <div className="relative cursor-pointer" onClick={onSelect}>
-          <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-700 flex-shrink-0">
+        <div className="relative cursor-pointer shrink-0" onClick={onSelect}>
+          <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-700">
             <img
               src={`/sprites/${sessionSpriteNum(s)}-D-1.png`}
               alt={s.name || ""}
@@ -157,65 +160,65 @@ function SessionCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium cursor-pointer hover:text-indigo-400 transition-colors" onClick={onSelect}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-medium cursor-pointer hover:text-indigo-400 transition-colors truncate" onClick={onSelect}>
               {s.name || `Session ${s.session_key.slice(0, 8)}`}
             </span>
-            <Wifi size={14} className="text-emerald-400" />
+            <Wifi size={14} className="text-emerald-400 shrink-0" />
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 mt-1">
             {s.model && (
-              <span className="bg-gray-700 px-1.5 py-0.5 rounded">
+              <span className="bg-gray-700 px-1.5 py-0.5 rounded shrink-0">
                 {s.model}
               </span>
             )}
             {s.stats_xp > 0 && (
-              <span className="bg-amber-900/50 text-amber-300 px-1.5 py-0.5 rounded">
+              <span className="bg-amber-900/50 text-amber-300 px-1.5 py-0.5 rounded shrink-0">
                 ⭐ {s.stats_xp} XP
               </span>
             )}
             {s.session_info && (
-              <span className="truncate max-w-[300px]">{s.session_info}</span>
+              <span className="truncate max-w-full sm:max-w-[300px]">{s.session_info}</span>
             )}
           </div>
 
           {s.connected_at && (
             <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-              <Clock size={10} />
-              <span>접속: {formatTimeAgo(s.connected_at)}</span>
+              <Clock size={10} className="shrink-0" />
+              <span className="whitespace-nowrap">접속: {formatTimeAgo(s.connected_at)}</span>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Department assignment */}
-        <div className="flex items-center gap-2">
-          <MapPin size={14} className="text-gray-500" />
-          <select
-            value={selectedDept}
-            onChange={(e) => setSelectedDept(e.target.value)}
-            className="bg-gray-700 text-sm rounded px-2 py-1 border border-gray-600 text-gray-200"
-          >
-            <option value="">미배정</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.icon} {d.name_ko || d.name}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleAssign}
-            disabled={assigning || selectedDept === (s.department_id || "")}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded transition-colors"
-          >
-            {assigning ? "..." : "배치"}
-          </button>
-        </div>
+      {/* Department assignment (mobile-safe row) */}
+      <div className="mt-3 flex items-center gap-2 flex-wrap pl-0 sm:pl-11">
+        <MapPin size={14} className="text-gray-500 shrink-0" />
+        <select
+          value={selectedDept}
+          onChange={(e) => setSelectedDept(e.target.value)}
+          className="bg-gray-700 text-sm rounded px-2 py-1 border border-gray-600 text-gray-200 flex-1 min-w-[120px]"
+        >
+          <option value="">미배정</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.icon} {d.name_ko || d.name}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleAssign}
+          disabled={assigning || selectedDept === (s.department_id || "")}
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded transition-colors shrink-0"
+        >
+          {assigning ? "..." : "배치"}
+        </button>
       </div>
 
       {/* Current department badge */}
       {s.department_id && s.department_name_ko && (
-        <div className="mt-2 ml-11">
+        <div className="mt-2 sm:ml-11">
           <span
             className="text-xs px-2 py-0.5 rounded-full text-white"
             style={{ backgroundColor: s.department_color || "#6366f1" }}

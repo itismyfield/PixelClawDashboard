@@ -139,6 +139,32 @@ export function buildDepartmentRooms({
     signTxt.position.set(rx + roomW / 2, ry + 5);
     room.addChild(signTxt);
 
+    // E3: Department working ratio progress bar
+    {
+      const workingCount = deptAgents.filter((a) => a.status === "working").length;
+      const totalCount = deptAgents.length;
+      const ratio = totalCount > 0 ? workingCount / totalCount : 0;
+      const barW = Math.min(signW - 4, 60);
+      const barH = 3;
+      const barX = rx + roomW / 2 - barW / 2;
+      const barY = ry + 14;
+      const barG = new Graphics();
+      barG.roundRect(barX, barY, barW, barH, 1.5).fill({ color: 0x000000, alpha: 0.15 });
+      if (ratio > 0) {
+        const fillW = Math.max(2, barW * ratio);
+        const fillColor = ratio >= 0.7 ? 0x34d399 : ratio >= 0.3 ? 0xfbbf24 : 0xf87171;
+        barG.roundRect(barX, barY, fillW, barH, 1.5).fill(fillColor);
+      }
+      room.addChild(barG);
+      const ratioTxt = new Text({
+        text: `${workingCount}/${totalCount}`,
+        style: new TextStyle({ fontSize: 6, fill: 0xffffff, fontFamily: "monospace", dropShadow: { alpha: 0.3, distance: 1, color: 0x000000 } }),
+      });
+      ratioTxt.anchor.set(0.5, 0);
+      ratioTxt.position.set(rx + roomW / 2, barY + barH + 1);
+      room.addChild(ratioTxt);
+    }
+
     drawCeilingAndDecor(room, rx, ry, roomW, roomH, theme, deptIdx, wallClocksRef);
 
     if (deptAgents.length > 0) {

@@ -15,6 +15,18 @@ import {
   DashboardDeptAndSquad,
   type DepartmentPerformance,
 } from "./dashboard/OpsSections";
+import {
+  MachineStatusWidget,
+  HeatmapWidget,
+  CronTimelineWidget,
+  StreakWidget,
+  MvpWidget,
+  SkillTrendWidget,
+  CookingHeartRoleBoardWidget,
+  GitHubIssuesWidget,
+  AchievementWidget,
+  ActivityFeedWidget,
+} from "./dashboard/ExtraWidgets";
 
 interface DashboardPageViewProps {
   stats: DashboardStats | null;
@@ -146,7 +158,10 @@ export default function DashboardPageView({
   const idleAgents = agents.filter((a) => a.status !== "working");
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-6xl mx-auto overflow-auto h-full">
+    <div
+      className="p-4 sm:p-6 space-y-4 max-w-6xl mx-auto overflow-auto h-full pb-40"
+      style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
+    >
       <DashboardHeroHeader
         companyName={settings.companyName}
         time={time}
@@ -261,6 +276,31 @@ export default function DashboardPageView({
           </div>
         )}
       </section>
+
+      {/* Extra Widgets Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <StreakWidget agents={agents} t={t} />
+        <MvpWidget agents={agents} t={t} isKo={language === "ko"} />
+        <MachineStatusWidget t={t} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <HeatmapWidget agents={agents} t={t} />
+        <ActivityFeedWidget agents={agents} t={t} />
+      </div>
+
+      <SkillTrendWidget t={t} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CronTimelineWidget t={t} />
+        <AchievementWidget t={t} />
+      </div>
+
+      {/* CookingHeart & GitHub */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CookingHeartRoleBoardWidget agents={agents} t={t} isKo={language === "ko"} />
+        <GitHubIssuesWidget t={t} />
+      </div>
 
       <DashboardDeptAndSquad
         deptData={deptData}
