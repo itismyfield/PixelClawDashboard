@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,8 @@ interface RoleMapJson {
 interface BotSettingsEntry {
   token?: string;
   provider?: string;
+  last_sessions?: Record<string, string>;
+  last_remotes?: Record<string, string>;
 }
 
 function loadAnnounceToken(): string {
@@ -75,9 +78,7 @@ async function discordRequest<T>(token: string, url: string, init?: RequestInit)
 }
 
 async function resolveCodexBotId(): Promise<string | null> {
-  const botSettingsPath = path.join(os.homedir(), ".remotecc", "bot_settings.json");
-  if (!fs.existsSync(botSettingsPath)) return null;
-  const parsed = JSON.parse(fs.readFileSync(botSettingsPath, "utf-8")) as Record<string, BotSettingsEntry>;
+  const parsed = loadBotSettings();
   const codexToken = Object.values(parsed).find((entry) => entry.provider === "codex")?.token;
   if (!codexToken) return null;
   const me = await discordRequest<{ id: string }>(
@@ -85,6 +86,52 @@ async function resolveCodexBotId(): Promise<string | null> {
     "https://discord.com/api/v10/users/@me",
   );
   return me.id ?? null;
+}
+
+function botSettingsPath(): string {
+  return path.join(os.homedir(), ".remotecc", "bot_settings.json");
+}
+
+function loadBotSettings(): Record<string, BotSettingsEntry> {
+  const settingsPath = botSettingsPath();
+  if (!fs.existsSync(settingsPath)) return {};
+  return JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as Record<string, BotSettingsEntry>;
+}
+
+function saveBotSessionState(
+  entryKey: string,
+  lastSessions: Record<string, string>,
+  lastRemotes: Record<string, string>,
+): void {
+  const python = `
+import json
+import pathlib
+import sys
+
+settings_path = pathlib.Path(sys.argv[1])
+entry_key = sys.argv[2]
+last_sessions = json.loads(sys.argv[3])
+last_remotes = json.loads(sys.argv[4])
+
+data = json.loads(settings_path.read_text())
+entry = data.get(entry_key, {})
+entry["last_sessions"] = last_sessions
+entry["last_remotes"] = last_remotes
+data[entry_key] = entry
+settings_path.write_text(json.dumps(data, indent=2) + "\\n")
+`;
+  execFileSync(
+    "python3",
+    [
+      "-c",
+      python,
+      botSettingsPath(),
+      entryKey,
+      JSON.stringify(lastSessions),
+      JSON.stringify(lastRemotes),
+    ],
+    { stdio: "pipe" },
+  );
 }
 
 async function ensureCodexBotAccess(token: string, channelId: string, botId: string): Promise<void> {
@@ -191,6 +238,25 @@ async function main(): Promise<void> {
   const reused: Array<{ source: string; target: string; id: string; roleId: string }> = [];
   const skipped: Array<{ agent: string; reason: string }> = [];
   const updatedAgents: Array<{ agentId: string; openclawId: string; codexChannelId: string }> = [];
+  const updatedCategoryAccess: string[] = [];
+  const grantedCategoryIds = new Set<string>();
+  const updatedBotSettings: Array<{ channelId: string; path: string; clearedRemote: boolean }> = [];
+
+  const botSettings = loadBotSettings();
+  const codexMatch = Object.entries(botSettings).find(([, entry]) => entry.provider === "codex");
+  const codexKey = codexMatch?.[0] ?? null;
+  const codexEntry = codexMatch?.[1] ?? null;
+  const claudeEntries = Object.values(botSettings).filter((entry) => entry.provider === "claude");
+  const fallbackLocalPath =
+    Object.values(codexEntry?.last_sessions ?? {}).find((value) => path.isAbsolute(value))
+    ?? claudeEntries
+      .flatMap((entry) => Object.values(entry.last_sessions ?? {}))
+      .find((value) => path.isAbsolute(value))
+    ?? null;
+  if (codexEntry) {
+    codexEntry.last_sessions ??= {};
+    codexEntry.last_remotes ??= {};
+  }
 
   const candidates = agents
     .filter((agent) => {
@@ -265,6 +331,11 @@ async function main(): Promise<void> {
     }
 
     if (codexBotId) {
+      if (ccChannel.parent_id && !grantedCategoryIds.has(ccChannel.parent_id)) {
+        await ensureCodexBotAccess(token, ccChannel.parent_id, codexBotId);
+        grantedCategoryIds.add(ccChannel.parent_id);
+        updatedCategoryAccess.push(ccChannel.parent_id);
+      }
       await ensureCodexBotAccess(token, cdxChannel.id, codexBotId);
     }
 
@@ -285,9 +356,31 @@ async function main(): Promise<void> {
         codexChannelId: cdxChannel.id,
       });
     }
+
+    if (codexEntry) {
+      const sourceLocalPath = claudeEntries
+        .map((entry) => entry.last_sessions?.[ccChannel.id])
+        .find((value): value is string => Boolean(value && path.isAbsolute(value)));
+      const targetPath = sourceLocalPath ?? fallbackLocalPath;
+      if (targetPath) {
+        codexEntry.last_sessions![cdxChannel.id] = targetPath;
+      }
+      const clearedRemote = Object.prototype.hasOwnProperty.call(codexEntry.last_remotes!, cdxChannel.id);
+      delete codexEntry.last_remotes![cdxChannel.id];
+      if (targetPath || clearedRemote) {
+        updatedBotSettings.push({
+          channelId: cdxChannel.id,
+          path: codexEntry.last_sessions![cdxChannel.id] ?? "(unchanged)",
+          clearedRemote,
+        });
+      }
+    }
   }
 
   saveRoleMap(roleMapPath, roleMap);
+  if (codexKey && codexEntry) {
+    saveBotSessionState(codexKey, codexEntry.last_sessions ?? {}, codexEntry.last_remotes ?? {});
+  }
 
   console.log(
     JSON.stringify(
@@ -297,6 +390,8 @@ async function main(): Promise<void> {
         reused,
         skipped,
         updatedAgents,
+        updatedCategoryAccess,
+        updatedBotSettings,
         codexBotId,
         updatedRoleMap: roleMapPath,
       },
