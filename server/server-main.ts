@@ -1,3 +1,8 @@
+import { config } from "dotenv";
+import { fileURLToPath } from "node:url";
+const __dirname = import.meta.dirname ?? (() => { const p = fileURLToPath(import.meta.url); return p.substring(0, p.lastIndexOf("/")); })();
+config({ path: __dirname + "/../.env" });
+
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
@@ -18,6 +23,9 @@ import { startXpSync, stopXpSync } from "./xp-sync.js";
 import { startAgentSync, stopAgentSync } from "./agent-sync.js";
 import { startSkillSync, stopSkillSync } from "./skill-sync.js";
 import { startDispatchedSync, stopDispatchedSync } from "./dispatched-sync.js";
+import dispatchTaskRoutes from "./routes/dispatches-task.js";
+import roundTableRoutes from "./routes/round-table.js";
+import { startDispatchWatcher, stopDispatchWatcher } from "./dispatch-watcher.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -62,6 +70,8 @@ app.use(dispatchedRoutes);
 app.use(spriteRoutes);
 app.use(skillRoutes);
 app.use(messageRoutes);
+app.use(dispatchTaskRoutes);
+app.use(roundTableRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
@@ -85,6 +95,7 @@ server.listen(PORT, HOST, () => {
   startAgentSync();
   startSkillSync();
   startDispatchedSync();
+  startDispatchWatcher();
 });
 
 // Graceful shutdown
@@ -94,6 +105,7 @@ process.on("SIGTERM", () => {
   stopAgentSync();
   stopSkillSync();
   stopDispatchedSync();
+  stopDispatchWatcher();
   server.close();
   closeDb();
   process.exit(0);
@@ -105,6 +117,7 @@ process.on("SIGINT", () => {
   stopAgentSync();
   stopSkillSync();
   stopDispatchedSync();
+  stopDispatchWatcher();
   server.close();
   closeDb();
   process.exit(0);

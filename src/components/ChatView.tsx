@@ -81,10 +81,7 @@ export default function ChatView({ agents, isKo, wsRef }: ChatViewProps) {
   const selectedAgentObj = agents.find((a) => a.id === selectedAgent);
 
   return (
-    <div
-      className="flex flex-col h-full overflow-hidden"
-      style={{ paddingBottom: "max(0px, env(safe-area-inset-bottom))" }}
-    >
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Header: mode + agent selector */}
       <div
         className="flex items-center gap-2 px-4 py-2 border-b shrink-0"
@@ -132,7 +129,7 @@ export default function ChatView({ agents, isKo, wsRef }: ChatViewProps) {
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-2"
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0"
       >
         {messages.length === 0 && (
           <div className="text-center py-16" style={{ color: "var(--th-text-muted)" }}>
@@ -230,7 +227,7 @@ export default function ChatView({ agents, isKo, wsRef }: ChatViewProps) {
                   ? tr(`${selectedAgentObj?.alias || selectedAgentObj?.name_ko || "에이전트"}에게 메시지...`, `Message to ${selectedAgentObj?.name || "agent"}...`)
                   : tr("에이전트를 선택하세요", "Select an agent")
             }
-            className="flex-1 px-3 py-2 rounded-xl text-sm resize-none bg-transparent border"
+            className="flex-1 px-3 py-2 rounded-xl text-base resize-none bg-transparent border"
             style={{
               borderColor: "var(--th-input-border)",
               color: "var(--th-text)",

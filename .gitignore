@@ -1,7 +1,10 @@
 node_modules/
 dist/
 *.sqlite
+*.db
 .env
 .DS_Store
 *.sqlite-shm
 *.sqlite-wal
+*.db-shm
+*.db-wal

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, type DragEvent } from "react";
-import type { Agent, Department } from "../types";
+import type { Agent, Department, DispatchedSession } from "../types";
 import type { UiLanguage } from "../i18n";
 import { localeName } from "../i18n";
 import * as api from "../api";
@@ -12,6 +12,7 @@ import DepartmentsTab from "./agent-manager/DepartmentsTab";
 import AgentFormModal from "./agent-manager/AgentFormModal";
 import AgentInfoCard from "./agent-manager/AgentInfoCard";
 import DepartmentFormModal from "./agent-manager/DepartmentFormModal";
+import { SessionPanel } from "./session-panel/SessionPanel";
 
 interface AgentManagerViewProps {
   agents: Agent[];
@@ -20,9 +21,11 @@ interface AgentManagerViewProps {
   officeId?: string | null;
   onAgentsChange: () => void;
   onDepartmentsChange: () => void;
+  sessions?: DispatchedSession[];
+  onAssign?: (id: string, patch: Partial<DispatchedSession>) => Promise<void>;
 }
 
-type Tab = "agents" | "departments";
+type Tab = "agents" | "departments" | "dispatch";
 
 export default function AgentManagerView({
   agents,
@@ -31,6 +34,8 @@ export default function AgentManagerView({
   officeId,
   onAgentsChange,
   onDepartmentsChange,
+  sessions,
+  onAssign,
 }: AgentManagerViewProps) {
   const locale = language;
   const isKo = locale.startsWith("ko");
@@ -286,10 +291,28 @@ export default function AgentManagerView({
         >
           {tr("부서", "Departments")} ({departments.length})
         </button>
+        {sessions && onAssign && (
+          <button
+            onClick={() => setTab("dispatch")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "dispatch" ? "text-blue-400 border-b-2 border-blue-400" : ""
+            }`}
+            style={tab !== "dispatch" ? { color: "var(--th-text-muted)" } : undefined}
+          >
+            {tr("파견", "Dispatch")} ({sessions.length})
+          </button>
+        )}
       </div>
 
       {/* Tab content */}
-      {tab === "agents" ? (
+      {tab === "dispatch" && sessions && onAssign ? (
+        <SessionPanel
+          sessions={sessions}
+          departments={departments}
+          agents={agents}
+          onAssign={onAssign}
+        />
+      ) : tab === "agents" ? (
         <div className="space-y-4">
           <AgentsTab
             tr={tr}

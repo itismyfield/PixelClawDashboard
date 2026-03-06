@@ -34,6 +34,14 @@ import { drawChair, drawDesk, drawPlant, drawWhiteboard } from "./drawing-furnit
 import { drawBookshelf } from "./drawing-furniture-b";
 import { renderDeskAgentAndSubClones } from "./buildScene-department-agent";
 
+export interface DeptLayout {
+  rx: number;
+  ry: number;
+  rw: number;
+  rh: number;
+  deptAgentRows: number;
+}
+
 interface BuildDepartmentRoomsParams {
   app: Application;
   textures: Record<string, Texture>;
@@ -44,13 +52,7 @@ interface BuildDepartmentRoomsParams {
   unread?: Set<string>;
   customThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
   activeLocale: SupportedLocale;
-  gridCols: number;
-  roomStartX: number;
-  roomW: number;
-  roomH: number;
-  roomGap: number;
-  deptStartY: number;
-  agentRows: number;
+  deptLayouts: DeptLayout[];
   spriteMap: Map<string, number>;
   cbRef: MutableRefObject<CallbackSnapshot>;
   roomRectsRef: MutableRefObject<RoomRect[]>;
@@ -74,13 +76,7 @@ export function buildDepartmentRooms({
   unread,
   customThemes,
   activeLocale,
-  gridCols,
-  roomStartX,
-  roomW,
-  roomH,
-  roomGap,
-  deptStartY,
-  agentRows,
+  deptLayouts,
   spriteMap,
   cbRef,
   roomRectsRef,
@@ -94,10 +90,7 @@ export function buildDepartmentRooms({
   nextSubSnapshot,
 }: BuildDepartmentRoomsParams): void {
   departments.forEach((dept, deptIdx) => {
-    const col = deptIdx % gridCols;
-    const row = Math.floor(deptIdx / gridCols);
-    const rx = roomStartX + col * (roomW + roomGap);
-    const ry = deptStartY + row * (roomH + roomGap);
+    const { rx, ry, rw: roomW, rh: roomH, deptAgentRows } = deptLayouts[deptIdx];
     const theme = customThemes?.[dept.id] || DEPT_THEME[dept.id] || DEPT_THEME.dev;
     const deptAgents = agents.filter((agent) => agent.department_id === dept.id);
     roomRectsRef.current.push({ dept, x: rx, y: ry, w: roomW, h: roomH });
@@ -123,7 +116,7 @@ export function buildDepartmentRooms({
     signBg.roundRect(rx + roomW / 2 - signW / 2, ry - 4, signW, 18, 4).fill(theme.accent);
     signBg.eventMode = "static";
     signBg.cursor = "pointer";
-    signBg.on("pointerdown", () => cbRef.current.onSelectDepartment(dept));
+    signBg.on("pointerup", () => cbRef.current.onSelectDepartment(dept));
     room.addChild(signBg);
     const signTxt = new Text({
       text: `${dept.icon || "🏢"} ${localeName(activeLocale, dept)}`,
@@ -171,9 +164,9 @@ export function buildDepartmentRooms({
       drawRug(
         room,
         rx + roomW / 2,
-        ry + 38 + (Math.min(agentRows, 2) * SLOT_H) / 2,
+        ry + 38 + (Math.min(deptAgentRows, 2) * SLOT_H) / 2,
         roomW - 40,
-        Math.min(agentRows, 2) * SLOT_H - 10,
+        Math.min(deptAgentRows, 2) * SLOT_H - 10,
         theme.accent,
       );
     }

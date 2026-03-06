@@ -153,6 +153,9 @@ router.patch("/api/agents/:id", (req, res) => {
     "stats_xp",
     "openclaw_id",
     "alias",
+    "discord_channel_id",
+    "discord_channel_id_alt",
+    "discord_prefer_alt",
   ];
   const sets: string[] = [];
   const vals: (string | number | null)[] = [];

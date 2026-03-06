@@ -34,6 +34,12 @@ export {
   getGitHubIssues,
   getMessages,
   sendMessage,
+  getRoundTableMeetings,
+  getRoundTableMeeting,
+  deleteRoundTableMeeting,
+  createRoundTableIssues,
+  startRoundTableMeeting,
+  getSkillCatalog,
 } from "./client";
 
 export type {

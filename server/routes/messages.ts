@@ -1,8 +1,37 @@
 import { Router } from "express";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
+import { sendDiscordMessage, sendToAgentChannel } from "../discord-announce.js";
 
 const router = Router();
+
+// --- Discord forwarding helper ---
+
+/** Forward a CEO message to Discord channel(s) */
+async function forwardToDiscord(
+  db: ReturnType<typeof getDb>,
+  receiverType: string,
+  receiverId: string | null,
+  content: string,
+): Promise<void> {
+  const prefix = "📢 **[CEO 메시지]**\n";
+  const text = `${prefix}${content}`;
+
+  if (receiverType === "agent" && receiverId) {
+    // sendToAgentChannel handles dual-channel + fallback
+    await sendToAgentChannel(receiverId, text);
+  } else if (receiverType === "all") {
+    const agents = db
+      .prepare("SELECT id FROM agents WHERE discord_channel_id IS NOT NULL")
+      .all() as Array<{ id: string }>;
+
+    for (const agent of agents) {
+      await sendToAgentChannel(agent.id, text);
+    }
+  }
+}
+
+// --- Routes ---
 
 // List messages (with optional filters)
 router.get("/api/messages", (req, res) => {
@@ -85,6 +114,13 @@ router.post("/api/messages", (req, res) => {
 
   // Broadcast via WebSocket
   broadcast("new_message", msg);
+
+  // Forward CEO messages to Discord (fire-and-forget)
+  if (sender_type === "ceo") {
+    forwardToDiscord(db, receiver_type, receiver_id, content.trim()).catch((err) =>
+      console.error("[PCD→Discord] forward error:", err),
+    );
+  }
 
   res.json(msg);
 });

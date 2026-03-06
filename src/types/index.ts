@@ -68,6 +68,7 @@ export interface Agent {
   current_task_id?: string | null;
   stats_tasks_done: number;
   stats_xp: number;
+  discord_channel_id?: string | null;
   created_at: number;
 }
 
@@ -292,6 +293,49 @@ export interface SubTask {
   completed_at: number | null;
 }
 
+// Round Table Meetings
+export interface ProposedIssue {
+  title: string;
+  body: string;
+  assignee: string;
+}
+
+export interface RoundTableMeeting {
+  id: string;
+  agenda: string;
+  summary: string | null;
+  status: "in_progress" | "completed" | "cancelled";
+  participant_names: string[];
+  total_rounds: number;
+  issues_created: number;
+  proposed_issues: ProposedIssue[] | null;
+  started_at: number;
+  completed_at: number | null;
+  created_at: number;
+  entries?: RoundTableEntry[];
+}
+
+export interface RoundTableEntry {
+  id: number;
+  meeting_id: string;
+  seq: number;
+  round: number;
+  speaker_role_id: string | null;
+  speaker_name: string;
+  content: string;
+  is_summary: number;
+  created_at: number;
+}
+
+// Skill Catalog
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  description_ko: string;
+  total_calls: number;
+  last_used_at: number | null;
+}
+
 // WebSocket Events
 export type WSEventType =
   | "task_update"
@@ -312,6 +356,8 @@ export type WSEventType =
   | "dispatched_session_new"
   | "dispatched_session_update"
   | "dispatched_session_disconnect"
+  | "round_table_new"
+  | "round_table_update"
   | "connected";
 
 export interface WSEvent {

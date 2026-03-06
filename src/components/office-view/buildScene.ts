@@ -120,25 +120,68 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
 
   const OFFICE_W = officeWRef.current;
   const deptCount = departments.length || 1;
-  const baseRoomW = COLS_PER_ROW * SLOT_W + ROOM_PAD * 2;
   const roomGap = 12;
-  let gridCols = Math.min(deptCount, 3);
-  while (gridCols > 1 && gridCols * baseRoomW + (gridCols - 1) * roomGap + 24 > OFFICE_W) {
-    gridCols -= 1;
+  const layoutMargin = 12;
+  const availableW = OFFICE_W - layoutMargin * 2;
+  const minRoomW = 1 * SLOT_W + ROOM_PAD * 2;
+
+  const agentsPerDept = departments.map((dept) => agents.filter((agent) => agent.department_id === dept.id));
+
+  // Each department's ideal width based on actual agent count
+  const deptWidths = agentsPerDept.map((da) => {
+    const neededCols = Math.min(COLS_PER_ROW, Math.max(1, da.length));
+    return Math.max(minRoomW, neededCols * SLOT_W + ROOM_PAD * 2);
+  });
+
+  // Flow layout: greedily pack departments into rows
+  const flowRows: number[][] = [[]];
+  let curRowW = 0;
+  for (let i = 0; i < deptCount; i++) {
+    const w = deptWidths[i];
+    const gap = flowRows[flowRows.length - 1].length > 0 ? roomGap : 0;
+    if (curRowW + gap + w > availableW && flowRows[flowRows.length - 1].length > 0) {
+      flowRows.push([i]);
+      curRowW = w;
+    } else {
+      flowRows[flowRows.length - 1].push(i);
+      curRowW += gap + w;
+    }
   }
 
-  const gridRows = Math.ceil(deptCount / gridCols);
-  const agentsPerDept = departments.map((dept) => agents.filter((agent) => agent.department_id === dept.id));
-  const maxAgents = Math.max(1, ...agentsPerDept.map((deptAgents) => deptAgents.length));
-  const agentRows = Math.ceil(maxAgents / COLS_PER_ROW);
-
-  const totalRoomSpace = OFFICE_W - 24 - (gridCols - 1) * roomGap;
-  const roomW = Math.max(baseRoomW, Math.floor(totalRoomSpace / gridCols));
-  const roomH = Math.max(170, agentRows * SLOT_H + 44);
   const deptStartY = CEO_ZONE_H + HALLWAY_H;
-  const breakRoomY = deptStartY + gridRows * (roomH + roomGap) + BREAK_ROOM_GAP;
+
+  // Per-row height based on tallest department in that row
+  const rowHeights = flowRows.map((rowIndices) => {
+    let maxInRow = 0;
+    for (const idx of rowIndices) maxInRow = Math.max(maxInRow, agentsPerDept[idx].length);
+    const rowAgentRows = Math.ceil(Math.max(1, maxInRow) / COLS_PER_ROW);
+    return Math.max(170, rowAgentRows * SLOT_H + 44);
+  });
+
+  // Position each department
+  const deptLayouts: Array<{ rx: number; ry: number; rw: number; rh: number; deptAgentRows: number }> = [];
+  let curY = deptStartY;
+  for (let r = 0; r < flowRows.length; r++) {
+    const rowIndices = flowRows[r];
+    const rowWidths = rowIndices.map((idx) => deptWidths[idx]);
+    const totalRowW = rowWidths.reduce((s, w) => s + w, 0) + (rowIndices.length - 1) * roomGap;
+    const rowStartX = (OFFICE_W - totalRowW) / 2;
+    const rh = rowHeights[r];
+
+    let curX = rowStartX;
+    for (let i = 0; i < rowIndices.length; i++) {
+      const deptIdx = rowIndices[i];
+      const rw = rowWidths[i];
+      const deptAgentRows = Math.ceil(Math.max(1, agentsPerDept[deptIdx].length) / COLS_PER_ROW);
+      deptLayouts[deptIdx] = { rx: curX, ry: curY, rw, rh, deptAgentRows };
+      curX += rw + roomGap;
+    }
+    curY += rh + roomGap;
+  }
+
+  const lastRowY = curY - roomGap;
+  const breakRoomY = lastRowY + BREAK_ROOM_GAP;
   const totalH = breakRoomY + BREAK_ROOM_H + 30;
-  const roomStartX = (OFFICE_W - (gridCols * roomW + (gridCols - 1) * roomGap)) / 2;
   totalHRef.current = totalH;
 
   app.renderer.resize(OFFICE_W, totalH);
@@ -161,13 +204,7 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     unread,
     customThemes,
     activeLocale,
-    gridCols,
-    roomStartX,
-    roomW,
-    roomH,
-    roomGap,
-    deptStartY,
-    agentRows,
+    deptLayouts,
     spriteMap,
     cbRef,
     roomRectsRef,

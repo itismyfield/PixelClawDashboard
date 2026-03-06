@@ -60,7 +60,7 @@ export function renderDeskAgentAndSubClones({
   charContainer.position.set(ax, charFeetY);
   charContainer.eventMode = "static";
   charContainer.cursor = "pointer";
-  charContainer.on("pointerdown", () => cbRef.current.onSelectAgent(agent));
+  charContainer.on("pointerup", () => cbRef.current.onSelectAgent(agent));
 
   const frames: Texture[] = [];
   for (let frame = 1; frame <= 3; frame++) {

@@ -54,6 +54,8 @@ export default function DashboardPageView({
 
   const { date, time, briefing } = useNow(localeTag, t);
 
+  type DashTab = "overview" | "agents" | "skills" | "infra";
+  const [dashTab, setDashTab] = useState<DashTab>("overview");
   const [skillRanking, setSkillRanking] = useState<SkillRankingResponse | null>(null);
   const [skillWindow, setSkillWindow] = useState<"7d" | "30d" | "all">("7d");
 
@@ -183,135 +185,169 @@ export default function DashboardPageView({
 
       <DashboardHudStats hudStats={hudStats} numberFormatter={numberFormatter} />
 
-      <DashboardRankingBoard
-        topAgents={topAgents}
-        podiumOrder={podiumOrder}
-        agentMap={agentMap}
-        agents={agents}
-        maxXp={maxXp}
-        numberFormatter={numberFormatter}
-        t={t}
-      />
+      {/* Dashboard sub-tabs */}
+      <div className="flex gap-1" style={{ borderBottom: "1px solid var(--th-border)" }}>
+        {([
+          { id: "overview" as DashTab, label: t({ ko: "개요", en: "Overview", ja: "概要", zh: "概览" }) },
+          { id: "agents" as DashTab, label: t({ ko: "에이전트", en: "Agents", ja: "エージェント", zh: "代理" }) },
+          { id: "skills" as DashTab, label: t({ ko: "스킬", en: "Skills", ja: "スキル", zh: "技能" }) },
+          { id: "infra" as DashTab, label: t({ ko: "인프라", en: "Infra", ja: "インフラ", zh: "基础设施" }) },
+        ]).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setDashTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              dashTab === tab.id ? "text-blue-400 border-b-2 border-blue-400" : ""
+            }`}
+            style={dashTab !== tab.id ? { color: "var(--th-text-muted)" } : undefined}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <section
-        className="rounded-2xl border p-4 sm:p-5"
-        style={{
-          borderColor: "var(--th-border)",
-          background: "linear-gradient(145deg, color-mix(in srgb, var(--th-surface) 92%, #f59e0b 8%), var(--th-surface))",
-        }}
-      >
-        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-          <h3 className="text-lg font-semibold" style={{ color: "var(--th-text)" }}>
-            {t({ ko: "스킬 랭킹", en: "Skill Ranking", ja: "スキルランキング", zh: "技能排行" })}
-          </h3>
-          <div className="flex items-center gap-2">
-            {(["7d", "30d", "all"] as const).map((w) => (
-              <button
-                key={w}
-                onClick={() => setSkillWindow(w)}
-                className="text-[11px] px-2 py-1 rounded-md border"
-                style={{
-                  borderColor: skillWindow === w ? "#f59e0b" : "var(--th-border)",
-                  color: skillWindow === w ? "#f59e0b" : "var(--th-text-muted)",
-                  background: skillWindow === w ? "rgba(245,158,11,0.12)" : "transparent",
-                }}
-              >
-                {w}
-              </button>
-            ))}
-            <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
-              {t({ ko: "1분 갱신", en: "1m refresh", ja: "1分更新", zh: "1分钟刷新" })}
-            </span>
-          </div>
-        </div>
+      {/* === Overview Tab === */}
+      {dashTab === "overview" && (
+        <>
+          <DashboardRankingBoard
+            topAgents={topAgents}
+            podiumOrder={podiumOrder}
+            agentMap={agentMap}
+            agents={agents}
+            maxXp={maxXp}
+            numberFormatter={numberFormatter}
+            t={t}
+          />
+          <ActivityFeedWidget agents={agents} t={t} />
+        </>
+      )}
 
-        {!skillRanking || skillRanking.overall.length === 0 ? (
-          <div className="text-sm" style={{ color: "var(--th-text-muted)" }}>
-            {t({ ko: "아직 집계된 스킬 호출이 없습니다.", en: "No skill usage aggregated yet.", ja: "まだ集計されたスキル呼び出しがありません。", zh: "尚无技能调用统计。" })}
+      {/* === Agents Tab === */}
+      {dashTab === "agents" && (
+        <>
+          <DashboardDeptAndSquad
+            deptData={deptData}
+            workingAgents={workingAgents}
+            idleAgentsList={idleAgents}
+            agents={agents}
+            language={language}
+            numberFormatter={numberFormatter}
+            t={t}
+            onSelectAgent={onSelectAgent}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <StreakWidget agents={agents} t={t} />
+            <MvpWidget agents={agents} t={t} isKo={language === "ko"} />
+            <AchievementWidget t={t} />
           </div>
-        ) : (
+        </>
+      )}
+
+      {/* === Skills Tab === */}
+      {dashTab === "skills" && (
+        <>
+          <section
+            className="rounded-2xl border p-4 sm:p-5"
+            style={{
+              borderColor: "var(--th-border)",
+              background: "linear-gradient(145deg, color-mix(in srgb, var(--th-surface) 92%, #f59e0b 8%), var(--th-surface))",
+            }}
+          >
+            <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+              <h3 className="text-lg font-semibold" style={{ color: "var(--th-text)" }}>
+                {t({ ko: "스킬 랭킹", en: "Skill Ranking", ja: "スキルランキング", zh: "技能排行" })}
+              </h3>
+              <div className="flex items-center gap-2">
+                {(["7d", "30d", "all"] as const).map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => setSkillWindow(w)}
+                    className="text-[11px] px-2 py-1 rounded-md border"
+                    style={{
+                      borderColor: skillWindow === w ? "#f59e0b" : "var(--th-border)",
+                      color: skillWindow === w ? "#f59e0b" : "var(--th-text-muted)",
+                      background: skillWindow === w ? "rgba(245,158,11,0.12)" : "transparent",
+                    }}
+                  >
+                    {w}
+                  </button>
+                ))}
+                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+                  {t({ ko: "1분 갱신", en: "1m refresh", ja: "1分更新", zh: "1分钟刷新" })}
+                </span>
+              </div>
+            </div>
+
+            {!skillRanking || skillRanking.overall.length === 0 ? (
+              <div className="text-sm" style={{ color: "var(--th-text-muted)" }}>
+                {t({ ko: "아직 집계된 스킬 호출이 없습니다.", en: "No skill usage aggregated yet.", ja: "まだ集計されたスキル呼び出しがありません。", zh: "尚无技能调用统计。" })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
+                    {t({ ko: "전체 TOP 10", en: "Overall TOP 10", ja: "全体 TOP 10", zh: "全体 TOP 10" })}
+                  </div>
+                  <ol className="space-y-1.5">
+                    {skillRanking.overall.map((row, idx) => (
+                      <li key={`${row.skill_name}-${idx}`} className="flex items-center justify-between text-sm gap-3">
+                        <div className="min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
+                          <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
+                            {idx + 1}.
+                          </span>
+                          <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
+                        </div>
+                        <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
+                          {numberFormatter.format(row.calls)}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                <div>
+                  <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
+                    {t({ ko: "에이전트별 TOP", en: "Top by Agent", ja: "エージェント別TOP", zh: "按代理 TOP" })}
+                  </div>
+                  <ul className="space-y-1.5">
+                    {skillRanking.byAgent.slice(0, 10).map((row, idx) => (
+                      <li key={`${row.agent_openclaw_id}-${row.skill_name}-${idx}`} className="text-sm flex items-center justify-between gap-3">
+                        <div className="truncate min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
+                          <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
+                            {idx + 1}.
+                          </span>
+                          <span className="truncate">{row.agent_name} · </span>
+                          <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
+                        </div>
+                        <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
+                          {numberFormatter.format(row.calls)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <SkillTrendWidget t={t} />
+        </>
+      )}
+
+      {/* === Infra Tab === */}
+      {dashTab === "infra" && (
+        <>
+          <MachineStatusWidget t={t} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
-                {t({ ko: "전체 TOP 10", en: "Overall TOP 10", ja: "全体 TOP 10", zh: "全体 TOP 10" })}
-              </div>
-              <ol className="space-y-1.5">
-                {skillRanking.overall.map((row, idx) => (
-                  <li key={`${row.skill_name}-${idx}`} className="flex items-center justify-between text-sm gap-3">
-                    <div className="min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
-                      <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
-                        {idx + 1}.
-                      </span>
-                      <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
-                    </div>
-                    <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
-                      {numberFormatter.format(row.calls)}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <div>
-              <div className="text-sm font-medium mb-2" style={{ color: "var(--th-text-muted)" }}>
-                {t({ ko: "에이전트별 TOP", en: "Top by Agent", ja: "エージェント別TOP", zh: "按代理 TOP" })}
-              </div>
-              <ul className="space-y-1.5">
-                {skillRanking.byAgent.slice(0, 10).map((row, idx) => (
-                  <li key={`${row.agent_openclaw_id}-${row.skill_name}-${idx}`} className="text-sm flex items-center justify-between gap-3">
-                    <div className="truncate min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
-                      <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
-                        {idx + 1}.
-                      </span>
-                      <span className="truncate">{row.agent_name} · </span>
-                      <TooltipLabel text={row.skill_desc_ko} tooltip={row.skill_name} className="align-middle" />
-                    </div>
-                    <span className="font-semibold shrink-0" style={{ color: "#f59e0b" }}>
-                      {numberFormatter.format(row.calls)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <CronTimelineWidget t={t} />
+            <HeatmapWidget agents={agents} t={t} />
           </div>
-        )}
-      </section>
-
-      {/* Extra Widgets Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StreakWidget agents={agents} t={t} />
-        <MvpWidget agents={agents} t={t} isKo={language === "ko"} />
-        <MachineStatusWidget t={t} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <HeatmapWidget agents={agents} t={t} />
-        <ActivityFeedWidget agents={agents} t={t} />
-      </div>
-
-      <SkillTrendWidget t={t} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <CronTimelineWidget t={t} />
-        <AchievementWidget t={t} />
-      </div>
-
-      {/* CookingHeart & GitHub */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <CookingHeartRoleBoardWidget agents={agents} t={t} isKo={language === "ko"} />
-        <GitHubIssuesWidget t={t} />
-      </div>
-
-      <DashboardDeptAndSquad
-        deptData={deptData}
-        workingAgents={workingAgents}
-        idleAgentsList={idleAgents}
-        agents={agents}
-        language={language}
-        numberFormatter={numberFormatter}
-        t={t}
-        onSelectAgent={onSelectAgent}
-      />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <CookingHeartRoleBoardWidget agents={agents} t={t} isKo={language === "ko"} />
+            <GitHubIssuesWidget t={t} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

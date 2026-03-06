@@ -128,6 +128,53 @@ export function initSchema(db: DatabaseSync): void {
       earned_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_achievements_agent ON achievements (agent_id);
+
+    CREATE TABLE IF NOT EXISTS task_dispatches (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT,
+      dispatch_type TEXT NOT NULL DEFAULT 'generic',
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','dispatched','in_progress','completed','failed','cancelled')),
+      title TEXT NOT NULL,
+      context_file TEXT DEFAULT NULL,
+      result_file TEXT DEFAULT NULL,
+      result_summary TEXT DEFAULT NULL,
+      parent_dispatch_id TEXT DEFAULT NULL,
+      chain_depth INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      dispatched_at INTEGER DEFAULT NULL,
+      completed_at INTEGER DEFAULT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dispatches_status ON task_dispatches (status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_dispatches_chain ON task_dispatches (parent_dispatch_id);
+
+    CREATE TABLE IF NOT EXISTS round_table_meetings (
+      id TEXT PRIMARY KEY,
+      agenda TEXT NOT NULL,
+      summary TEXT,
+      status TEXT NOT NULL DEFAULT 'in_progress'
+        CHECK(status IN ('in_progress','completed','cancelled')),
+      participant_names TEXT NOT NULL DEFAULT '[]',
+      total_rounds INTEGER NOT NULL DEFAULT 0,
+      issues_created INTEGER NOT NULL DEFAULT 0,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS round_table_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id TEXT NOT NULL REFERENCES round_table_meetings(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      round INTEGER NOT NULL,
+      speaker_role_id TEXT,
+      speaker_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      is_summary INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rt_entries_meeting ON round_table_entries (meeting_id, seq);
   `);
 
   migrate(db);
@@ -178,6 +225,33 @@ function migrate(db: DatabaseSync): void {
     .all() as Array<{ name: string }>;
   if (!agentCols.some((c) => c.name === "alias")) {
     db.exec("ALTER TABLE agents ADD COLUMN alias TEXT DEFAULT NULL");
+  }
+
+  // Add discord_channel_id column to agents if missing
+  const agentCols2 = db
+    .prepare("PRAGMA table_info(agents)")
+    .all() as Array<{ name: string }>;
+  if (!agentCols2.some((c) => c.name === "discord_channel_id")) {
+    db.exec("ALTER TABLE agents ADD COLUMN discord_channel_id TEXT DEFAULT NULL");
+  }
+
+  // Add proposed_issues column to round_table_meetings if missing
+  const rtCols = db
+    .prepare("PRAGMA table_info(round_table_meetings)")
+    .all() as Array<{ name: string }>;
+  if (!rtCols.some((c) => c.name === "proposed_issues")) {
+    db.exec("ALTER TABLE round_table_meetings ADD COLUMN proposed_issues TEXT DEFAULT NULL");
+  }
+
+  // Add dual-channel support: alt channel + preference flag
+  const agentCols3 = db
+    .prepare("PRAGMA table_info(agents)")
+    .all() as Array<{ name: string }>;
+  if (!agentCols3.some((c) => c.name === "discord_channel_id_alt")) {
+    db.exec("ALTER TABLE agents ADD COLUMN discord_channel_id_alt TEXT DEFAULT NULL");
+  }
+  if (!agentCols3.some((c) => c.name === "discord_prefer_alt")) {
+    db.exec("ALTER TABLE agents ADD COLUMN discord_prefer_alt INTEGER NOT NULL DEFAULT 0");
   }
 
   // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)

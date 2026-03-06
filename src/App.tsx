@@ -8,6 +8,7 @@ import type {
   DashboardStats,
   CompanySettings,
   WSEvent,
+  RoundTableMeeting,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import * as api from "./api/client";
@@ -15,6 +16,8 @@ import { SessionPanel } from "./components/session-panel/SessionPanel";
 const OfficeView = lazy(() => import("./components/OfficeView"));
 import DashboardPageView from "./components/DashboardPageView";
 import AgentManagerView from "./components/AgentManagerView";
+import MeetingMinutesView from "./components/MeetingMinutesView";
+import SkillCatalogView from "./components/SkillCatalogView";
 import OfficeSelectorBar from "./components/OfficeSelectorBar";
 import OfficeManagerModal from "./components/OfficeManagerModal";
 import AgentInfoCard from "./components/agent-manager/AgentInfoCard";
@@ -24,7 +27,8 @@ import {
   Building2,
   LayoutDashboard,
   Users,
-  Zap,
+  FileText,
+  BookOpen,
   Wifi,
   WifiOff,
   Settings,
@@ -33,7 +37,7 @@ import {
 import ChatView from "./components/ChatView";
 import CommandPalette from "./components/CommandPalette";
 
-type ViewMode = "office" | "dashboard" | "agents" | "sessions" | "chat" | "settings";
+type ViewMode = "office" | "dashboard" | "agents" | "meetings" | "chat" | "skills" | "settings";
 
 export default function App() {
   const [view, setView] = useState<ViewMode>("office");
@@ -50,6 +54,7 @@ export default function App() {
   const [officeInfoAgent, setOfficeInfoAgent] = useState<Agent | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [showCmdPalette, setShowCmdPalette] = useState(false);
+  const [roundTableMeetings, setRoundTableMeetings] = useState<RoundTableMeeting[]>([]);
 
   const spriteMap = useSpriteMap(agents);
   const wsRef = useRef<WebSocket | null>(null);
@@ -62,13 +67,14 @@ export default function App() {
     (async () => {
       try {
         await api.getSession();
-        const [off, ag, dep, ses, st, set] = await Promise.all([
+        const [off, ag, dep, ses, st, set, rtm] = await Promise.all([
           api.getOffices(),
           api.getAgents(),
           api.getDepartments(),
           api.getDispatchedSessions(true),
           api.getStats(),
           api.getSettings(),
+          api.getRoundTableMeetings().catch(() => [] as RoundTableMeeting[]),
         ]);
         setOffices(off);
         setAllAgents(ag);
@@ -76,6 +82,7 @@ export default function App() {
         setDepartments(dep);
         setSessions(ses);
         setStats(st);
+        setRoundTableMeetings(rtm);
         if (set.companyName) {
           setSettings((prev) => ({ ...prev, ...set } as CompanySettings));
         }
@@ -222,6 +229,17 @@ export default function App() {
         pushNotification("파견 세션 종료", "warning");
         break;
       }
+      case "round_table_new": {
+        const m = event.payload as RoundTableMeeting;
+        setRoundTableMeetings((prev) => [m, ...prev.filter((p) => p.id !== m.id)]);
+        pushNotification(`라운드 테이블: ${m.agenda.slice(0, 30)}`, "info");
+        break;
+      }
+      case "round_table_update": {
+        const m = event.payload as RoundTableMeeting;
+        setRoundTableMeetings((prev) => prev.map((p) => (p.id === m.id ? { ...p, ...m } : p)));
+        break;
+      }
     }
   }, [pushNotification]);
 
@@ -276,21 +294,49 @@ export default function App() {
       status: "working" as const,
     }));
 
+  // Convert dispatched sessions with department_id into Agent-like objects
+  // so they appear in department rooms in OfficeView
+  const dispatchedAsAgents: Agent[] = visibleDispatchedSessions
+    .filter((s) => s.department_id)
+    .map((s) => ({
+      id: `dispatched:${s.id}`,
+      name: s.name || s.session_key,
+      name_ko: s.name || s.session_key,
+      department_id: s.department_id,
+      role: "intern" as const,
+      avatar_emoji: s.avatar_emoji || "📡",
+      sprite_number: s.sprite_number,
+      personality: null,
+      status: s.status === "working" ? ("working" as const) : ("idle" as const),
+      current_task_id: null,
+      stats_tasks_done: 0,
+      stats_xp: s.stats_xp,
+      created_at: s.connected_at,
+      session_info: s.session_info,
+      department_name: s.department_name,
+      department_name_ko: s.department_name_ko,
+      department_color: s.department_color,
+    }));
+  const agentsWithDispatched = [...agents, ...dispatchedAsAgents];
+
   const isKo = settings.language === "ko";
   const locale = settings.language;
   const tr = (ko: string, en: string) => (isKo ? ko : en);
 
-  const navItems: Array<{ id: ViewMode; icon: React.ReactNode; label: string; badge?: number }> = [
+  const newMeetingsCount = roundTableMeetings.filter((m) => m.status === "completed" && !m.issues_created).length;
+
+  const navItems: Array<{ id: ViewMode; icon: React.ReactNode; label: string; badge?: number; badgeColor?: string }> = [
     { id: "office", icon: <Building2 size={20} />, label: "오피스" },
     { id: "agents", icon: <Users size={20} />, label: "직원" },
     { id: "dashboard", icon: <LayoutDashboard size={20} />, label: "대시보드" },
     { id: "chat", icon: <MessageCircle size={20} />, label: "채팅" },
-    { id: "sessions", icon: <Zap size={20} />, label: "파견", badge: activeSessions.length },
+    { id: "meetings", icon: <FileText size={20} />, label: "회의", badge: newMeetingsCount || undefined, badgeColor: "bg-amber-500" },
+    { id: "skills", icon: <BookOpen size={20} />, label: "스킬" },
     { id: "settings", icon: <Settings size={20} />, label: "설정" },
   ];
 
   return (
-    <div className="flex h-screen bg-gray-900">
+    <div className="flex fixed inset-0 bg-gray-900">
       {/* Sidebar (hidden on mobile) */}
       <nav className="hidden sm:flex w-14 bg-gray-950 border-r border-gray-800 flex-col items-center py-4 gap-2">
         <div className="text-2xl mb-4">🐾</div>
@@ -300,6 +346,7 @@ export default function App() {
             icon={item.icon}
             active={view === item.id}
             badge={item.badge}
+            badgeColor={item.badgeColor}
             onClick={() => { setView(item.id); if (item.id === "dashboard") refreshStats(); }}
             label={item.label}
           />
@@ -318,8 +365,8 @@ export default function App() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Office selector bar */}
-        {offices.length > 0 && (
+        {/* Office selector bar — hide on chat/settings views */}
+        {offices.length > 0 && view !== "chat" && view !== "settings" && (
           <OfficeSelectorBar
             offices={offices}
             selectedOfficeId={selectedOfficeId}
@@ -329,24 +376,11 @@ export default function App() {
           />
         )}
 
-        <main className="flex-1 overflow-hidden mb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:mb-0">
-          {view === "sessions" && (
-            <SessionPanel
-              sessions={visibleDispatchedSessions}
-              departments={departments}
-              agents={agents}
-              onAssign={async (id, patch) => {
-                const updated = await api.assignDispatchedSession(id, patch);
-                setSessions((prev) =>
-                  prev.map((s) => (s.id === updated.id ? updated : s)),
-                );
-              }}
-            />
-          )}
+        <main className="flex-1 min-h-0 flex flex-col overflow-hidden mb-14 sm:mb-0">
           {view === "office" && (
             <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-500">Loading Office...</div>}>
               <OfficeView
-                agents={agents}
+                agents={agentsWithDispatched}
                 departments={departments}
                 language={settings.language}
                 theme={settings.theme === "auto" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : settings.theme}
@@ -374,8 +408,22 @@ export default function App() {
               officeId={selectedOfficeId}
               onAgentsChange={() => { refreshAgents(); refreshAllAgents(); refreshOffices(); }}
               onDepartmentsChange={() => { refreshDepartments(); refreshOffices(); }}
+              sessions={visibleDispatchedSessions}
+              onAssign={async (id, patch) => {
+                const updated = await api.assignDispatchedSession(id, patch);
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === updated.id ? updated : s)),
+                );
+              }}
             />
           )}
+          {view === "meetings" && (
+            <MeetingMinutesView
+              meetings={roundTableMeetings}
+              onRefresh={() => api.getRoundTableMeetings().then(setRoundTableMeetings).catch(() => {})}
+            />
+          )}
+          {view === "skills" && <SkillCatalogView />}
           {view === "chat" && (
             <ChatView agents={allAgents} isKo={isKo} wsRef={wsRef} />
           )}
@@ -386,7 +434,29 @@ export default function App() {
             }} isKo={isKo} />
           )}
         </main>
+
       </div>
+
+      {/* G1: Mobile bottom tab bar */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 flex justify-around items-center h-14 z-50">
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => { setView(item.id); if (item.id === "dashboard") refreshStats(); }}
+            className={`relative flex flex-col items-center justify-center flex-1 h-full text-[10px] ${
+              view === item.id ? "text-indigo-400" : "text-gray-500"
+            }`}
+          >
+            {item.icon}
+            <span className="mt-0.5">{item.label}</span>
+            {item.badge !== undefined && item.badge > 0 && (
+              <span className={`absolute top-1 right-1/4 ${item.badgeColor || "bg-emerald-500"} text-white text-[8px] w-3.5 h-3.5 rounded-full flex items-center justify-center`}>
+                {item.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
 
       {/* Agent Info Card (from Office View click) */}
       {officeInfoAgent && (
@@ -414,28 +484,6 @@ export default function App() {
         />
       )}
 
-      {/* G1: Mobile bottom tab bar */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 flex justify-around items-center h-14 z-50"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => { setView(item.id); if (item.id === "dashboard") refreshStats(); }}
-            className={`relative flex flex-col items-center justify-center flex-1 h-full text-[10px] ${
-              view === item.id ? "text-indigo-400" : "text-gray-500"
-            }`}
-          >
-            {item.icon}
-            <span className="mt-0.5">{item.label}</span>
-            {item.badge !== undefined && item.badge > 0 && (
-              <span className="absolute top-1 right-1/4 bg-emerald-500 text-white text-[8px] w-3.5 h-3.5 rounded-full flex items-center justify-center">
-                {item.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
       {/* Office Manager Modal */}
       {showOfficeManager && (
         <OfficeManagerModal
@@ -454,12 +502,14 @@ function NavBtn({
   icon,
   active,
   badge,
+  badgeColor,
   onClick,
   label,
 }: {
   icon: React.ReactNode;
   active: boolean;
   badge?: number;
+  badgeColor?: string;
   onClick: () => void;
   label: string;
 }) {
@@ -475,7 +525,7 @@ function NavBtn({
     >
       {icon}
       {badge !== undefined && badge > 0 && (
-        <span className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+        <span className={`absolute -top-1 -right-1 ${badgeColor || "bg-emerald-500"} text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center`}>
           {badge}
         </span>
       )}

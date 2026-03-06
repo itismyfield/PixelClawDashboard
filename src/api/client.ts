@@ -4,6 +4,8 @@ import type {
   Office,
   DispatchedSession,
   DashboardStats,
+  RoundTableMeeting,
+  SkillCatalogEntry,
 } from "../types";
 
 const BASE = "";
@@ -458,4 +460,40 @@ export async function getGitHubIssues(
   const params = new URLSearchParams({ state, limit: String(limit) });
   if (repo) params.set("repo", repo);
   return request(`/api/github-issues?${params}`);
+}
+
+// ── Round Table Meetings ──
+
+export async function getRoundTableMeetings(): Promise<RoundTableMeeting[]> {
+  const data = await request<{ meetings: RoundTableMeeting[] }>("/api/round-table-meetings");
+  return data.meetings;
+}
+
+export async function getRoundTableMeeting(id: string): Promise<RoundTableMeeting> {
+  return request(`/api/round-table-meetings/${id}`);
+}
+
+export async function deleteRoundTableMeeting(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/round-table-meetings/${id}`, { method: "DELETE" });
+}
+
+export async function createRoundTableIssues(id: string, repo?: string): Promise<{ ok: boolean }> {
+  return request(`/api/round-table-meetings/${id}/issues`, {
+    method: "POST",
+    body: JSON.stringify({ repo }),
+  });
+}
+
+export async function startRoundTableMeeting(agenda: string, channelId: string): Promise<{ ok: boolean }> {
+  return request("/api/round-table-meetings/start", {
+    method: "POST",
+    body: JSON.stringify({ agenda, channel_id: channelId }),
+  });
+}
+
+// ── Skill Catalog ──
+
+export async function getSkillCatalog(): Promise<SkillCatalogEntry[]> {
+  const data = await request<{ catalog: SkillCatalogEntry[] }>("/api/skills/catalog");
+  return data.catalog;
 }

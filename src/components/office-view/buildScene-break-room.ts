@@ -171,7 +171,7 @@ export function buildBreakRoom({
     charContainer.position.set(spotX, spotY);
     charContainer.eventMode = "static";
     charContainer.cursor = "pointer";
-    charContainer.on("pointerdown", () => cbRef.current.onSelectAgent(agent));
+    charContainer.on("pointerup", () => cbRef.current.onSelectAgent(agent));
 
     const dirKey = `${spriteNum}-${dir}-1`;
     const fallbackKey = `${spriteNum}-D-1`;

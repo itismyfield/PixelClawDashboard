@@ -71,6 +71,58 @@ function parseWindowMs(windowRaw: string | undefined): number {
   return 0;
 }
 
+// Skill catalog — all known skills with descriptions and usage stats
+router.get("/api/skills/catalog", (_req, res) => {
+  const db = getDb();
+  const descMap = loadSkillDescriptions();
+
+  // Get usage stats per skill
+  const usageRows = db
+    .prepare(
+      `SELECT skill_name,
+              COUNT(*) AS total_calls,
+              MAX(used_at) AS last_used_at
+       FROM skill_usage_events
+       GROUP BY skill_name`,
+    )
+    .all() as Array<{ skill_name: string; total_calls: number; last_used_at: number }>;
+
+  const usageMap = new Map(usageRows.map((r) => [r.skill_name.toLowerCase(), r]));
+
+  // Merge filesystem skills + DB skills
+  const allSkillNames = new Set<string>();
+
+  // From filesystem
+  if (fs.existsSync(SKILLS_DIR)) {
+    try {
+      for (const d of fs.readdirSync(SKILLS_DIR)) {
+        allSkillNames.add(d.toLowerCase());
+      }
+    } catch { /* ignore */ }
+  }
+
+  // From DB events
+  for (const r of usageRows) {
+    allSkillNames.add(r.skill_name.toLowerCase());
+  }
+
+  const catalog = Array.from(allSkillNames)
+    .sort()
+    .map((name) => {
+      const usage = usageMap.get(name);
+      const rawDesc = descMap.get(name) || "";
+      return {
+        name,
+        description: rawDesc,
+        description_ko: resolveSkillDescKo(name, descMap),
+        total_calls: usage?.total_calls ?? 0,
+        last_used_at: usage?.last_used_at ?? null,
+      };
+    });
+
+  res.json({ catalog });
+});
+
 router.get("/api/skills/ranking", (req, res) => {
   const db = getDb();
   const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
