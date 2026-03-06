@@ -505,10 +505,14 @@ export async function createRoundTableIssues(id: string, repo?: string): Promise
   });
 }
 
-export async function startRoundTableMeeting(agenda: string, channelId: string): Promise<{ ok: boolean }> {
+export async function startRoundTableMeeting(
+  agenda: string,
+  channelId: string,
+  primaryProvider?: "claude" | "codex",
+): Promise<{ ok: boolean }> {
   return request("/api/round-table-meetings/start", {
     method: "POST",
-    body: JSON.stringify({ agenda, channel_id: channelId }),
+    body: JSON.stringify({ agenda, channel_id: channelId, primary_provider: primaryProvider ?? null }),
   });
 }
 

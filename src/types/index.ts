@@ -317,6 +317,8 @@ export interface RoundTableMeeting {
   agenda: string;
   summary: string | null;
   status: "in_progress" | "completed" | "cancelled";
+  primary_provider: string | null;
+  reviewer_provider: string | null;
   participant_names: string[];
   total_rounds: number;
   issues_created: number;

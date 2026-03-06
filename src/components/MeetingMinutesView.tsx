@@ -19,6 +19,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
   const [showStartForm, setShowStartForm] = useState(false);
   const [agenda, setAgenda] = useState("");
   const [channelId, setChannelId] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+  const [primaryProvider, setPrimaryProvider] = useState<"claude" | "codex">("claude");
   const [showChannelEdit, setShowChannelEdit] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
     setStarting(true);
     setStartError(null);
     try {
-      await startRoundTableMeeting(agenda.trim(), channelId.trim());
+      await startRoundTableMeeting(agenda.trim(), channelId.trim(), primaryProvider);
       setAgenda("");
       setShowStartForm(false);
     } catch (e) {
@@ -204,6 +205,24 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
             />
           </div>
 
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 w-20" style={{ color: "var(--th-text-muted)" }}>
+              진행 모델
+            </label>
+            <select
+              value={primaryProvider}
+              onChange={(e) => setPrimaryProvider(e.target.value as "claude" | "codex")}
+              className="px-3 py-1.5 rounded-lg text-xs"
+              style={inputStyle}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+            <span className="text-[11px]" style={{ color: "var(--th-text-muted)" }}>
+              반대 모델이 자동 교차검증
+            </span>
+          </div>
+
           {startError && (
             <div className="text-xs px-3 py-1.5 rounded-lg" style={{ background: "rgba(239,68,68,0.1)", color: "#f87171" }}>
               {startError}
@@ -260,6 +279,11 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                   </h3>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     {statusBadge(m.status)}
+                    {(m.primary_provider || m.reviewer_provider) && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(59,130,246,0.12)", color: "#93c5fd" }}>
+                        {`${(m.primary_provider || "unknown").toUpperCase()} -> ${(m.reviewer_provider || "unknown").toUpperCase()}`}
+                      </span>
+                    )}
                     <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
                       {new Date(m.started_at).toLocaleDateString("ko-KR")}
                     </span>

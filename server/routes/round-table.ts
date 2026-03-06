@@ -128,6 +128,8 @@ router.post("/api/round-table-meetings", (req, res) => {
     agenda,
     summary,
     status,
+    primary_provider,
+    reviewer_provider,
     participant_names,
     total_rounds,
     started_at,
@@ -156,12 +158,14 @@ router.post("/api/round-table-meetings", (req, res) => {
 
   db.prepare(
     `INSERT INTO round_table_meetings
-       (id, agenda, summary, status, participant_names, total_rounds, started_at, completed_at, proposed_issues, issues_created, issue_creation_results)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (id, agenda, summary, status, primary_provider, reviewer_provider, participant_names, total_rounds, started_at, completed_at, proposed_issues, issues_created, issue_creation_results)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        agenda = excluded.agenda,
        summary = excluded.summary,
        status = excluded.status,
+       primary_provider = excluded.primary_provider,
+       reviewer_provider = excluded.reviewer_provider,
        participant_names = excluded.participant_names,
        total_rounds = excluded.total_rounds,
        started_at = excluded.started_at,
@@ -174,6 +178,8 @@ router.post("/api/round-table-meetings", (req, res) => {
     agenda,
     summary || null,
     status || "completed",
+    primary_provider || null,
+    reviewer_provider || null,
     JSON.stringify(participant_names || []),
     total_rounds || 0,
     started_at || Date.now(),
@@ -210,6 +216,8 @@ router.post("/api/round-table-meetings", (req, res) => {
     agenda,
     summary: summary || null,
     status: status || "completed",
+    primary_provider: primary_provider || null,
+    reviewer_provider: reviewer_provider || null,
     participant_names: participant_names || [],
     total_rounds: total_rounds || 0,
     issues_created: issueSummary.created,
@@ -320,7 +328,7 @@ router.post("/api/round-table-meetings/:id/issues", (req, res) => {
 
 // Start a meeting via Discord (sends /meeting start command to configured channel)
 router.post("/api/round-table-meetings/start", async (req, res) => {
-  const { agenda, channel_id } = req.body;
+  const { agenda, channel_id, primary_provider } = req.body;
 
   if (!agenda || !agenda.trim()) {
     return res.status(400).json({ error: "agenda required" });
@@ -329,10 +337,11 @@ router.post("/api/round-table-meetings/start", async (req, res) => {
     return res.status(400).json({ error: "channel_id required" });
   }
 
-  const ok = await sendDiscordMessage(
-    channel_id.trim(),
-    `/meeting start ${agenda.trim()}`,
-  );
+  const providerPart =
+    typeof primary_provider === "string" && primary_provider.trim()
+      ? ` --primary ${primary_provider.trim()}`
+      : "";
+  const ok = await sendDiscordMessage(channel_id.trim(), `/meeting start${providerPart} ${agenda.trim()}`);
 
   if (!ok) {
     return res.status(500).json({ error: "Failed to send Discord message" });

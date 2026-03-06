@@ -159,6 +159,8 @@ export function initSchema(db: DatabaseSync): void {
       summary TEXT,
       status TEXT NOT NULL DEFAULT 'in_progress'
         CHECK(status IN ('in_progress','completed','cancelled')),
+      primary_provider TEXT DEFAULT NULL,
+      reviewer_provider TEXT DEFAULT NULL,
       participant_names TEXT NOT NULL DEFAULT '[]',
       total_rounds INTEGER NOT NULL DEFAULT 0,
       issues_created INTEGER NOT NULL DEFAULT 0,
@@ -265,6 +267,12 @@ function migrate(db: DatabaseSync): void {
     db.exec(
       "ALTER TABLE round_table_meetings ADD COLUMN issue_creation_results TEXT DEFAULT NULL",
     );
+  }
+  if (!rtCols.some((c) => c.name === "primary_provider")) {
+    db.exec("ALTER TABLE round_table_meetings ADD COLUMN primary_provider TEXT DEFAULT NULL");
+  }
+  if (!rtCols.some((c) => c.name === "reviewer_provider")) {
+    db.exec("ALTER TABLE round_table_meetings ADD COLUMN reviewer_provider TEXT DEFAULT NULL");
   }
 
   // Add dual-channel support: alt channel + preference flag
