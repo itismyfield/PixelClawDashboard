@@ -40,6 +40,8 @@ export function initSchema(db: DatabaseSync): void {
       avatar_emoji TEXT NOT NULL DEFAULT '🙂',
       sprite_number INTEGER DEFAULT NULL,
       personality TEXT DEFAULT NULL,
+      cli_provider TEXT NOT NULL DEFAULT 'claude'
+        CHECK(cli_provider IN ('claude','codex','gemini','opencode','copilot','antigravity','api')),
       status TEXT NOT NULL DEFAULT 'idle'
         CHECK(status IN ('idle','working','break','offline')),
       session_info TEXT DEFAULT NULL,
@@ -62,6 +64,8 @@ export function initSchema(db: DatabaseSync): void {
       name TEXT DEFAULT NULL,
       department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
       linked_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+      provider TEXT NOT NULL DEFAULT 'claude'
+        CHECK(provider IN ('claude','codex','gemini','opencode','copilot','antigravity','api')),
       model TEXT DEFAULT NULL,
       status TEXT NOT NULL DEFAULT 'working'
         CHECK(status IN ('working','idle','disconnected')),
@@ -197,6 +201,17 @@ export function initSchema(db: DatabaseSync): void {
     db.exec("UPDATE dispatched_sessions SET status = 'disconnected' WHERE status != 'disconnected'");
     console.log(`[PCD] Reset ${staleDispatched} stale dispatched session(s) to disconnected`);
   }
+
+  // Monthly XP soft reset (reduce to 1/10 on first boot of each month)
+  db.exec("CREATE TABLE IF NOT EXISTS kv_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const lastReset = db.prepare("SELECT value FROM kv_meta WHERE key = 'xp_reset_month'").get() as { value: string } | undefined;
+  if (lastReset?.value !== currentMonth) {
+    db.exec("UPDATE agents SET stats_xp = stats_xp / 10");
+    db.prepare("INSERT INTO kv_meta (key, value) VALUES ('xp_reset_month', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(currentMonth);
+    const agentCount = (db.prepare("SELECT COUNT(*) as cnt FROM agents").get() as { cnt: number }).cnt;
+    console.log(`[PCD] Monthly XP soft reset (1/10) applied for ${currentMonth} — ${agentCount} agent(s)`);
+  }
 }
 
 function migrate(db: DatabaseSync): void {
@@ -226,6 +241,9 @@ function migrate(db: DatabaseSync): void {
     .all() as Array<{ name: string }>;
   if (!agentCols.some((c) => c.name === "alias")) {
     db.exec("ALTER TABLE agents ADD COLUMN alias TEXT DEFAULT NULL");
+  }
+  if (!agentCols.some((c) => c.name === "cli_provider")) {
+    db.exec("ALTER TABLE agents ADD COLUMN cli_provider TEXT NOT NULL DEFAULT 'claude'");
   }
 
   // Add discord_channel_id column to agents if missing
@@ -259,6 +277,21 @@ function migrate(db: DatabaseSync): void {
   if (!agentCols3.some((c) => c.name === "discord_prefer_alt")) {
     db.exec("ALTER TABLE agents ADD COLUMN discord_prefer_alt INTEGER NOT NULL DEFAULT 0");
   }
+  if (!agentCols3.some((c) => c.name === "discord_channel_id_codex")) {
+    db.exec("ALTER TABLE agents ADD COLUMN discord_channel_id_codex TEXT DEFAULT NULL");
+  }
+
+  if (!dsCols.some((c) => c.name === "provider")) {
+    db.exec("ALTER TABLE dispatched_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'");
+  }
+  db.exec(`
+    UPDATE dispatched_sessions
+    SET provider = CASE
+      WHEN session_key LIKE '%:remoteCC-codex-%' THEN 'codex'
+      ELSE 'claude'
+    END
+    WHERE provider IS NULL OR provider = '' OR provider = 'claude'
+  `);
 
   // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)
   const linkedXpRows = db

@@ -133,9 +133,9 @@ export function renderDeskAgentAndSubClones({
 
   const sourceLabel =
     agent.activity_source === "both"
-      ? "⚡ OpenClaw+Claude"
-      : agent.activity_source === "claude"
-        ? "🛠 Claude"
+      ? "⚡ OpenClaw+RemoteCC"
+      : agent.activity_source === "remotecc"
+        ? "🛠 RemoteCC"
         : agent.activity_source === "openclaw"
           ? "🧠 OpenClaw"
           : "";

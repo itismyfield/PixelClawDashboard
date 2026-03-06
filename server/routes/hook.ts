@@ -6,16 +6,10 @@ import path from "node:path";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
+import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 
 const router = Router();
 const ROLE_MAP_PATH = path.join(os.homedir(), ".remotecc", "role_map.json");
-
-function extractChannelNameFromSession(sessionKey: string, name?: string | null): string | null {
-  const m = sessionKey.match(/:remoteCC-(.+)$/i);
-  if (m?.[1]) return m[1].trim();
-  if (name && name.trim().length > 0) return name.trim();
-  return null;
-}
 
 function resolveRoleIdByChannelName(channelName: string): string | null {
   try {
@@ -37,7 +31,7 @@ function resolveRoleIdByChannelName(channelName: string): string | null {
 }
 
 function resolveLinkedAgentId(sessionKey: string, name?: string | null): string | null {
-  const channelName = extractChannelNameFromSession(sessionKey, name);
+  const channelName = parseRemoteCcSessionKey(sessionKey, name).channelName;
   if (!channelName) return null;
 
   const roleId = resolveRoleIdByChannelName(channelName);
@@ -56,12 +50,12 @@ function emitLinkedAgentStatus(agentId: string): void {
   const row = db
     .prepare(
       `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-              COALESCE(ds.claude_working_count, 0) AS claude_working_count
+              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
        FROM agents a
        LEFT JOIN departments d ON a.department_id = d.id
        LEFT JOIN (
          SELECT linked_agent_id as aid,
-                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as remotecc_working_count
          FROM dispatched_sessions
          WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
          GROUP BY linked_agent_id
@@ -72,23 +66,23 @@ function emitLinkedAgentStatus(agentId: string): void {
 
   if (!row) return;
 
-  const claudeWorking = Number(row.claude_working_count || 0);
+  const remoteCcWorking = Number(row.remotecc_working_count || 0);
   const baseStatus = String(row.status || "idle");
   const activitySource =
-    baseStatus === "working" && claudeWorking > 0
+    baseStatus === "working" && remoteCcWorking > 0
       ? "both"
-      : claudeWorking > 0
-        ? "claude"
+      : remoteCcWorking > 0
+        ? "remotecc"
         : baseStatus === "working"
           ? "openclaw"
           : "idle";
-  const effectiveStatus = claudeWorking > 0 ? "working" : baseStatus;
+  const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 
   broadcast("agent_status", {
     ...row,
     status: effectiveStatus,
     activity_source: activitySource,
-    claude_working_count: claudeWorking,
+    remotecc_working_count: remoteCcWorking,
   });
 }
 
@@ -115,14 +109,7 @@ router.patch("/api/hook/agent-status", (req, res) => {
     ...vals,
   );
 
-  const updated = db
-    .prepare(
-      `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
-       FROM agents a LEFT JOIN departments d ON a.department_id = d.id
-       WHERE a.id = ?`,
-    )
-    .get(agent.id as string);
-  broadcast("agent_status", updated);
+  emitLinkedAgentStatus(agent.id as string);
   res.json({ ok: true });
 });
 
@@ -153,6 +140,7 @@ router.post("/api/hook/session", (req, res) => {
   const { session_key, name, model, status, session_info, tokens } = req.body;
   if (!session_key)
     return res.status(400).json({ error: "session_key required" });
+  const provider = inferRemoteCcProvider(session_key, name ?? null, req.body.provider ?? null);
 
   // Convert tokens → XP (1000 tokens = 1 XP, matching agent XP formula)
   const xpDelta = typeof tokens === "number" && tokens > 0 ? Math.floor(tokens / 1000) : 0;
@@ -187,6 +175,10 @@ router.post("/api/hook/session", (req, res) => {
     if (model) {
       sets.push("model = ?");
       vals.push(model);
+    }
+    if (provider) {
+      sets.push("provider = ?");
+      vals.push(provider);
     }
     if (xpDelta > 0 && !linkedAgentId) {
       sets.push("stats_xp = stats_xp + ?");
@@ -228,12 +220,13 @@ router.post("/api/hook/session", (req, res) => {
   const id = crypto.randomUUID();
   const linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
   db.prepare(
-    `INSERT INTO dispatched_sessions (id, session_key, name, model, status, session_info, linked_agent_id, stats_xp, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, linked_agent_id, stats_xp, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     session_key,
     name ?? `Session ${session_key.slice(0, 8)}`,
+    provider,
     model ?? null,
     status ?? "working",
     session_info ?? null,

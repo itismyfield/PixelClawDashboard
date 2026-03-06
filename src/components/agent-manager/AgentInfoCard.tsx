@@ -77,7 +77,7 @@ export function getAgentTitle(xp: number, isKo: boolean) {
 
 const ACTIVITY_SOURCE_COLORS: Record<string, string> = {
   openclaw: "#34d399",
-  claude: "#a78bfa",
+  remotecc: "#a78bfa",
   both: "#fbbf24",
   idle: "#64748b",
 };
@@ -168,10 +168,10 @@ export default function AgentInfoCard({
     switch (agent.activity_source) {
       case "openclaw":
         return tr("OpenClaw 작업", "OpenClaw");
-      case "claude":
-        return tr("Claude 작업", "Claude");
+      case "remotecc":
+        return tr("RemoteCC 작업", "RemoteCC");
       case "both":
-        return tr("OpenClaw+Claude", "OpenClaw+Claude");
+        return tr("OpenClaw+RemoteCC", "OpenClaw+RemoteCC");
       default:
         return null;
     }
@@ -366,13 +366,13 @@ export default function AgentInfoCard({
           </div>
         )}
 
-        {/* Linked Claude Sessions */}
+        {/* Linked RemoteCC Sessions */}
         <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
           <div
             className="text-[10px] font-semibold uppercase tracking-widest mb-2"
             style={{ color: "var(--th-text-muted)" }}
           >
-            {tr("연결된 Claude 세션", "Linked Claude Sessions")}
+            {tr("연결된 RemoteCC 세션", "Linked RemoteCC Sessions")}
             {!loadingClaudeSessions && ` (${claudeSessions.length})`}
           </div>
           {loadingClaudeSessions ? (
@@ -381,7 +381,7 @@ export default function AgentInfoCard({
             </div>
           ) : claudeSessions.length === 0 ? (
             <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
-              {tr("연결된 Claude 세션 없음", "No linked Claude sessions")}
+              {tr("연결된 RemoteCC 세션 없음", "No linked RemoteCC sessions")}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -396,18 +396,29 @@ export default function AgentInfoCard({
                       {s.name || s.session_key}
                     </div>
                     <div className="text-[10px] truncate mt-0.5" style={{ color: "var(--th-text-muted)" }}>
-                      {s.session_info || s.model || "Claude session"}
+                      {s.session_info || s.model || "RemoteCC session"}
                     </div>
                   </div>
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                    style={{
-                      background: s.status === "working" ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.15)",
-                      color: s.status === "working" ? "#34d399" : "#94a3b8",
-                    }}
-                  >
-                    {s.status === "working" ? tr("작업중", "Working") : tr("대기", "Idle")}
-                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{
+                        background: s.provider === "codex" ? "rgba(56,189,248,0.18)" : "rgba(167,139,250,0.18)",
+                        color: s.provider === "codex" ? "#38bdf8" : "#c4b5fd",
+                      }}
+                    >
+                      {s.provider === "codex" ? "Codex" : "Claude"}
+                    </span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{
+                        background: s.status === "working" ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.15)",
+                        color: s.status === "working" ? "#34d399" : "#94a3b8",
+                      }}
+                    >
+                      {s.status === "working" ? tr("작업중", "Working") : tr("대기", "Idle")}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

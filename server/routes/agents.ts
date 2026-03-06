@@ -10,21 +10,21 @@ const router = Router();
 
 function hydrateActivitySource<T extends Record<string, unknown>>(rows: T[]): T[] {
   return rows.map((row) => {
-    const claudeWorking = Number(row.claude_working_count || 0);
+    const remoteCcWorking = Number(row.remotecc_working_count || 0);
     const baseStatus = String(row.status || "idle");
 
     let activitySource = "idle";
-    if (baseStatus === "working" && claudeWorking > 0) activitySource = "both";
-    else if (claudeWorking > 0) activitySource = "claude";
+    if (baseStatus === "working" && remoteCcWorking > 0) activitySource = "both";
+    else if (remoteCcWorking > 0) activitySource = "remotecc";
     else if (baseStatus === "working") activitySource = "openclaw";
 
-    const effectiveStatus = claudeWorking > 0 ? "working" : baseStatus;
+    const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 
     return {
       ...row,
       status: effectiveStatus,
       activity_source: activitySource,
-      claude_working_count: claudeWorking,
+      remotecc_working_count: remoteCcWorking,
     } as T;
   });
 }
@@ -33,10 +33,10 @@ router.get("/api/agents", (req, res) => {
   const db = getDb();
   const officeId = req.query.officeId as string | undefined;
 
-  const claudeJoin = `
+  const remoteCcJoin = `
     LEFT JOIN (
       SELECT linked_agent_id as aid,
-             SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+             SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as remotecc_working_count
       FROM dispatched_sessions
       WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
       GROUP BY linked_agent_id
@@ -50,11 +50,11 @@ router.get("/api/agents", (req, res) => {
       .prepare(
         `SELECT a.*, oa.department_id as office_department_id,
                 d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-                COALESCE(ds.claude_working_count, 0) AS claude_working_count
+                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
          FROM office_agents oa
          JOIN agents a ON a.id = oa.agent_id
          LEFT JOIN departments d ON d.id = oa.department_id
-         ${claudeJoin}
+         ${remoteCcJoin}
          WHERE oa.office_id = ?
          ORDER BY a.created_at`,
       )
@@ -63,9 +63,9 @@ router.get("/api/agents", (req, res) => {
     rows = db
       .prepare(
         `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-                COALESCE(ds.claude_working_count, 0) AS claude_working_count
+                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
          FROM agents a LEFT JOIN departments d ON a.department_id = d.id
-         ${claudeJoin}
+         ${remoteCcJoin}
          ORDER BY a.created_at`,
       )
       .all() as Array<Record<string, unknown>>;
@@ -78,11 +78,11 @@ router.get("/api/agents/:id", (req, res) => {
   const row = db
     .prepare(
       `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-              COALESCE(ds.claude_working_count, 0) AS claude_working_count
+              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
        LEFT JOIN (
          SELECT linked_agent_id as aid,
-                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as remotecc_working_count
          FROM dispatched_sessions
          WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
          GROUP BY linked_agent_id
@@ -100,8 +100,8 @@ router.post("/api/agents", (req, res) => {
   const b = req.body;
   db.prepare(
     `INSERT INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
-      department_id, role, avatar_emoji, sprite_number, personality, status, alias)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      department_id, role, avatar_emoji, sprite_number, personality, cli_provider, status, alias, discord_channel_id_codex)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.openclaw_id ?? null,
@@ -114,8 +114,10 @@ router.post("/api/agents", (req, res) => {
     b.avatar_emoji ?? "🙂",
     b.sprite_number ?? null,
     b.personality ?? null,
+    b.cli_provider ?? "claude",
     b.status ?? "idle",
     b.alias ?? null,
+    b.discord_channel_id_codex ?? null,
   );
 
   // If office_id provided, also assign to that office
@@ -153,8 +155,10 @@ router.patch("/api/agents/:id", (req, res) => {
     "stats_xp",
     "openclaw_id",
     "alias",
+    "cli_provider",
     "discord_channel_id",
     "discord_channel_id_alt",
+    "discord_channel_id_codex",
     "discord_prefer_alt",
   ];
   const sets: string[] = [];
@@ -175,11 +179,11 @@ router.patch("/api/agents/:id", (req, res) => {
   const updated = db
     .prepare(
       `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-              COALESCE(ds.claude_working_count, 0) AS claude_working_count
+              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
        LEFT JOIN (
          SELECT linked_agent_id as aid,
-                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as claude_working_count
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) as remotecc_working_count
          FROM dispatched_sessions
          WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
          GROUP BY linked_agent_id
@@ -329,22 +333,62 @@ router.get("/api/agents/:id/skills", (req, res) => {
 // ── Discord channel mapping (reads openclaw.json bindings) ──
 router.get("/api/discord-bindings", (_req, res) => {
   try {
+    const db = getDb();
     const ocPath = nodePath.join(os.homedir(), ".openclaw", "openclaw.json");
-    if (!fs.existsSync(ocPath)) return res.json({ bindings: [] });
-    const oc = JSON.parse(fs.readFileSync(ocPath, "utf-8"));
     const bindings: Array<{ agentId: string; channelId: string; channelName?: string }> = [];
-    const discordChannels = oc?.channels?.discord;
-    if (discordChannels?.bindings && Array.isArray(discordChannels.bindings)) {
-      for (const b of discordChannels.bindings) {
-        if (!b.agentId) continue;
-        if (b.channelId) {
-          bindings.push({ agentId: b.agentId, channelId: b.channelId, channelName: b.channelName });
-        }
-        if (b.dmUserId) {
-          bindings.push({ agentId: b.agentId, channelId: `dm:${b.dmUserId}`, channelName: "DM" });
+    const seen = new Set<string>();
+
+    if (fs.existsSync(ocPath)) {
+      const oc = JSON.parse(fs.readFileSync(ocPath, "utf-8"));
+      const discordChannels = oc?.channels?.discord;
+      if (discordChannels?.bindings && Array.isArray(discordChannels.bindings)) {
+        for (const b of discordChannels.bindings) {
+          if (!b.agentId) continue;
+          if (b.channelId) {
+            const key = `${b.agentId}:${b.channelId}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              bindings.push({ agentId: b.agentId, channelId: b.channelId, channelName: b.channelName });
+            }
+          }
+          if (b.dmUserId) {
+            const dmChannelId = `dm:${b.dmUserId}`;
+            const key = `${b.agentId}:${dmChannelId}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              bindings.push({ agentId: b.agentId, channelId: dmChannelId, channelName: "DM" });
+            }
+          }
         }
       }
     }
+
+    const agentRows = db
+      .prepare(
+        `SELECT id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex
+         FROM agents`,
+      )
+      .all() as Array<{
+      id: string;
+      discord_channel_id: string | null;
+      discord_channel_id_alt: string | null;
+      discord_channel_id_codex: string | null;
+    }>;
+    for (const row of agentRows) {
+      const pairs = [
+        [row.discord_channel_id, "Primary"],
+        [row.discord_channel_id_alt, "Alt"],
+        [row.discord_channel_id_codex, "Codex"],
+      ] as const;
+      for (const [channelId, label] of pairs) {
+        if (!channelId) continue;
+        const key = `${row.id}:${channelId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        bindings.push({ agentId: row.id, channelId, channelName: label });
+      }
+    }
+
     res.json({ bindings });
   } catch {
     res.json({ bindings: [] });

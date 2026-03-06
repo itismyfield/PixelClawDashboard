@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
+import { extractTmuxName } from "./remotecc-session.js";
 
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 min without heartbeat → check tmux
 const CHECK_INTERVAL_MS = 60 * 1000; // check every 60 sec
@@ -23,13 +24,6 @@ function getLiveTmuxSessions(): Set<string> {
     // tmux not running or no sessions
   }
   return out;
-}
-
-/** Extract tmux session name from session_key (e.g. "host:remoteCC-foo" → "remoteCC-foo") */
-function extractTmuxName(sessionKey: string): string | null {
-  const idx = sessionKey.indexOf(":remoteCC-");
-  if (idx < 0) return null;
-  return sessionKey.slice(idx + 1);
 }
 
 export function reconcileDispatchedOnce(): number {

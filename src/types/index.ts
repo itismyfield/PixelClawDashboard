@@ -39,7 +39,7 @@ export type AgentStatus = "idle" | "working" | "break" | "offline";
 export type CliProvider = "claude" | "codex" | "gemini" | "opencode" | "copilot" | "antigravity" | "api";
 export type MeetingReviewDecision = "reviewing" | "approved" | "hold";
 
-export type ActivitySource = "idle" | "openclaw" | "claude" | "both";
+export type ActivitySource = "idle" | "openclaw" | "remotecc" | "both";
 
 export interface Agent {
   id: string;
@@ -56,7 +56,7 @@ export interface Agent {
   openclaw_id?: string | null;
   session_info?: string | null;
   activity_source?: ActivitySource;
-  claude_working_count?: number;
+  remotecc_working_count?: number;
   workflow_pack_key?: string | null;
   department_name?: string | null;
   department_name_ko?: string | null;
@@ -69,6 +69,8 @@ export interface Agent {
   stats_tasks_done: number;
   stats_xp: number;
   discord_channel_id?: string | null;
+  discord_channel_id_alt?: string | null;
+  discord_channel_id_codex?: string | null;
   created_at: number;
 }
 
@@ -483,6 +485,7 @@ export interface DispatchedSession {
   name: string | null;
   department_id: string | null;
   linked_agent_id: string | null;
+  provider: CliProvider;
   model: string | null;
   status: DispatchedSessionStatus;
   session_info: string | null;
@@ -522,6 +525,7 @@ export interface DashboardStats {
     color: string;
     total_agents: number;
     working_agents: number;
+    sum_xp?: number;
   }>;
   dispatched_count: number;
 }

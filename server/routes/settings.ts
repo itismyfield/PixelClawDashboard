@@ -60,7 +60,7 @@ router.get("/api/stats", (req, res) => {
       agentStats.total += r.cnt;
     }
 
-    const claudeWorkingOnly = (
+    const remoteCcWorkingOnly = (
       db
         .prepare(
           `SELECT COUNT(*) as cnt
@@ -75,7 +75,7 @@ router.get("/api/stats", (req, res) => {
         )
         .get(officeId) as { cnt: number }
     ).cnt;
-    agentStats.working += claudeWorkingOnly;
+    agentStats.working += remoteCcWorkingOnly;
 
     topAgents = db
       .prepare(
@@ -90,7 +90,8 @@ router.get("/api/stats", (req, res) => {
       .prepare(
         `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
                 COUNT(oa.agent_id) as total_agents,
-                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents
+                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents,
+                COALESCE(SUM(a.stats_xp), 0) as sum_xp
          FROM departments d
          LEFT JOIN office_agents oa ON oa.department_id = d.id AND oa.office_id = ?
          LEFT JOIN agents a ON a.id = oa.agent_id
@@ -110,7 +111,7 @@ router.get("/api/stats", (req, res) => {
       agentStats.total += r.cnt;
     }
 
-    const claudeWorkingOnly = (
+    const remoteCcWorkingOnly = (
       db
         .prepare(
           `SELECT COUNT(*) as cnt
@@ -123,7 +124,7 @@ router.get("/api/stats", (req, res) => {
         )
         .get() as { cnt: number }
     ).cnt;
-    agentStats.working += claudeWorkingOnly;
+    agentStats.working += remoteCcWorkingOnly;
 
     topAgents = db
       .prepare(
@@ -136,7 +137,8 @@ router.get("/api/stats", (req, res) => {
       .prepare(
         `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
                 COUNT(a.id) as total_agents,
-                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents
+                SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents,
+                COALESCE(SUM(a.stats_xp), 0) as sum_xp
          FROM departments d
          LEFT JOIN agents a ON a.department_id = d.id
          GROUP BY d.id
@@ -190,7 +192,7 @@ router.get("/api/machine-status", (_req, res) => {
   ];
   // Try to ping mac-book via Tailscale
   try {
-    execSync("ping -c 1 -W 2 100.71.169.10 2>/dev/null", { timeout: 3000, encoding: "utf-8" });
+    execSync("/sbin/ping -c 1 -W 2 100.71.169.10 2>/dev/null", { timeout: 3000, encoding: "utf-8" });
     machines.push({ name: "mac-book", online: true, lastChecked: Date.now() });
   } catch {
     machines.push({ name: "mac-book", online: false, lastChecked: Date.now() });

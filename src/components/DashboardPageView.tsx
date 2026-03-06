@@ -145,14 +145,15 @@ export default function DashboardPageView({
   const agentMap = new Map(agents.map((a) => [a.id, a]));
   const maxXp = topAgents.reduce((max, a) => Math.max(max, a.xp), 1);
 
-  // Build dept performance from stats.departments
+  // Build dept performance from stats.departments (XP share)
+  const totalXpAll = stats.departments.reduce((s, d) => s + (d.sum_xp ?? 0), 0);
   const deptData: DepartmentPerformance[] = stats.departments.map((d, i) => ({
     id: d.id,
     name: d.name_ko || d.name,
     icon: d.icon,
-    done: d.working_agents,
-    total: d.total_agents,
-    ratio: d.total_agents > 0 ? Math.round((d.working_agents / d.total_agents) * 100) : 0,
+    done: d.sum_xp ?? 0,
+    total: totalXpAll,
+    ratio: totalXpAll > 0 ? Math.round(((d.sum_xp ?? 0) / totalXpAll) * 100) : 0,
     color: DEPT_COLORS[i % DEPT_COLORS.length],
   }));
 

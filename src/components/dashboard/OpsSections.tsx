@@ -103,10 +103,10 @@ export function DashboardDeptAndSquad({
                   style={{ color: "var(--th-text-muted)" }}
                 >
                   <span>
-                    {t({ ko: "클리어", en: "cleared", ja: "クリア", zh: "完成" })} {numberFormatter.format(dept.done)}
+                    XP {numberFormatter.format(dept.done)}
                   </span>
                   <span>
-                    {t({ ko: "전체", en: "total", ja: "全体", zh: "总计" })} {numberFormatter.format(dept.total)}
+                    {t({ ko: "전체", en: "total", ja: "全体", zh: "总计" })} XP {numberFormatter.format(dept.total)}
                   </span>
                 </div>
               </article>
