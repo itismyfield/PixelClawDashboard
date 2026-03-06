@@ -3,6 +3,7 @@ import type { RoundTableMeeting } from "../types";
 import { createRoundTableIssues, deleteRoundTableMeeting, getRoundTableMeeting, startRoundTableMeeting } from "../api/client";
 import { FileText, Plus, Settings2, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import MeetingDetailModal from "./MeetingDetailModal";
+import MeetingProviderFlow, { formatProviderFlow, providerFlowCaption } from "./MeetingProviderFlow";
 
 const STORAGE_KEY = "pcd_meeting_channel_id";
 
@@ -281,7 +282,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                     {statusBadge(m.status)}
                     {(m.primary_provider || m.reviewer_provider) && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(59,130,246,0.12)", color: "#93c5fd" }}>
-                        {`${(m.primary_provider || "unknown").toUpperCase()} -> ${(m.reviewer_provider || "unknown").toUpperCase()}`}
+                        {formatProviderFlow(m.primary_provider, m.reviewer_provider)}
                       </span>
                     )}
                     <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
@@ -317,6 +318,18 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                 ))}
               </div>
 
+              {(m.primary_provider || m.reviewer_provider) && (
+                <div className="space-y-1.5">
+                  <MeetingProviderFlow
+                    primaryProvider={m.primary_provider}
+                    reviewerProvider={m.reviewer_provider}
+                  />
+                  <div className="text-[11px]" style={{ color: "var(--th-text-muted)" }}>
+                    {providerFlowCaption(m.primary_provider, m.reviewer_provider)}
+                  </div>
+                </div>
+              )}
+
               {/* PMD Summary bubble */}
               {m.summary && (
                 <div className="flex items-start gap-2.5">
@@ -336,7 +349,14 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                       color: "var(--th-text)",
                     }}
                   >
-                    <div className="text-[10px] font-semibold mb-1" style={{ color: "#818cf8" }}>PMD 요약</div>
+                    <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                      <div className="text-[10px] font-semibold" style={{ color: "#818cf8" }}>PMD 요약</div>
+                      {(m.primary_provider || m.reviewer_provider) && (
+                        <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                          {providerFlowCaption(m.primary_provider, m.reviewer_provider)}
+                        </div>
+                      )}
+                    </div>
                     <div className="whitespace-pre-wrap">{m.summary}</div>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { RoundTableMeeting, RoundTableEntry } from "../types";
+import MeetingProviderFlow, { formatProviderFlow, providerFlowCaption } from "./MeetingProviderFlow";
 
 const ROLE_SPRITE_MAP: Record<string, number> = {
   "ch-td": 5,
@@ -38,6 +39,13 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
     return ROLE_SPRITE_MAP[roleId] || 1;
   };
 
+  const statusLabel =
+    meeting.status === "completed"
+      ? "완료"
+      : meeting.status === "cancelled"
+        ? "취소"
+        : "진행중";
+
   return (
     <div
       ref={overlayRef}
@@ -70,6 +78,11 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
               <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>
                 {new Date(meeting.started_at).toLocaleDateString("ko-KR")}
               </span>
+              {(meeting.primary_provider || meeting.reviewer_provider) && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(59,130,246,0.12)", color: "#93c5fd" }}>
+                  {formatProviderFlow(meeting.primary_provider, meeting.reviewer_provider)}
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -83,6 +96,63 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
+          {(meeting.primary_provider || meeting.reviewer_provider) && (
+            <div className="rounded-2xl p-4 space-y-2" style={{ background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.14)" }}>
+              <MeetingProviderFlow
+                primaryProvider={meeting.primary_provider}
+                reviewerProvider={meeting.reviewer_provider}
+              />
+              <div className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+                {providerFlowCaption(meeting.primary_provider, meeting.reviewer_provider)}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <MetaCard label="상태" value={statusLabel} />
+            <MetaCard label="라운드" value={`${meeting.total_rounds}R`} />
+            <MetaCard label="참여자" value={`${meeting.participant_names.length}명`} />
+            <MetaCard
+              label="시작"
+              value={new Date(meeting.started_at).toLocaleString("ko-KR", {
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            />
+          </div>
+
+          {meeting.summary ? (
+            <div
+              className="rounded-2xl p-4 space-y-2"
+              style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.18)" }}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#818cf8" }}>
+                  Summary
+                </div>
+                {(meeting.primary_provider || meeting.reviewer_provider) && (
+                  <div className="text-[11px]" style={{ color: "var(--th-text-muted)" }}>
+                    {providerFlowCaption(meeting.primary_provider, meeting.reviewer_provider)}
+                  </div>
+                )}
+              </div>
+              <div className="whitespace-pre-wrap text-sm" style={{ color: "var(--th-text)" }}>
+                {meeting.summary}
+              </div>
+            </div>
+          ) : (
+            <div
+              className="rounded-2xl p-4 text-sm"
+              style={{ background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.14)", color: "var(--th-text-muted)" }}
+            >
+              {meeting.status === "cancelled"
+                ? "취소된 회의라 요약이 생성되지 않았습니다."
+                : "아직 요약이 저장되지 않았습니다."}
+            </div>
+          )}
+
           {sortedRounds.map((round) => {
             const roundEntries = entries.filter((e) => e.round === round && !e.is_summary);
             const summaryEntries = entries.filter((e) => e.round === round && e.is_summary);
@@ -139,6 +209,22 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
             닫기
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MetaCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2"
+      style={{ background: "var(--th-bg-surface)", border: "1px solid var(--th-border)" }}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--th-text-muted)" }}>
+        {label}
+      </div>
+      <div className="text-sm font-medium mt-1" style={{ color: "var(--th-text)" }}>
+        {value}
       </div>
     </div>
   );
