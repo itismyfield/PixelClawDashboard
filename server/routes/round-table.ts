@@ -1,10 +1,21 @@
 import { Router } from "express";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { sendDiscordMessage } from "../discord-announce.js";
 
 const router = Router();
+
+function formatExecError(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const stderr = Reflect.get(error, "stderr");
+    if (stderr) {
+      const text = Buffer.isBuffer(stderr) ? stderr.toString("utf-8") : String(stderr);
+      if (text.trim()) return text.trim();
+    }
+  }
+  return error instanceof Error ? error.message : "command failed";
+}
 
 /** Parse action items from meeting entries/summary into structured proposed issues */
 function parseProposedIssues(
@@ -212,15 +223,14 @@ router.post("/api/round-table-meetings/:id/issues", (req, res) => {
     const title = `[RT] ${issue.title.slice(0, 80)}`;
     const body = `${issue.body}\n\n---\n_라운드 테이블: ${agenda}_`;
     try {
-      execSync(
-        `gh issue create --repo "${repo}" --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}"`,
+      execFileSync(
+        "gh",
+        ["issue", "create", "--repo", repo, "--title", title, "--body", body],
         { timeout: 15000, stdio: "pipe" },
       );
       results.push({ title, ok: true });
     } catch (e: unknown) {
-      const message =
-        e instanceof Error ? e.message : "gh issue create failed";
-      results.push({ title, ok: false, error: message });
+      results.push({ title, ok: false, error: formatExecError(e) });
     }
   }
 

@@ -59,8 +59,21 @@ function ensureDirs(): void {
   fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
 }
 
-function archiveFile(filePath: string): void {
-  const dest = path.join(ARCHIVE_DIR, path.basename(filePath));
+function getArchiveDestination(filePath: string): string {
+  const parsed = path.parse(filePath);
+  let dest = path.join(ARCHIVE_DIR, path.basename(filePath));
+  let suffix = 1;
+
+  while (fs.existsSync(dest)) {
+    dest = path.join(ARCHIVE_DIR, `${parsed.name}.${suffix}${parsed.ext}`);
+    suffix += 1;
+  }
+
+  return dest;
+}
+
+function archiveFile(filePath: string): string {
+  const dest = getArchiveDestination(filePath);
   try {
     fs.renameSync(filePath, dest);
   } catch {
@@ -68,6 +81,7 @@ function archiveFile(filePath: string): void {
     fs.copyFileSync(filePath, dest);
     fs.unlinkSync(filePath);
   }
+  return dest;
 }
 
 async function sendAgentMessage(agentId: string, message: string): Promise<boolean> {
@@ -151,6 +165,7 @@ function processHandoffFile(filePath: string): void {
 
   // Chain depth hard limit
   if (chainDepth >= MAX_CHAIN_DEPTH) {
+    const archivedPath = archiveFile(filePath);
     sendCeoAlert(
       `Dispatch chain depth ${chainDepth} reached limit for "${handoff.title}" (from: ${handoff.from}). Auto-cancelled.`,
     );
@@ -159,14 +174,14 @@ function processHandoffFile(filePath: string): void {
        VALUES (?, ?, ?, ?, 'cancelled', ?, ?, ?, ?, ?, ?)`,
     ).run(
       handoff.dispatch_id, handoff.from, toAgent, handoff.type,
-      handoff.title, filePath, handoff.parent_dispatch_id ?? null,
+      handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
       chainDepth, Date.now(), Date.now(),
     );
-    archiveFile(filePath);
     return;
   }
 
   const now = Date.now();
+  const archivedPath = archiveFile(filePath);
 
   // Insert into DB
   db.prepare(
@@ -174,7 +189,7 @@ function processHandoffFile(filePath: string): void {
      VALUES (?, ?, ?, ?, 'dispatched', ?, ?, ?, ?, ?, ?)`,
   ).run(
     handoff.dispatch_id, handoff.from, toAgent, handoff.type,
-    handoff.title, filePath, handoff.parent_dispatch_id ?? null,
+    handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
     chainDepth, now, now,
   );
 
@@ -209,7 +224,6 @@ function processHandoffFile(filePath: string): void {
     );
   }
 
-  archiveFile(filePath);
   console.log(
     `[PCD-dispatch] Processed handoff: ${handoff.dispatch_id} (${handoff.from} → ${toAgent}, depth=${chainDepth})`,
   );
@@ -262,10 +276,11 @@ function processResultFile(filePath: string): void {
   // Map result status to dispatch status
   const dispatchStatus = result.status === "fail" ? "failed" : "completed";
   const now = Date.now();
+  const archivedPath = archiveFile(filePath);
 
   db.prepare(
     `UPDATE task_dispatches SET status = ?, result_file = ?, result_summary = ?, completed_at = ? WHERE id = ?`,
-  ).run(dispatchStatus, filePath, result.summary, now, result.dispatch_id);
+  ).run(dispatchStatus, archivedPath, result.summary, now, result.dispatch_id);
 
   // Handle follow_up_request → create new handoff file (auto-chain)
   if (result.follow_up_request) {
@@ -308,7 +323,6 @@ function processResultFile(filePath: string): void {
     );
   }
 
-  archiveFile(filePath);
   console.log(
     `[PCD-dispatch] Processed result: ${result.dispatch_id} (${result.status}: ${result.summary?.slice(0, 60)})`,
   );
