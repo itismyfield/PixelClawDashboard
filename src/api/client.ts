@@ -477,7 +477,28 @@ export async function deleteRoundTableMeeting(id: string): Promise<{ ok: boolean
   return request(`/api/round-table-meetings/${id}`, { method: "DELETE" });
 }
 
-export async function createRoundTableIssues(id: string, repo?: string): Promise<{ ok: boolean }> {
+export interface RoundTableIssueCreationResponse {
+  ok: boolean;
+  skipped?: boolean;
+  results: Array<{
+    key: string;
+    title: string;
+    assignee: string;
+    ok: boolean;
+    error?: string | null;
+    issue_url?: string | null;
+    attempted_at: number;
+  }>;
+  summary: {
+    total: number;
+    created: number;
+    failed: number;
+    pending: number;
+    all_created: boolean;
+  };
+}
+
+export async function createRoundTableIssues(id: string, repo?: string): Promise<RoundTableIssueCreationResponse> {
   return request(`/api/round-table-meetings/${id}/issues`, {
     method: "POST",
     body: JSON.stringify({ repo }),

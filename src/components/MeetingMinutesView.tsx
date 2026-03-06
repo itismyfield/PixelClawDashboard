@@ -104,6 +104,23 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
 
   const inputStyle = { background: "var(--th-bg-surface)", border: "1px solid var(--th-border)", color: "var(--th-text)" };
 
+  const getIssueProgress = (meeting: RoundTableMeeting) => {
+    const total = meeting.proposed_issues?.length ?? 0;
+    const created = Math.min(meeting.issues_created || 0, total);
+    const failed = Math.min(
+      meeting.issue_creation_results?.filter((result) => !result.ok).length ?? 0,
+      Math.max(total - created, 0),
+    );
+    const pending = Math.max(total - created - failed, 0);
+    return {
+      total,
+      created,
+      failed,
+      pending,
+      allCreated: total > 0 && created === total,
+    };
+  };
+
   return (
     <div
       className="p-4 sm:p-6 max-w-4xl mx-auto overflow-auto h-full pb-40"
@@ -226,6 +243,8 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
         {meetings.map((m) => {
           const hasProposedIssues = m.proposed_issues && m.proposed_issues.length > 0;
           const issuesExpanded = expandedIssues.has(m.id);
+          const issueProgress = getIssueProgress(m);
+          const canRetryIssues = hasProposedIssues && !issueProgress.allCreated;
 
           return (
             <div
@@ -300,7 +319,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
               )}
 
               {/* Proposed issues preview */}
-              {hasProposedIssues && !m.issues_created && (
+              {hasProposedIssues && !issueProgress.allCreated && (
                 <div>
                   <button
                     onClick={() => toggleIssuePreview(m.id)}
@@ -334,6 +353,16 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                 </div>
               )}
 
+              {hasProposedIssues && (
+                <div className="text-xs" style={{ color: issueProgress.failed > 0 ? "#fbbf24" : "var(--th-text-muted)" }}>
+                  {issueProgress.allCreated
+                    ? `일감 생성 완료 ${issueProgress.created}/${issueProgress.total}`
+                    : issueProgress.failed > 0
+                      ? `생성 성공 ${issueProgress.created}/${issueProgress.total}, 실패 ${issueProgress.failed}건`
+                      : `생성 대기 ${issueProgress.pending}건`}
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -346,19 +375,33 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                 {hasProposedIssues ? (
                   <button
                     onClick={() => handleCreateIssues(m.id)}
-                    disabled={!!m.issues_created || creatingIssue === m.id}
+                    disabled={!canRetryIssues || creatingIssue === m.id}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
                     style={{
-                      background: m.issues_created ? "transparent" : "rgba(16,185,129,0.15)",
-                      color: m.issues_created ? "var(--th-text-muted)" : "#34d399",
-                      border: `1px solid ${m.issues_created ? "var(--th-border)" : "rgba(16,185,129,0.3)"}`,
+                      background: issueProgress.allCreated
+                        ? "transparent"
+                        : issueProgress.failed > 0
+                          ? "rgba(245,158,11,0.15)"
+                          : "rgba(16,185,129,0.15)",
+                      color: issueProgress.allCreated
+                        ? "var(--th-text-muted)"
+                        : issueProgress.failed > 0
+                          ? "#fbbf24"
+                          : "#34d399",
+                      border: `1px solid ${issueProgress.allCreated
+                        ? "var(--th-border)"
+                        : issueProgress.failed > 0
+                          ? "rgba(245,158,11,0.3)"
+                          : "rgba(16,185,129,0.3)"}`,
                     }}
                   >
-                    {m.issues_created
-                      ? `일감 생성 완료 (${m.proposed_issues!.length}건)`
+                    {issueProgress.allCreated
+                      ? `일감 생성 완료 (${issueProgress.created}/${issueProgress.total})`
                       : creatingIssue === m.id
                         ? "생성 중..."
-                        : `일감 생성 (${m.proposed_issues!.length}건)`}
+                        : issueProgress.failed > 0
+                          ? `실패분 재시도 (${issueProgress.created}/${issueProgress.total})`
+                          : `일감 생성 (${issueProgress.total}건)`}
                   </button>
                 ) : (
                   m.issues_created ? (

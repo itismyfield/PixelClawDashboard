@@ -323,7 +323,10 @@ export default function App() {
   const locale = settings.language;
   const tr = (ko: string, en: string) => (isKo ? ko : en);
 
-  const newMeetingsCount = roundTableMeetings.filter((m) => m.status === "completed" && !m.issues_created).length;
+  const newMeetingsCount = roundTableMeetings.filter((m) => {
+    const totalIssues = m.proposed_issues?.length ?? 0;
+    return m.status === "completed" && totalIssues > 0 && m.issues_created < totalIssues;
+  }).length;
 
   const navItems: Array<{ id: ViewMode; icon: React.ReactNode; label: string; badge?: number; badgeColor?: string }> = [
     { id: "office", icon: <Building2 size={20} />, label: "오피스" },

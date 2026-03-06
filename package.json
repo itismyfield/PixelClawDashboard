@@ -10,6 +10,8 @@
     "dev:api": "tsx watch server/server-main.ts",
     "dev:web": "vite",
     "build": "tsc -b && vite build",
+    "test:server": "tsx --test server/**/*.test.ts",
+    "test": "npm run test:server",
     "start": "node --import tsx server/server-main.ts",
     "preview": "vite preview"
   },

@@ -300,6 +300,16 @@ export interface ProposedIssue {
   assignee: string;
 }
 
+export interface IssueCreationResult {
+  key: string;
+  title: string;
+  assignee: string;
+  ok: boolean;
+  error?: string | null;
+  issue_url?: string | null;
+  attempted_at: number;
+}
+
 export interface RoundTableMeeting {
   id: string;
   agenda: string;
@@ -309,6 +319,7 @@ export interface RoundTableMeeting {
   total_rounds: number;
   issues_created: number;
   proposed_issues: ProposedIssue[] | null;
+  issue_creation_results: IssueCreationResult[] | null;
   started_at: number;
   completed_at: number | null;
   created_at: number;

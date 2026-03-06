@@ -158,6 +158,7 @@ export function initSchema(db: DatabaseSync): void {
       participant_names TEXT NOT NULL DEFAULT '[]',
       total_rounds INTEGER NOT NULL DEFAULT 0,
       issues_created INTEGER NOT NULL DEFAULT 0,
+      issue_creation_results TEXT DEFAULT NULL,
       started_at INTEGER NOT NULL,
       completed_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -241,6 +242,11 @@ function migrate(db: DatabaseSync): void {
     .all() as Array<{ name: string }>;
   if (!rtCols.some((c) => c.name === "proposed_issues")) {
     db.exec("ALTER TABLE round_table_meetings ADD COLUMN proposed_issues TEXT DEFAULT NULL");
+  }
+  if (!rtCols.some((c) => c.name === "issue_creation_results")) {
+    db.exec(
+      "ALTER TABLE round_table_meetings ADD COLUMN issue_creation_results TEXT DEFAULT NULL",
+    );
   }
 
   // Add dual-channel support: alt channel + preference flag
