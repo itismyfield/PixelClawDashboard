@@ -173,6 +173,7 @@ interface DashboardRankingBoardProps {
   maxXp: number;
   numberFormatter: Intl.NumberFormat;
   t: TFunction;
+  onSelectAgent?: (agent: Agent) => void;
 }
 
 export function DashboardRankingBoard({
@@ -183,6 +184,7 @@ export function DashboardRankingBoard({
   maxXp,
   numberFormatter,
   t,
+  onSelectAgent,
 }: DashboardRankingBoardProps) {
   return (
     <div className="game-panel relative overflow-hidden p-5">
@@ -247,6 +249,7 @@ export function DashboardRankingBoard({
                 const rank = ranks[visualIdx];
                 const tier = getRankTier(agent.xp);
                 const isFirst = rank === 1;
+                const selectedAgent = agentMap.get(agent.id);
                 const avatarSize = isFirst ? 64 : 48;
                 const podiumHeight = isFirst ? "h-24" : rank === 2 ? "h-16" : "h-12";
 
@@ -274,22 +277,52 @@ export function DashboardRankingBoard({
                       </span>
                     )}
 
-                    <div
-                      className="relative overflow-hidden rounded-2xl transition-transform duration-300 hover:scale-105"
-                      style={{
-                        boxShadow: isFirst ? `0 0 20px ${tier.glow}, 0 0 40px ${tier.glow}` : `0 0 12px ${tier.glow}`,
-                        border: `2px solid ${tier.color}80`,
-                      }}
-                    >
-                      <AgentAvatar agent={agentMap.get(agent.id)} agents={agents} size={avatarSize} rounded="2xl" />
-                    </div>
+                    {selectedAgent && onSelectAgent ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectAgent(selectedAgent)}
+                        className="flex flex-col items-center gap-2 text-left transition-transform duration-300 hover:scale-105"
+                      >
+                        <div
+                          className="relative overflow-hidden rounded-2xl"
+                          style={{
+                            boxShadow: isFirst
+                              ? `0 0 20px ${tier.glow}, 0 0 40px ${tier.glow}`
+                              : `0 0 12px ${tier.glow}`,
+                            border: `2px solid ${tier.color}80`,
+                          }}
+                        >
+                          <AgentAvatar agent={selectedAgent} agents={agents} size={avatarSize} rounded="2xl" />
+                        </div>
+                        <span
+                          className={`max-w-[80px] truncate text-center font-bold ${isFirst ? "text-sm" : "text-xs"}`}
+                          style={{ color: tier.color, textShadow: isFirst ? `0 0 8px ${tier.glow}` : "none" }}
+                        >
+                          {agent.name}
+                        </span>
+                      </button>
+                    ) : (
+                      <>
+                        <div
+                          className="relative overflow-hidden rounded-2xl transition-transform duration-300 hover:scale-105"
+                          style={{
+                            boxShadow: isFirst
+                              ? `0 0 20px ${tier.glow}, 0 0 40px ${tier.glow}`
+                              : `0 0 12px ${tier.glow}`,
+                            border: `2px solid ${tier.color}80`,
+                          }}
+                        >
+                          <AgentAvatar agent={selectedAgent} agents={agents} size={avatarSize} rounded="2xl" />
+                        </div>
 
-                    <span
-                      className={`max-w-[80px] truncate text-center font-bold ${isFirst ? "text-sm" : "text-xs"}`}
-                      style={{ color: tier.color, textShadow: isFirst ? `0 0 8px ${tier.glow}` : "none" }}
-                    >
-                      {agent.name}
-                    </span>
+                        <span
+                          className={`max-w-[80px] truncate text-center font-bold ${isFirst ? "text-sm" : "text-xs"}`}
+                          style={{ color: tier.color, textShadow: isFirst ? `0 0 8px ${tier.glow}` : "none" }}
+                        >
+                          {agent.name}
+                        </span>
+                      </>
+                    )}
 
                     <div className="flex flex-col items-center gap-1">
                       <span
@@ -325,6 +358,7 @@ export function DashboardRankingBoard({
               {topAgents.slice(3).map((agent, idx) => {
                 const rank = idx + 4;
                 const tier = getRankTier(agent.xp);
+                const selectedAgent = agentMap.get(agent.id);
                 return (
                   <div
                     key={agent.id}
@@ -334,20 +368,45 @@ export function DashboardRankingBoard({
                     <span className="w-8 text-center font-mono text-sm font-black" style={{ color: `${tier.color}80` }}>
                       #{rank}
                     </span>
-                    <div
-                      className="flex-shrink-0 overflow-hidden rounded-xl"
-                      style={{ border: `1px solid ${tier.color}40` }}
-                    >
-                      <AgentAvatar agent={agentMap.get(agent.id)} agents={agents} size={36} rounded="xl" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold" style={{ color: "var(--th-text-primary)" }}>
-                        {agent.name}
-                      </p>
-                      <p className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
-                        {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
-                      </p>
-                    </div>
+                    {selectedAgent && onSelectAgent ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectAgent(selectedAgent)}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      >
+                        <div
+                          className="flex-shrink-0 overflow-hidden rounded-xl"
+                          style={{ border: `1px solid ${tier.color}40` }}
+                        >
+                          <AgentAvatar agent={selectedAgent} agents={agents} size={36} rounded="xl" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold" style={{ color: "var(--th-text-primary)" }}>
+                            {agent.name}
+                          </p>
+                          <p className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                            {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
+                          </p>
+                        </div>
+                      </button>
+                    ) : (
+                      <>
+                        <div
+                          className="flex-shrink-0 overflow-hidden rounded-xl"
+                          style={{ border: `1px solid ${tier.color}40` }}
+                        >
+                          <AgentAvatar agent={selectedAgent} agents={agents} size={36} rounded="xl" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold" style={{ color: "var(--th-text-primary)" }}>
+                            {agent.name}
+                          </p>
+                          <p className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                            {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
+                          </p>
+                        </div>
+                      </>
+                    )}
                     <div className="hidden w-28 sm:block">
                       <XpBar xp={agent.xp} maxXp={maxXp} color={tier.color} />
                     </div>
@@ -367,6 +426,7 @@ export function DashboardRankingBoard({
             (() => {
               const agent = topAgents[0];
               const tier = getRankTier(agent.xp);
+              const selectedAgent = agentMap.get(agent.id);
               return (
                 <div
                   className="flex items-center gap-4 rounded-xl p-4"
@@ -379,20 +439,45 @@ export function DashboardRankingBoard({
                   <span className="text-2xl animate-crown-wiggle" style={{ display: "inline-block" }}>
                     🥇
                   </span>
-                  <div
-                    className="overflow-hidden rounded-2xl"
-                    style={{ border: `2px solid ${tier.color}60`, boxShadow: `0 0 15px ${tier.glow}` }}
-                  >
-                    <AgentAvatar agent={agentMap.get(agent.id)} agents={agents} size={52} rounded="2xl" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-base font-black" style={{ color: tier.color }}>
-                      {agent.name}
-                    </p>
-                    <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
-                      {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
-                    </p>
-                  </div>
+                  {selectedAgent && onSelectAgent ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectAgent(selectedAgent)}
+                      className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                    >
+                      <div
+                        className="overflow-hidden rounded-2xl"
+                        style={{ border: `2px solid ${tier.color}60`, boxShadow: `0 0 15px ${tier.glow}` }}
+                      >
+                        <AgentAvatar agent={selectedAgent} agents={agents} size={52} rounded="2xl" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-base font-black" style={{ color: tier.color }}>
+                          {agent.name}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+                          {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
+                        </p>
+                      </div>
+                    </button>
+                  ) : (
+                    <>
+                      <div
+                        className="overflow-hidden rounded-2xl"
+                        style={{ border: `2px solid ${tier.color}60`, boxShadow: `0 0 15px ${tier.glow}` }}
+                      >
+                        <AgentAvatar agent={selectedAgent} agents={agents} size={52} rounded="2xl" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-base font-black" style={{ color: tier.color }}>
+                          {agent.name}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+                          {agent.department || t({ ko: "미지정", en: "Unassigned", ja: "未指定", zh: "未指定" })}
+                        </p>
+                      </div>
+                    </>
+                  )}
                   <div className="text-right">
                     <p
                       className="font-mono text-lg font-black"

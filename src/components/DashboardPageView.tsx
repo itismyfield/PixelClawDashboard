@@ -218,6 +218,7 @@ export default function DashboardPageView({
             maxXp={maxXp}
             numberFormatter={numberFormatter}
             t={t}
+            onSelectAgent={onSelectAgent}
           />
           <ActivityFeedWidget agents={agents} t={t} />
         </>
