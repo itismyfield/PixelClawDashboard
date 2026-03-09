@@ -10,7 +10,7 @@ export const STATUS_DOT: Record<string, string> = {
   idle: "bg-slate-500",
 };
 
-export const ICON_SPRITE_POOL = Array.from({ length: 100 }, (_, i) => i + 1);
+export const ICON_SPRITE_POOL = Array.from({ length: 20 }, (_, i) => i + 1);
 
 export const EMOJI_GROUPS: { label: string; labelEn: string; emojis: string[] }[] = [
   {
