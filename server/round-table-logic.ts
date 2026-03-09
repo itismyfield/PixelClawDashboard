@@ -9,6 +9,7 @@ export interface IssueCreationRecord {
   title: string;
   assignee: string;
   ok: boolean;
+  discarded?: boolean;
   error?: string | null;
   issue_url?: string | null;
   attempted_at: number;
@@ -18,8 +19,10 @@ export interface IssueCreationSummary {
   total: number;
   created: number;
   failed: number;
+  discarded: number;
   pending: number;
   all_created: boolean;
+  all_resolved: boolean;
 }
 
 export function parseProposedIssues(
@@ -88,6 +91,7 @@ export function parseIssueCreationResults(
           title,
           assignee,
           ok: item.ok === true,
+          discarded: item.discarded === true,
           error: typeof item.error === "string" ? item.error : null,
           issue_url: typeof item.issue_url === "string" ? item.issue_url : null,
           attempted_at:
@@ -134,6 +138,7 @@ export function normalizeIssueCreationResults(
     title: issue.title,
     assignee: issue.assignee,
     ok: true,
+    discarded: false,
     error: null,
     issue_url: null,
     attempted_at: 0,
@@ -144,14 +149,14 @@ export function getPendingIssues(
   proposedIssues: ProposedIssue[],
   results: IssueCreationRecord[],
 ): ProposedIssue[] {
-  const successKeys = new Set(
+  const handledKeys = new Set(
     pruneIssueCreationResults(proposedIssues, results)
-      .filter((result) => result.ok)
+      .filter((result) => result.ok || result.discarded === true)
       .map((result) => result.key),
   );
 
   return proposedIssues.filter(
-    (issue) => !successKeys.has(proposedIssueKey(issue)),
+    (issue) => !handledKeys.has(proposedIssueKey(issue)),
   );
 }
 
@@ -179,16 +184,19 @@ export function summarizeIssueCreation(
   results: IssueCreationRecord[],
 ): IssueCreationSummary {
   const relevant = pruneIssueCreationResults(proposedIssues, results);
-  const created = relevant.filter((result) => result.ok).length;
-  const failed = relevant.filter((result) => !result.ok).length;
+  const created = relevant.filter((result) => result.ok && result.discarded !== true).length;
+  const failed = relevant.filter((result) => !result.ok && result.discarded !== true).length;
+  const discarded = relevant.filter((result) => result.discarded === true).length;
   const total = proposedIssues.length;
-  const pending = Math.max(total - created - failed, 0);
+  const pending = Math.max(total - created - failed - discarded, 0);
 
   return {
     total,
     created,
     failed,
+    discarded,
     pending,
     all_created: total > 0 && created === total,
+    all_resolved: total > 0 && pending === 0 && failed === 0,
   };
 }

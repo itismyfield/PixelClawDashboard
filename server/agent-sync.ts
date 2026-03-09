@@ -1,66 +1,81 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import crypto from "node:crypto";
-import { execSync } from "node:child_process";
 import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
+import { listRoleBindings } from "./role-map.js";
 
-const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), ".openclaw", "openclaw.json");
 const AGENT_SYNC_INTERVAL_MS = 3 * 60 * 1000; // 3 min
 const STATUS_RECONCILE_INTERVAL_MS = 45 * 1000; // 45 sec
-// Keep reconcile window short so finished work returns to idle quickly.
-// Real-time transition should come from pcd-status-sync hook events.
-const STATUS_ACTIVE_WINDOW_MIN = 3;
 
-interface OpenClawAgent {
+interface ConfiguredAgent {
   id: string;
-  name?: string;
-  identity?: {
-    name?: string;
-    emoji?: string;
+  name: string;
+  emoji: string;
+}
+
+interface RoleBindingLike {
+  roleId?: string | null;
+}
+
+interface WorkingStatusRow {
+  id: string;
+  status: string;
+  remotecc_working_count: number;
+}
+
+export function inferDisplayName(roleId: string): string {
+  if (roleId.startsWith("ch-")) return roleId.slice(3).toUpperCase();
+  if (roleId.endsWith("-agent")) return roleId.replace(/-agent$/, "");
+  return roleId;
+}
+
+export function inferDisplayEmoji(roleId: string): string {
+  const normalized = roleId.trim().toLowerCase();
+  if (!normalized) return "🙂";
+
+  const directMap: Record<string, string> = {
+    "ch-pmd": "📋",
+    "ch-pd": "🎬",
+    "ch-dd": "🎮",
+    "ch-td": "⚙️",
+    "ch-ad": "🎨",
+    "ch-tad": "🔧",
+    "ch-qad": "🔍",
+    "family-routine": "⏰",
+    "family-counsel": "💚",
+    "project-pixelclawdashboard": "🐾",
+    "project-remotecc": "📡",
+    "project-agentfactory": "🏭",
+    "project-scheduler": "🗓️",
   };
+
+  return directMap[normalized] ?? "🙂";
 }
 
-function getOpenClawAgents(): OpenClawAgent[] {
-  if (!fs.existsSync(OPENCLAW_CONFIG_PATH)) return [];
-  try {
-    const raw = fs.readFileSync(OPENCLAW_CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    const list = parsed?.agents?.list;
-    if (!Array.isArray(list)) return [];
-    return list.filter((a) => typeof a?.id === "string");
-  } catch (e) {
-    console.error("[PCD] agent-sync: failed to parse openclaw.json", e);
-    return [];
-  }
-}
-
-function getActiveAgentIds(activeWindowMin: number): Set<string> {
-  const out = new Set<string>();
-  try {
-    const text = execSync(
-      `openclaw sessions --active ${activeWindowMin} --json 2>/dev/null`,
-      {
-      timeout: 5000,
-      encoding: "utf-8",
+export function collectConfiguredAgents(bindings: RoleBindingLike[]): ConfiguredAgent[] {
+  const out = new Map<string, ConfiguredAgent>();
+  for (const binding of bindings) {
+    if (!binding.roleId || out.has(binding.roleId)) continue;
+    out.set(binding.roleId, {
+      id: binding.roleId,
+      name: inferDisplayName(binding.roleId),
+      emoji: inferDisplayEmoji(binding.roleId),
     });
-    const sessions = JSON.parse(text);
-    if (!Array.isArray(sessions)) return out;
-
-    for (const s of sessions) {
-      const key = String(s?.sessionKey ?? s?.key ?? "");
-      const m = key.match(/agent:([^:]+):/);
-      if (m?.[1]) out.add(m[1]);
-    }
-  } catch {
-    // ignore: openclaw CLI might be unavailable temporarily
   }
-  return out;
+  return [...out.values()];
+}
+
+export function getIdleAgentIdsFromWorkingRows(rows: WorkingStatusRow[]): string[] {
+  return rows
+    .filter((row) => Number(row.remotecc_working_count || 0) === 0)
+    .map((row) => row.id);
+}
+
+function getConfiguredAgents(): ConfiguredAgent[] {
+  return collectConfiguredAgents(listRoleBindings());
 }
 
 export function syncAgentsOnce(): number {
-  const srcAgents = getOpenClawAgents();
+  const srcAgents = getConfiguredAgents();
   if (srcAgents.length === 0) return 0;
 
   const db = getDb();
@@ -82,11 +97,9 @@ export function syncAgentsOnce(): number {
     const exists = findByOc.get(a.id) as { id: string } | undefined;
     if (exists) continue;
 
-    const displayName = a.identity?.name || a.name || a.id;
-    const emoji = a.identity?.emoji || "🙂";
     const id = crypto.randomUUID();
 
-    insertAgent.run(id, a.id, displayName, displayName, "senior", emoji, "idle");
+    insertAgent.run(id, a.id, a.name, a.name, "senior", a.emoji, "idle");
     if (hasMainOffice) linkOffice.run(id);
 
     const createdRow = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
@@ -101,31 +114,31 @@ export function syncAgentsOnce(): number {
 }
 
 export function reconcileAgentStatusOnce(): number {
-  const active = getActiveAgentIds(STATUS_ACTIVE_WINDOW_MIN);
   const db = getDb();
 
   const workingNow = db
-    .prepare("SELECT id, openclaw_id, status FROM agents WHERE openclaw_id IS NOT NULL")
-    .all() as Array<{ id: string; openclaw_id: string; status: string }>;
+    .prepare(
+      `SELECT a.id, a.status, COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
+       FROM agents a
+       LEFT JOIN (
+         SELECT linked_agent_id AS aid,
+                SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) AS remotecc_working_count
+         FROM dispatched_sessions
+         WHERE linked_agent_id IS NOT NULL AND status != 'disconnected'
+         GROUP BY linked_agent_id
+       ) ds ON ds.aid = a.id
+       WHERE a.status = 'working'`,
+    )
+    .all() as unknown as WorkingStatusRow[];
 
-  const toWorking: string[] = [];
-  const toIdle: string[] = [];
-
-  for (const a of workingNow) {
-    if (active.has(a.openclaw_id)) {
-      if (a.status !== "working") toWorking.push(a.id);
-    } else if (a.status === "working") {
-      toIdle.push(a.id);
-    }
-  }
+  const toIdle = getIdleAgentIdsFromWorkingRows(workingNow);
 
   const setStatus = db.prepare("UPDATE agents SET status = ? WHERE id = ?");
-  for (const id of toWorking) setStatus.run("working", id);
   for (const id of toIdle) setStatus.run("idle", id);
 
-  const changed = toWorking.length + toIdle.length;
+  const changed = toIdle.length;
   if (changed > 0) {
-    for (const id of [...toWorking, ...toIdle]) {
+    for (const id of toIdle) {
       const row = db
         .prepare(
           `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color
@@ -157,7 +170,7 @@ export function startAgentSync(): void {
   }, STATUS_RECONCILE_INTERVAL_MS);
 
   console.log(
-    `[PCD] agent-sync started (sync=${AGENT_SYNC_INTERVAL_MS / 1000}s, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s, activeWindow=${STATUS_ACTIVE_WINDOW_MIN}m)`,
+    `[PCD] agent-sync started (source=role_map, sync=${AGENT_SYNC_INTERVAL_MS / 1000}s, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s)`,
   );
 }
 

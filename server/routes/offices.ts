@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { appendAuditLog, getAuditActor } from "../audit-log.js";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 
@@ -77,6 +78,13 @@ router.post("/api/offices", (req, res) => {
   );
 
   const office = db.prepare("SELECT * FROM offices WHERE id = ?").get(finalId);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "create",
+    entityType: "office",
+    entityId: finalId,
+    summary: `Office created: ${String(b.name_ko || b.name || finalId)}`,
+  });
   broadcast("offices_changed", {});
   res.status(201).json(office);
 });
@@ -101,13 +109,31 @@ router.patch("/api/offices/:id", (req, res) => {
   );
   broadcast("offices_changed", {});
   const office = db.prepare("SELECT * FROM offices WHERE id = ?").get(req.params.id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "update",
+    entityType: "office",
+    entityId: req.params.id,
+    summary: `Office updated: ${String((office as { name_ko?: string; name?: string } | undefined)?.name_ko || (office as { name?: string } | undefined)?.name || req.params.id)}`,
+    metadata: { fields: fields.filter((field) => field in req.body) },
+  });
   res.json(office);
 });
 
 // Delete office
 router.delete("/api/offices/:id", (req, res) => {
   const db = getDb();
+  const office = db
+    .prepare("SELECT id, name, name_ko FROM offices WHERE id = ?")
+    .get(req.params.id) as { id: string; name: string; name_ko: string } | undefined;
   db.prepare("DELETE FROM offices WHERE id = ?").run(req.params.id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "delete",
+    entityType: "office",
+    entityId: req.params.id,
+    summary: `Office deleted: ${office?.name_ko || office?.name || req.params.id}`,
+  });
   broadcast("offices_changed", {});
   res.json({ ok: true });
 });
@@ -124,6 +150,14 @@ router.post("/api/offices/:id/agents", (req, res) => {
     "INSERT OR REPLACE INTO office_agents (office_id, agent_id, department_id) VALUES (?, ?, ?)",
   ).run(req.params.id, agent_id, department_id ?? null);
 
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "assign",
+    entityType: "agent",
+    entityId: agent_id,
+    summary: `Agent assigned to office: ${req.params.id}`,
+    metadata: { office_id: req.params.id, department_id: department_id ?? null },
+  });
   broadcast("offices_changed", {});
   res.json({ ok: true });
 });
@@ -141,6 +175,14 @@ router.post("/api/offices/:id/agents/batch", (req, res) => {
   for (const agentId of agent_ids) {
     stmt.run(req.params.id, agentId);
   }
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "assign",
+    entityType: "office",
+    entityId: req.params.id,
+    summary: `Office batch assignment: ${req.params.id}`,
+    metadata: { agent_ids },
+  });
   broadcast("offices_changed", {});
   res.json({ ok: true });
 });
@@ -151,6 +193,14 @@ router.delete("/api/offices/:id/agents/:agentId", (req, res) => {
   db.prepare(
     "DELETE FROM office_agents WHERE office_id = ? AND agent_id = ?",
   ).run(req.params.id, req.params.agentId);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "unassign",
+    entityType: "agent",
+    entityId: req.params.agentId,
+    summary: `Agent removed from office: ${req.params.id}`,
+    metadata: { office_id: req.params.id },
+  });
   broadcast("offices_changed", {});
   res.json({ ok: true });
 });
@@ -162,6 +212,14 @@ router.patch("/api/offices/:id/agents/:agentId", (req, res) => {
   db.prepare(
     "UPDATE office_agents SET department_id = ? WHERE office_id = ? AND agent_id = ?",
   ).run(department_id ?? null, req.params.id, req.params.agentId);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "update",
+    entityType: "agent",
+    entityId: req.params.agentId,
+    summary: `Office membership updated: ${req.params.id}`,
+    metadata: { office_id: req.params.id, department_id: department_id ?? null },
+  });
   broadcast("offices_changed", {});
   res.json({ ok: true });
 });

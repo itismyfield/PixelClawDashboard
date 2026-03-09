@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Application, Container, Graphics, Text, Texture } from "pixi.js";
-import type { Agent, Department, Task, SubAgent } from "../types";
+import type { Agent, AuditLogEntry, Department, Task, SubAgent } from "../types";
 import type { ThemeMode } from "../ThemeContext";
 import type { UiLanguage } from "../i18n";
 import { buildSpriteMap } from "./AgentAvatar";
 import { buildOfficeScene } from "./office-view/buildScene";
+import type { Notification } from "./NotificationCenter";
 import type {
   AnimItem,
   BreakAnimItem,
@@ -20,6 +21,7 @@ import type {
   WallClockVisual,
 } from "./office-view/model";
 import type { OfficeTickerContext } from "./office-view/officeTicker";
+import OfficeInsightPanel from "./office-view/OfficeInsightPanel";
 import { useOfficePixiRuntime } from "./office-view/useOfficePixiRuntime";
 import type { SupportedLocale } from "./office-view/themes-locale";
 
@@ -29,6 +31,8 @@ interface OfficeViewProps {
   language: UiLanguage;
   theme: ThemeMode;
   subAgents?: SubAgent[];
+  notifications?: Notification[];
+  auditLogs?: AuditLogEntry[];
   onSelectAgent?: (agent: Agent) => void;
   onSelectDepartment?: (dept: Department) => void;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
@@ -36,6 +40,8 @@ interface OfficeViewProps {
 
 const EMPTY_TASKS: Task[] = [];
 const EMPTY_SUB_AGENTS: SubAgent[] = [];
+const EMPTY_NOTIFICATIONS: Notification[] = [];
+const EMPTY_AUDIT_LOGS: AuditLogEntry[] = [];
 
 export default function OfficeView({
   agents,
@@ -43,6 +49,8 @@ export default function OfficeView({
   language,
   theme,
   subAgents = EMPTY_SUB_AGENTS,
+  notifications = EMPTY_NOTIFICATIONS,
+  auditLogs = EMPTY_AUDIT_LOGS,
   onSelectAgent,
   onSelectDepartment,
   customDeptThemes,
@@ -245,8 +253,29 @@ export default function OfficeView({
   });
 
   return (
-    <div className="relative w-full h-full overflow-auto">
-      <div ref={containerRef} className="w-full min-h-full pb-40" style={{ imageRendering: "pixelated" }} />
+    <div className="flex h-full min-h-0 w-full flex-col sm:flex-row sm:gap-3">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="sm:hidden">
+          <OfficeInsightPanel
+            agents={agents}
+            notifications={notifications}
+            auditLogs={auditLogs}
+            isKo={language === "ko"}
+            onSelectAgent={onSelectAgent}
+          />
+        </div>
+        <div ref={containerRef} className="w-full min-h-full pb-40" style={{ imageRendering: "pixelated" }} />
+      </div>
+      <div className="hidden min-h-0 sm:block sm:h-full sm:w-[min(22rem,calc(100vw-1.5rem))] sm:shrink-0 sm:overflow-y-auto">
+        <OfficeInsightPanel
+          agents={agents}
+          notifications={notifications}
+          auditLogs={auditLogs}
+          isKo={language === "ko"}
+          onSelectAgent={onSelectAgent}
+          docked
+        />
+      </div>
     </div>
   );
 }

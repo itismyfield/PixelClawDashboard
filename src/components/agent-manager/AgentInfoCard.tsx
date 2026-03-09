@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Agent, Department } from "../../types";
+import { formatElapsedCompact, getAgentWarnings, getAgentWorkElapsedMs, getAgentWorkSummary } from "../../agent-insights";
+import type { Agent, AuditLogEntry, Department, DispatchedSession } from "../../types";
 import { localeName } from "../../i18n";
 import AgentAvatar from "../AgentAvatar";
 import { STATUS_DOT } from "./constants";
 import type { Translator } from "./types";
 import * as api from "../../api";
-import type { CronJob, AgentSkill, DiscordBinding } from "../../api/client";
-import type { DispatchedSession } from "../../types";
+import type { CronJob, AgentSkill, DiscordBinding, AgentOfficeMembership } from "../../api/client";
 
 interface AgentInfoCardProps {
   agent: Agent;
@@ -82,6 +82,49 @@ const ACTIVITY_SOURCE_COLORS: Record<string, string> = {
   idle: "#64748b",
 };
 
+const GENERIC_BINDING_NAMES = new Set(["RoleMap", "Primary", "Alt", "Codex"]);
+
+const AGENT_ROLE_LABELS: Record<string, { ko: string; en: string }> = {
+  team_leader: { ko: "팀장", en: "Team Lead" },
+  senior: { ko: "시니어", en: "Senior" },
+  junior: { ko: "주니어", en: "Junior" },
+  intern: { ko: "인턴", en: "Intern" },
+};
+
+function inferBindingSource(binding: DiscordBinding): string {
+  if (binding.channelId.startsWith("dm:")) return "dm";
+  if (binding.source) return binding.source;
+  const normalized = (binding.channelName || "").trim().toLowerCase();
+  if (normalized === "rolemap") return "role-map";
+  if (normalized === "primary") return "primary";
+  if (normalized === "alt") return "alt";
+  if (normalized === "codex") return "codex";
+  return "channel";
+}
+
+function bindingSourceLabel(source: string): string {
+  switch (source) {
+    case "role-map":
+      return "RoleMap";
+    case "primary":
+      return "Primary";
+    case "alt":
+      return "Alt";
+    case "codex":
+      return "Codex";
+    case "dm":
+      return "DM";
+    default:
+      return "Channel";
+  }
+}
+
+function formatAgentRole(role: string | null | undefined, isKo: boolean): string {
+  if (!role) return isKo ? "없음" : "None";
+  const label = AGENT_ROLE_LABELS[role];
+  return label ? (isKo ? label.ko : label.en) : role;
+}
+
 export default function AgentInfoCard({
   agent,
   spriteMap,
@@ -102,9 +145,17 @@ export default function AgentInfoCard({
   const [claudeSessions, setClaudeSessions] = useState<DispatchedSession[]>([]);
   const [showSharedSkills, setShowSharedSkills] = useState(false);
   const [discordBindings, setDiscordBindings] = useState<DiscordBinding[]>([]);
+  const [loadingBindings, setLoadingBindings] = useState(true);
   const [editingAlias, setEditingAlias] = useState(false);
   const [aliasValue, setAliasValue] = useState(agent.alias ?? "");
   const [savingAlias, setSavingAlias] = useState(false);
+  const [selectedDeptId, setSelectedDeptId] = useState(agent.department_id ?? "");
+  const [savingDept, setSavingDept] = useState(false);
+  const [officeMemberships, setOfficeMemberships] = useState<AgentOfficeMembership[]>([]);
+  const [loadingOffices, setLoadingOffices] = useState(true);
+  const [savingOfficeIds, setSavingOfficeIds] = useState<Record<string, boolean>>({});
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(true);
 
   const saveAlias = async () => {
     const trimmed = aliasValue.trim();
@@ -125,7 +176,59 @@ export default function AgentInfoCard({
     }
   };
 
-  const dept = departments.find((d) => d.id === agent.department_id);
+  useEffect(() => {
+    setAliasValue(agent.alias ?? "");
+    setSelectedDeptId(agent.department_id ?? "");
+  }, [agent.alias, agent.department_id, agent.id]);
+
+  const saveDepartment = async (nextDeptId: string) => {
+    const previousDeptId = selectedDeptId;
+    if ((nextDeptId || "") === previousDeptId) return;
+
+    setSelectedDeptId(nextDeptId);
+    setSavingDept(true);
+    try {
+      await api.updateAgent(agent.id, { department_id: nextDeptId || null });
+      onAgentUpdated?.();
+    } catch (e) {
+      setSelectedDeptId(previousDeptId);
+      console.error("Department save failed:", e);
+    } finally {
+      setSavingDept(false);
+    }
+  };
+
+  const toggleOfficeMembership = async (office: AgentOfficeMembership) => {
+    const nextAssigned = !office.assigned;
+
+    setSavingOfficeIds((prev) => ({ ...prev, [office.id]: true }));
+    setOfficeMemberships((prev) => prev.map((item) => (
+      item.id === office.id ? { ...item, assigned: nextAssigned } : item
+    )));
+
+    try {
+      if (nextAssigned) {
+        await api.addAgentToOffice(office.id, agent.id);
+      } else {
+        await api.removeAgentFromOffice(office.id, agent.id);
+      }
+      onAgentUpdated?.();
+    } catch (e) {
+      setOfficeMemberships((prev) => prev.map((item) => (
+        item.id === office.id ? { ...item, assigned: office.assigned } : item
+      )));
+      console.error("Office membership toggle failed:", e);
+    } finally {
+      setSavingOfficeIds((prev) => {
+        const next = { ...prev };
+        delete next[office.id];
+        return next;
+      });
+    }
+  };
+
+  const dept = departments.find((d) => d.id === selectedDeptId);
+  const roleLabel = formatAgentRole(agent.role, isKo);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -136,25 +239,51 @@ export default function AgentInfoCard({
   }, [onClose]);
 
   useEffect(() => {
+    setLoadingCron(true);
     api.getAgentCron(agent.id).then((jobs) => {
       setCronJobs(jobs);
       setLoadingCron(false);
     }).catch(() => setLoadingCron(false));
 
+    setLoadingSkills(true);
     api.getAgentSkills(agent.id).then((data) => {
       setAgentSkills(data.skills);
       setSharedSkills(data.sharedSkills);
       setLoadingSkills(false);
     }).catch(() => setLoadingSkills(false));
 
+    setLoadingClaudeSessions(true);
     api.getAgentDispatchedSessions(agent.id).then((rows) => {
       setClaudeSessions(rows);
       setLoadingClaudeSessions(false);
     }).catch(() => setLoadingClaudeSessions(false));
 
+    setLoadingBindings(true);
     api.getDiscordBindings().then((bindings) => {
       setDiscordBindings(bindings.filter((b) => b.agentId === agent.id));
-    }).catch(() => {});
+      setLoadingBindings(false);
+    }).catch(() => {
+      setDiscordBindings([]);
+      setLoadingBindings(false);
+    });
+
+    setLoadingAudit(true);
+    api.getAuditLogs(8, { entityType: "agent", entityId: agent.id }).then((rows) => {
+      setAuditLogs(rows);
+      setLoadingAudit(false);
+    }).catch(() => {
+      setAuditLogs([]);
+      setLoadingAudit(false);
+    });
+
+    setLoadingOffices(true);
+    api.getAgentOffices(agent.id).then((offices) => {
+      setOfficeMemberships(offices);
+      setLoadingOffices(false);
+    }).catch(() => {
+      setOfficeMemberships([]);
+      setLoadingOffices(false);
+    });
   }, [agent.id]);
 
   const statusLabel: Record<string, { ko: string; en: string }> = {
@@ -176,6 +305,56 @@ export default function AgentInfoCard({
         return null;
     }
   })();
+
+  const workingLinkedSessions = claudeSessions.filter((session) => session.status === "working");
+  const currentWorkSummary = getAgentWorkSummary(agent, { linkedSessions: workingLinkedSessions });
+  const currentWorkElapsedMs = getAgentWorkElapsedMs(agent, workingLinkedSessions);
+  const warnings = getAgentWarnings(agent, {
+    hasDiscordBindings: loadingBindings ? undefined : discordBindings.length > 0,
+    linkedSessions: workingLinkedSessions,
+  });
+  const currentWorkDetails = Array.from(
+    new Set(
+      [
+        agent.session_info,
+        ...workingLinkedSessions.flatMap((session) => [session.session_info, session.name]),
+      ].filter((value): value is string => Boolean(value && value.trim())),
+    ),
+  ).slice(0, 3);
+  const roleMapBindings = discordBindings.filter((binding) => inferBindingSource(binding) === "role-map");
+  const dbBindings = discordBindings.filter((binding) => inferBindingSource(binding) !== "role-map");
+  const sourceOfTruthRows = [
+    {
+      label: tr("DB 레코드", "DB Record"),
+      value: agent.id,
+      tone: "#60a5fa",
+    },
+    {
+      label: tr("Role ID", "Role ID"),
+      value: agent.openclaw_id || tr("없음", "None"),
+      tone: agent.openclaw_id ? "#34d399" : "#94a3b8",
+    },
+    {
+      label: tr("Launchd 귀속", "Launchd Ownership"),
+      value: cronJobs.length > 0 ? `${cronJobs.length} job` : tr("없음", "None"),
+      tone: cronJobs.length > 0 ? "#34d399" : "#94a3b8",
+    },
+    {
+      label: tr("RoleMap 경로", "RoleMap Route"),
+      value: roleMapBindings.length > 0 ? `${roleMapBindings.length} route` : tr("없음", "None"),
+      tone: roleMapBindings.length > 0 ? "#fbbf24" : "#94a3b8",
+    },
+    {
+      label: tr("Discord 경로", "Discord Routes"),
+      value: `${discordBindings.length}`,
+      tone: discordBindings.length > 0 ? "#a78bfa" : "#94a3b8",
+    },
+    {
+      label: tr("RemoteCC 링크", "RemoteCC Links"),
+      value: `${workingLinkedSessions.length}/${claudeSessions.length}`,
+      tone: workingLinkedSessions.length > 0 ? "#38bdf8" : "#94a3b8",
+    },
+  ];
 
   return (
     <div
@@ -264,6 +443,12 @@ export default function AgentInfoCard({
               >
                 {isKo ? statusLabel[agent.status]?.ko : statusLabel[agent.status]?.en}
               </span>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(59,130,246,0.14)", color: "#93c5fd" }}
+              >
+                {tr("직급", "Role")}: {roleLabel}
+              </span>
               {agent.status === "working" && sourceLabel && (
                 <span
                   className="text-[10px] px-2 py-0.5 rounded-full"
@@ -299,6 +484,192 @@ export default function AgentInfoCard({
           </button>
         </div>
 
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("소속 부서", "Department")}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedDeptId}
+              onChange={(e) => void saveDepartment(e.target.value)}
+              disabled={savingDept}
+              className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
+              style={{
+                background: "var(--th-input-bg)",
+                border: "1px solid var(--th-input-border)",
+                color: "var(--th-text-primary)",
+              }}
+            >
+              <option value="">{tr("— 미배정 —", "— Unassigned —")}</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.icon} {localeName(locale, d)}
+                </option>
+              ))}
+            </select>
+            <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+              {savingDept ? tr("저장 중...", "Saving...") : null}
+            </span>
+          </div>
+        </div>
+
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("소속 오피스", "Offices")}
+          </div>
+          {loadingOffices ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("불러오는 중...", "Loading...")}
+            </div>
+          ) : officeMemberships.length === 0 ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("등록된 오피스가 없습니다", "No offices")}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {officeMemberships.map((office) => {
+                const assigned = office.assigned;
+                const savingOffice = !!savingOfficeIds[office.id];
+
+                return (
+                  <button
+                    key={office.id}
+                    onClick={() => void toggleOfficeMembership(office)}
+                    disabled={savingOffice}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+                    style={assigned
+                      ? { background: office.color, color: "#ffffff" }
+                      : {
+                        background: "var(--th-bg-surface)",
+                        color: "var(--th-text-secondary)",
+                        border: "1px solid var(--th-card-border)",
+                      }}
+                  >
+                    <span>{office.icon} {localeName(locale, office)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("상태 요약", "Status Summary")}
+          </div>
+          <div className="space-y-2">
+            <div className="rounded-xl px-3 py-2" style={{ background: "var(--th-bg-surface)" }}>
+              <div className="text-[10px] mb-1" style={{ color: "var(--th-text-muted)" }}>
+                {tr("현재 작업", "Current Work")}
+              </div>
+              <div className="text-xs leading-relaxed" style={{ color: "var(--th-text-primary)" }}>
+                {currentWorkSummary || tr("현재 작업 설명이 없습니다", "No current work detail")}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {currentWorkElapsedMs != null && (
+                <span
+                  className="text-[10px] px-2 py-1 rounded-lg"
+                  style={{ background: "rgba(59,130,246,0.14)", color: "#93c5fd" }}
+                >
+                  {tr("경과", "Elapsed")}: {formatElapsedCompact(currentWorkElapsedMs, isKo)}
+                </span>
+              )}
+              <span
+                className="text-[10px] px-2 py-1 rounded-lg"
+                style={{ background: "rgba(56,189,248,0.14)", color: "#67e8f9" }}
+              >
+                RemoteCC {workingLinkedSessions.length}/{claudeSessions.length}
+              </span>
+              <span
+                className="text-[10px] px-2 py-1 rounded-lg"
+                style={{ background: "rgba(168,85,247,0.14)", color: "#d8b4fe" }}
+              >
+                {tr("DB 경로", "DB routes")}: {dbBindings.length}
+              </span>
+            </div>
+            {currentWorkDetails.length > 0 && (
+              <div className="space-y-1">
+                {currentWorkDetails.map((line, idx) => (
+                  <div key={`${line}:${idx}`} className="text-[11px]" style={{ color: "var(--th-text-secondary)" }}>
+                    • {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {warnings.length > 0 && (
+          <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+            <div
+              className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+              style={{ color: "var(--th-text-muted)" }}
+            >
+              {tr("이상 징후", "Warnings")}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {warnings.map((warning) => (
+                <span
+                  key={warning.code}
+                  className="text-[10px] px-2 py-1 rounded-lg"
+                  style={{
+                    background:
+                      warning.severity === "error"
+                        ? "rgba(239,68,68,0.14)"
+                        : warning.severity === "warning"
+                          ? "rgba(245,158,11,0.14)"
+                          : "rgba(96,165,250,0.14)",
+                    color:
+                      warning.severity === "error"
+                        ? "#fca5a5"
+                        : warning.severity === "warning"
+                          ? "#fcd34d"
+                          : "#93c5fd",
+                  }}
+                >
+                  {isKo ? warning.ko : warning.en}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("정본 연결", "Source of Truth")}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {sourceOfTruthRows.map((row) => (
+              <div key={row.label} className="rounded-xl px-3 py-2" style={{ background: "var(--th-bg-surface)" }}>
+                <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                  {row.label}
+                </div>
+                <div className="mt-1 text-xs font-medium break-all" style={{ color: row.tone }}>
+                  {row.value}
+                </div>
+              </div>
+            ))}
+          </div>
+          {roleMapBindings.length > 0 && (
+            <div className="mt-2 text-[11px]" style={{ color: "var(--th-text-muted)" }}>
+              {tr("RoleMap 경로가 있으면 Discord source-of-truth는 role_map 우선으로 봅니다.", "When RoleMap exists, role_map is treated as the Discord source-of-truth.")}
+            </div>
+          )}
+        </div>
+
         {/* Personality */}
         {agent.personality && (
           <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
@@ -306,7 +677,7 @@ export default function AgentInfoCard({
               className="text-[10px] font-semibold uppercase tracking-widest mb-1.5"
               style={{ color: "var(--th-text-muted)" }}
             >
-              {tr("성격 / 역할", "Personality")}
+              {tr("성격", "Personality")}
             </div>
             <div
               className="text-xs leading-relaxed whitespace-pre-wrap"
@@ -342,26 +713,44 @@ export default function AgentInfoCard({
               className="text-[10px] font-semibold uppercase tracking-widest mb-2"
               style={{ color: "var(--th-text-muted)" }}
             >
-              {tr("Discord 채널", "Discord Channels")} ({discordBindings.length})
+              {tr("Discord 라우팅", "Discord Routing")} ({discordBindings.length})
+            </div>
+            <div className="text-[11px] mb-2" style={{ color: "var(--th-text-muted)" }}>
+              {tr("RoleMap/Primary/Alt/Codex는 이 agent에 연결된 Discord 경로의 source다.", "RoleMap/Primary/Alt/Codex indicate how this agent is wired to Discord.")}
             </div>
             <div className="space-y-1">
-              {discordBindings.map((b) => (
-                <div
-                  key={b.channelId}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
-                  style={{ background: "var(--th-bg-surface)" }}
-                >
-                  <span className="text-sm">💬</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium truncate" style={{ color: "var(--th-text-primary)" }}>
-                      {b.channelName || b.channelId}
+              {discordBindings.map((b) => {
+                const source = inferBindingSource(b);
+                const sourceLabel = bindingSourceLabel(source);
+                const title =
+                  b.channelName && !GENERIC_BINDING_NAMES.has(b.channelName)
+                    ? b.channelName
+                    : b.channelId;
+                const subtitle = title === b.channelId ? null : b.channelId;
+
+                return (
+                  <div
+                    key={`${b.channelId}:${source}`}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+                    style={{ background: "var(--th-bg-surface)" }}
+                  >
+                    <span className="text-sm">💬</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium truncate" style={{ color: "var(--th-text-primary)" }}>
+                        {title}
+                      </div>
+                      {subtitle && (
+                        <div className="text-[10px] truncate mt-0.5" style={{ color: "var(--th-text-muted)" }}>
+                          {subtitle}
+                        </div>
+                      )}
                     </div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(88,101,242,0.15)", color: "#7289da" }}>
+                      {sourceLabel}
+                    </span>
                   </div>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(88,101,242,0.15)", color: "#7289da" }}>
-                    {b.channelId.startsWith("dm:") ? "DM" : "Channel"}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -488,6 +877,41 @@ export default function AgentInfoCard({
                       {tr("비활성", "Off")}
                     </span>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("최근 변경", "Recent Changes")}
+          </div>
+          {loadingAudit ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("불러오는 중...", "Loading...")}
+            </div>
+          ) : auditLogs.length === 0 ? (
+            <div className="text-xs py-1" style={{ color: "var(--th-text-muted)" }}>
+              {tr("관련 변경 로그가 없습니다", "No related audit logs")}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {auditLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="rounded-xl px-3 py-2"
+                  style={{ background: "var(--th-bg-surface)" }}
+                >
+                  <div className="text-xs" style={{ color: "var(--th-text-primary)" }}>
+                    {log.summary}
+                  </div>
+                  <div className="mt-1 text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                    {log.action} • {timeAgo(log.created_at, isKo)}
+                  </div>
                 </div>
               ))}
             </div>

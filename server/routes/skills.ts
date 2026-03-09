@@ -1,12 +1,8 @@
 import { Router } from "express";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { getDb } from "../db/runtime.js";
+import { loadSkillDescriptions, listCentralSkills } from "../skills-catalog.js";
 
 const router = Router();
-
-const SKILLS_DIR = path.join(os.homedir(), ".openclaw", "workspace", "skills", "public");
 
 const SKILL_DESC_KO: Record<string, string> = {
   "ai-integrated-briefing": "AI 업데이트를 통합 정리하는 브리핑",
@@ -23,32 +19,6 @@ const SKILL_DESC_KO: Record<string, string> = {
 
 function hasKorean(text: string): boolean {
   return /[가-힣]/.test(text);
-}
-
-function loadSkillDescriptions(): Map<string, string> {
-  const out = new Map<string, string>();
-  if (!fs.existsSync(SKILLS_DIR)) return out;
-
-  let dirs: string[] = [];
-  try {
-    dirs = fs.readdirSync(SKILLS_DIR);
-  } catch {
-    return out;
-  }
-
-  for (const d of dirs) {
-    const p = path.join(SKILLS_DIR, d, "SKILL.md");
-    if (!fs.existsSync(p)) continue;
-    try {
-      const content = fs.readFileSync(p, "utf-8");
-      const fm = content.match(/^---\n([\s\S]*?)\n---/);
-      const desc = fm?.[1].match(/description:\s*(.+)/)?.[1]?.trim().replace(/^['"]|['"]$/g, "") || "";
-      if (desc) out.set(d.toLowerCase(), desc);
-    } catch {
-      // ignore malformed skill files
-    }
-  }
-  return out;
 }
 
 function resolveSkillDescKo(skillName: string, descMap: Map<string, string>): string {
@@ -93,12 +63,8 @@ router.get("/api/skills/catalog", (_req, res) => {
   const allSkillNames = new Set<string>();
 
   // From filesystem
-  if (fs.existsSync(SKILLS_DIR)) {
-    try {
-      for (const d of fs.readdirSync(SKILLS_DIR)) {
-        allSkillNames.add(d.toLowerCase());
-      }
-    } catch { /* ignore */ }
+  for (const skill of listCentralSkills()) {
+    allSkillNames.add(skill.name.toLowerCase());
   }
 
   // From DB events

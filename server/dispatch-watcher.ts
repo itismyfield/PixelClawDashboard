@@ -1,14 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
 import { sendToAgentChannel } from "./discord-announce.js";
+import { PCD_HANDOFF_ARCHIVE_DIR, PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
 
-const HANDOFF_DIR = path.join(os.homedir(), ".openclaw", "handoff");
-const ARCHIVE_DIR = path.join(HANDOFF_DIR, "archive");
 const POLL_MS = 2000;
 const STALE_CHECK_MS = 60 * 60 * 1000; // 1 hour
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -55,17 +53,16 @@ interface ResultFile {
 // ── Helpers ──
 
 function ensureDirs(): void {
-  fs.mkdirSync(HANDOFF_DIR, { recursive: true });
-  fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+  ensurePcdRuntimeDirs();
 }
 
 function getArchiveDestination(filePath: string): string {
   const parsed = path.parse(filePath);
-  let dest = path.join(ARCHIVE_DIR, path.basename(filePath));
+  let dest = path.join(PCD_HANDOFF_ARCHIVE_DIR, path.basename(filePath));
   let suffix = 1;
 
   while (fs.existsSync(dest)) {
-    dest = path.join(ARCHIVE_DIR, `${parsed.name}.${suffix}${parsed.ext}`);
+    dest = path.join(PCD_HANDOFF_ARCHIVE_DIR, `${parsed.name}.${suffix}${parsed.ext}`);
     suffix += 1;
   }
 
@@ -296,7 +293,7 @@ function processResultFile(filePath: string): void {
       context: { summary: followUp.detail },
       instructions: followUp.detail,
     };
-    const newPath = path.join(HANDOFF_DIR, `${newId}.json`);
+    const newPath = path.join(PCD_HANDOFF_DIR, `${newId}.json`);
     fs.writeFileSync(newPath, JSON.stringify(newHandoff, null, 2));
     console.log(
       `[PCD-dispatch] Created follow-up handoff: ${newId} (parent: ${result.dispatch_id})`,
@@ -333,7 +330,7 @@ function processResultFile(filePath: string): void {
 function pollOnce(): void {
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(HANDOFF_DIR, { withFileTypes: true });
+    entries = fs.readdirSync(PCD_HANDOFF_DIR, { withFileTypes: true });
   } catch {
     return;
   }
@@ -342,7 +339,7 @@ function pollOnce(): void {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     if (entry.name === "." || entry.name === "..") continue;
 
-    const filePath = path.join(HANDOFF_DIR, entry.name);
+    const filePath = path.join(PCD_HANDOFF_DIR, entry.name);
 
     if (entry.name.endsWith(".result.json")) {
       processResultFile(filePath);

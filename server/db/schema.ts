@@ -165,6 +165,7 @@ export function initSchema(db: DatabaseSync): void {
       total_rounds INTEGER NOT NULL DEFAULT 0,
       issues_created INTEGER NOT NULL DEFAULT 0,
       issue_creation_results TEXT DEFAULT NULL,
+      issue_repo TEXT DEFAULT NULL,
       started_at INTEGER NOT NULL,
       completed_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -182,6 +183,19 @@ export function initSchema(db: DatabaseSync): void {
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_rt_entries_meeting ON round_table_entries (meeting_id, seq);
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      actor TEXT NOT NULL DEFAULT 'dashboard-session',
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      metadata_json TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id, created_at DESC);
   `);
 
   migrate(db);
@@ -267,6 +281,9 @@ function migrate(db: DatabaseSync): void {
     db.exec(
       "ALTER TABLE round_table_meetings ADD COLUMN issue_creation_results TEXT DEFAULT NULL",
     );
+  }
+  if (!rtCols.some((c) => c.name === "issue_repo")) {
+    db.exec("ALTER TABLE round_table_meetings ADD COLUMN issue_repo TEXT DEFAULT NULL");
   }
   if (!rtCols.some((c) => c.name === "primary_provider")) {
     db.exec("ALTER TABLE round_table_meetings ADD COLUMN primary_provider TEXT DEFAULT NULL");

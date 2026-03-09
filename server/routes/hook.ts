@@ -1,34 +1,13 @@
 import { Router } from "express";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
+import { resolveRoleIdByChannelName } from "../role-map.js";
+import { recordSkillUsageEvent } from "../skill-sync.js";
 
 const router = Router();
-const ROLE_MAP_PATH = path.join(os.homedir(), ".remotecc", "role_map.json");
-
-function resolveRoleIdByChannelName(channelName: string): string | null {
-  try {
-    if (!fs.existsSync(ROLE_MAP_PATH)) return null;
-    const raw = fs.readFileSync(ROLE_MAP_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    const byName = parsed?.byChannelName || {};
-    const exact = byName[channelName];
-    if (exact?.roleId) return String(exact.roleId);
-
-    const key = Object.keys(byName).find(
-      (k) => k.toLowerCase() === channelName.toLowerCase(),
-    );
-    if (key && byName[key]?.roleId) return String(byName[key].roleId);
-  } catch {
-    // ignore parsing errors
-  }
-  return null;
-}
 
 function resolveLinkedAgentId(sessionKey: string, name?: string | null): string | null {
   const channelName = parseRemoteCcSessionKey(sessionKey, name).channelName;
@@ -168,6 +147,10 @@ router.post("/api/hook/session", (req, res) => {
       sets.push("status = ?");
       vals.push(status);
     }
+    if (name !== undefined) {
+      sets.push("name = ?");
+      vals.push(name);
+    }
     if (session_info !== undefined) {
       sets.push("session_info = ?");
       vals.push(session_info);
@@ -265,6 +248,49 @@ router.delete("/api/hook/session/:sessionKey", (req, res) => {
     emitLinkedAgentStatus(String(row.linked_agent_id));
   }
   res.json({ ok: true });
+});
+
+router.post("/api/hook/skill-usage", (req, res) => {
+  const db = getDb();
+  const {
+    event_key,
+    skill_name,
+    session_key,
+    agent_openclaw_id,
+    agent_id,
+    agent_name,
+    used_at,
+  } = req.body ?? {};
+
+  if (!skill_name || typeof skill_name !== "string") {
+    return res.status(400).json({ error: "skill_name required" });
+  }
+
+  let resolvedAgentOpenclawId: string | null = typeof agent_openclaw_id === "string"
+    ? agent_openclaw_id
+    : null;
+
+  if (!resolvedAgentOpenclawId && typeof agent_id === "string") {
+    const row = db
+      .prepare("SELECT openclaw_id, name FROM agents WHERE id = ? LIMIT 1")
+      .get(agent_id) as { openclaw_id: string | null; name: string | null } | undefined;
+    resolvedAgentOpenclawId = row?.openclaw_id ?? null;
+  }
+
+  const eventKey = typeof event_key === "string" && event_key.trim()
+    ? event_key.trim()
+    : `${session_key ?? agent_id ?? resolvedAgentOpenclawId ?? "manual"}:${skill_name}:${used_at ?? Date.now()}`;
+
+  const inserted = recordSkillUsageEvent({
+    eventKey,
+    skillName: skill_name,
+    sessionKey: typeof session_key === "string" ? session_key : null,
+    agentOpenclawId: resolvedAgentOpenclawId,
+    agentName: typeof agent_name === "string" ? agent_name : null,
+    usedAt: typeof used_at === "number" ? used_at : Date.now(),
+  });
+
+  return res.status(inserted ? 201 : 200).json({ ok: true, inserted });
 });
 
 export default router;

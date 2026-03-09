@@ -230,6 +230,17 @@ export interface Message {
   created_at: number;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  actor: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  summary: string;
+  metadata?: Record<string, unknown> | null;
+  created_at: number;
+}
+
 // CLI Status
 export interface CliToolStatus {
   installed: boolean;
@@ -307,6 +318,7 @@ export interface IssueCreationResult {
   title: string;
   assignee: string;
   ok: boolean;
+  discarded?: boolean;
   error?: string | null;
   issue_url?: string | null;
   attempted_at: number;
@@ -324,6 +336,7 @@ export interface RoundTableMeeting {
   issues_created: number;
   proposed_issues: ProposedIssue[] | null;
   issue_creation_results: IssueCreationResult[] | null;
+  issue_repo?: string | null;
   started_at: number;
   completed_at: number | null;
   created_at: number;

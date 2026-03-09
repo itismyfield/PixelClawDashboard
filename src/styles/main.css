@@ -142,3 +142,139 @@ body {
   50% { box-shadow: 0 4px 30px rgba(34, 211, 238, 0.55); }
 }
 .animate-cta-glow { animation: cta-glow 3s ease-in-out infinite; }
+
+.pcd-markdown {
+  color: inherit;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.pcd-markdown > :first-child {
+  margin-top: 0;
+}
+
+.pcd-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.pcd-markdown h1,
+.pcd-markdown h2,
+.pcd-markdown h3,
+.pcd-markdown h4 {
+  margin: 1rem 0 0.5rem;
+  color: var(--th-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pcd-markdown h1 {
+  font-size: 1.05rem;
+}
+
+.pcd-markdown h2 {
+  font-size: 1rem;
+}
+
+.pcd-markdown h3,
+.pcd-markdown h4 {
+  font-size: 0.92rem;
+}
+
+.pcd-markdown p,
+.pcd-markdown ul,
+.pcd-markdown ol,
+.pcd-markdown blockquote,
+.pcd-markdown pre,
+.pcd-markdown table {
+  margin: 0.65rem 0;
+}
+
+.pcd-markdown ul,
+.pcd-markdown ol {
+  padding-left: 1.2rem;
+}
+
+.pcd-markdown li + li {
+  margin-top: 0.35rem;
+}
+
+.pcd-markdown li > p {
+  margin: 0.2rem 0;
+}
+
+.pcd-markdown hr {
+  margin: 0.9rem 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--th-border) 85%, transparent);
+}
+
+.pcd-markdown blockquote {
+  padding: 0.65rem 0.85rem;
+  border-left: 3px solid rgba(129, 140, 248, 0.5);
+  background: rgba(129, 140, 248, 0.08);
+  border-radius: 0 0.75rem 0.75rem 0;
+  color: var(--th-text-secondary);
+}
+
+.pcd-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  padding: 0.12rem 0.38rem;
+  border-radius: 0.4rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: #c4b5fd;
+}
+
+.pcd-markdown pre {
+  overflow-x: auto;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.pcd-markdown pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.pcd-markdown strong {
+  color: var(--th-text-heading);
+  font-weight: 700;
+}
+
+.pcd-markdown a {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.pcd-markdown input[type="checkbox"] {
+  margin-right: 0.45rem;
+  vertical-align: middle;
+  accent-color: #818cf8;
+}
+
+.pcd-markdown table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.pcd-markdown th,
+.pcd-markdown td {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--th-border) 88%, transparent);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pcd-markdown th {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--th-text-heading);
+}

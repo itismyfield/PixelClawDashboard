@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { appendAuditLog, getAuditActor } from "../audit-log.js";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 
@@ -64,6 +65,14 @@ router.patch("/api/dispatched-sessions/:id", (req, res) => {
        WHERE ds.id = ?`,
     )
     .get(req.params.id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "update",
+    entityType: "dispatched_session",
+    entityId: req.params.id,
+    summary: `Dispatched session updated: ${req.params.id}`,
+    metadata: { fields: Object.keys(req.body) },
+  });
   broadcast("dispatched_session_update", updated);
   res.json(updated);
 });

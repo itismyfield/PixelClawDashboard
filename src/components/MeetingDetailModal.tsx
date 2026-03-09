@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { RoundTableMeeting, RoundTableEntry } from "../types";
 import MeetingProviderFlow, { formatProviderFlow, providerFlowCaption } from "./MeetingProviderFlow";
+import MarkdownContent from "./common/MarkdownContent";
 
 const ROLE_SPRITE_MAP: Record<string, number> = {
   "ch-td": 5,
@@ -138,9 +139,7 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
                   </div>
                 )}
               </div>
-              <div className="whitespace-pre-wrap text-sm" style={{ color: "var(--th-text)" }}>
-                {meeting.summary}
-              </div>
+              <MarkdownContent content={meeting.summary} className="text-sm" />
             </div>
           ) : (
             <div
@@ -187,9 +186,7 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
                         <div className="text-[10px] font-semibold mb-1" style={{ color: "#818cf8" }}>
                           {entry.speaker_name}
                         </div>
-                        <div className="whitespace-pre-wrap" style={{ color: "var(--th-text)" }}>
-                          {entry.content}
-                        </div>
+                        <MarkdownContent content={entry.content} />
                       </div>
                     ))}
                   </div>
@@ -246,14 +243,14 @@ function EntryBubble({ entry, spriteNum }: { entry: RoundTableEntry; spriteNum: 
           {entry.speaker_name}
         </div>
         <div
-          className="rounded-xl rounded-tl-sm px-3 py-2 text-sm whitespace-pre-wrap"
+          className="rounded-xl rounded-tl-sm px-3 py-2 text-sm"
           style={{
             background: "var(--th-bg-surface)",
             border: "1px solid var(--th-border)",
             color: "var(--th-text)",
           }}
         >
-          {entry.content}
+          <MarkdownContent content={entry.content} />
         </div>
       </div>
     </div>

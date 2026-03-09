@@ -1,15 +1,12 @@
 import type { MutableRefObject } from "react";
-import { AnimatedSprite, Container, Graphics, Sprite, Text, TextStyle, type Texture } from "pixi.js";
+import { AnimatedSprite, Container, Graphics, Text, TextStyle, type Texture } from "pixi.js";
+import { getAgentWarnings, getAgentWorkSummary } from "../../agent-insights";
 import type { Agent, SubAgent, Task } from "../../types";
 import type { AnimItem, CallbackSnapshot, SubCloneAnimItem } from "./buildScene-types";
 import {
   DESK_W,
-  MAX_VISIBLE_SUB_CLONES_PER_AGENT,
-  SUB_CLONE_FIREWORK_INTERVAL,
   TARGET_CHAR_H,
   type SubCloneBurstParticle,
-  emitSubCloneFireworkBurst,
-  emitSubCloneSmokeBurst,
 } from "./model";
 import { hashStr } from "./drawing-core";
 import { drawDesk } from "./drawing-furniture-a";
@@ -141,9 +138,19 @@ export function renderDeskAgentAndSubClones({
           : "";
 
   const activeTask = tasks.find((task) => task.assigned_agent_id === agent.id && task.status === "in_progress");
-  if (activeTask) {
-    const txt = activeTask.title.length > 16 ? `${activeTask.title.slice(0, 16)}...` : activeTask.title;
-    const bubbleBody = sourceLabel ? `${sourceLabel}\n💬 ${txt}` : `💬 ${txt}`;
+  const workingSubs = subAgents.filter((sub) => sub.parentAgentId === agent.id && sub.status === "working");
+  const workSummary = getAgentWorkSummary(agent, {
+    activeTaskTitle: activeTask?.title ?? null,
+    subAgents: workingSubs,
+  });
+
+  if (isWorking && workSummary) {
+    const txt = workSummary.length > 26 ? `${workSummary.slice(0, 26)}...` : workSummary;
+    const bubbleLines = sourceLabel ? [sourceLabel, `💬 ${txt}`] : [`💬 ${txt}`];
+    if (workingSubs.length > 1) {
+      bubbleLines.push(`+${workingSubs.length - 1} linked`);
+    }
+    const bubbleBody = bubbleLines.join("\n");
     const bubbleText = new Text({
       text: bubbleBody,
       style: new TextStyle({
@@ -171,8 +178,7 @@ export function renderDeskAgentAndSubClones({
     room.addChild(bubbleText);
   }
 
-  const workingSubs = subAgents.filter((sub) => sub.parentAgentId === agent.id && sub.status === "working");
-  if (!activeTask && isWorking && sourceLabel) {
+  if (!workSummary && !activeTask && isWorking && sourceLabel) {
     const sourceText = new Text({
       text: sourceLabel,
       style: new TextStyle({
@@ -200,74 +206,39 @@ export function renderDeskAgentAndSubClones({
     room.addChild(sourceText);
   }
 
-  if (isWorking && workingSubs.length > 0) {
-    const visibleSubs = workingSubs.slice(0, MAX_VISIBLE_SUB_CLONES_PER_AGENT);
-    visibleSubs.forEach((sub, index) => {
-      const sx = ax - 14 + index * 12;
-      const sy = charFeetY - 3.5 + (index % 2) * 0.9;
-      const cloneContainer = new Container();
-      cloneContainer.position.set(sx, sy);
-
-      const aura = new Graphics();
-      aura.ellipse(0, 2.0, 8.1, 2.7).fill({ color: 0x1f2937, alpha: 0.12 });
-      cloneContainer.addChild(aura);
-
-      const cloneSpriteNum = (hashStr(`${sub.id}:clone`) % 13) + 1;
-      const cloneFrames: Texture[] = [];
-      for (let frame = 1; frame <= 3; frame++) {
-        const key = `${cloneSpriteNum}-D-${frame}`;
-        if (textures[key]) cloneFrames.push(textures[key]);
-      }
-      const baseTexture = cloneFrames[0];
-      if (!baseTexture) return;
-      const baseScale = (TARGET_CHAR_H / baseTexture.height) * 0.76;
-
-      const cloneVisual = cloneFrames.length > 1 ? new AnimatedSprite(cloneFrames) : new Sprite(baseTexture);
-      cloneVisual.anchor.set(0.5, 1);
-      cloneVisual.scale.set(baseScale);
-      cloneVisual.tint = 0xffffff;
-      cloneVisual.alpha = 0.97;
-      if (cloneVisual instanceof AnimatedSprite) cloneVisual.gotoAndStop((index + 1) % cloneFrames.length);
-      cloneContainer.addChild(cloneVisual);
-
-      const charIdx = room.children.indexOf(charContainer);
-      if (charIdx >= 0) room.addChildAt(cloneContainer, charIdx);
-      else room.addChild(cloneContainer);
-
-      nextSubSnapshot.set(sub.id, { parentAgentId: agent.id, x: sx, y: sy });
-      if (addedWorkingSubIds.has(sub.id)) {
-        emitSubCloneSmokeBurst(room, subCloneBurstParticlesRef.current, sx, sy, "spawn");
-        emitSubCloneFireworkBurst(room, subCloneBurstParticlesRef.current, sx, sy - 24);
-        addedWorkingSubIds.delete(sub.id);
-      }
-
-      subCloneAnimItemsRef.current.push({
-        container: cloneContainer,
-        aura,
-        cloneVisual,
-        animated: cloneVisual instanceof AnimatedSprite ? cloneVisual : undefined,
-        frameCount: cloneFrames.length,
-        baseScale,
-        baseX: sx,
-        baseY: sy,
-        phase: (hashStr(sub.id) % 360) / 57.2958 + index * 0.3,
-        fireworkOffset: Math.abs(hashStr(`${sub.id}:firework`)) % SUB_CLONE_FIREWORK_INTERVAL,
-      });
+  const sceneWarnings = getAgentWarnings(agent, {
+    activeTaskTitle: activeTask?.title ?? null,
+    subAgents: workingSubs,
+  });
+  if (sceneWarnings.length > 0) {
+    const warning = sceneWarnings[0];
+    const badgeBg = new Graphics();
+    const badgeX = ax + 18;
+    const badgeY = charFeetY - TARGET_CHAR_H + 10;
+    const badgeColor = warning.code === "missing_work_detail" ? 0xf59e0b : 0xef4444;
+    badgeBg.circle(badgeX, badgeY, 6).fill({ color: badgeColor, alpha: 0.95 });
+    badgeBg.circle(badgeX, badgeY, 6).stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
+    room.addChild(badgeBg);
+    const badgeText = new Text({
+      text: warning.code === "missing_work_detail" ? "?" : "!",
+      style: new TextStyle({ fontSize: 8, fill: 0xffffff, fontWeight: "bold", fontFamily: "monospace" }),
     });
+    badgeText.anchor.set(0.5, 0.5);
+    badgeText.position.set(badgeX, badgeY);
+    room.addChild(badgeText);
+  }
 
-    if (workingSubs.length > MAX_VISIBLE_SUB_CLONES_PER_AGENT) {
-      const remain = workingSubs.length - MAX_VISIBLE_SUB_CLONES_PER_AGENT;
-      const moreBg = new Graphics();
-      moreBg.roundRect(ax + 18, deskY - 18, 18, 10, 2).fill({ color: 0x101722, alpha: 0.82 });
-      room.addChild(moreBg);
-      const moreTxt = new Text({
-        text: `+${remain}`,
-        style: new TextStyle({ fontSize: 6.5, fill: 0xe2e8f8, fontWeight: "bold", fontFamily: "monospace" }),
-      });
-      moreTxt.anchor.set(0.5, 0.5);
-      moreTxt.position.set(ax + 27, deskY - 13);
-      room.addChild(moreTxt);
-    }
+  if (isWorking && workingSubs.length > 0) {
+    const countBg = new Graphics();
+    countBg.roundRect(ax + 16, deskY - 18, 20, 10, 2).fill({ color: 0x101722, alpha: 0.82 });
+    room.addChild(countBg);
+    const countTxt = new Text({
+      text: `x${workingSubs.length}`,
+      style: new TextStyle({ fontSize: 6.5, fill: 0xe2e8f8, fontWeight: "bold", fontFamily: "monospace" }),
+    });
+    countTxt.anchor.set(0.5, 0.5);
+    countTxt.position.set(ax + 26, deskY - 13);
+    room.addChild(countTxt);
   }
 
   if (isOffline) {

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { X, Plus, Trash2, UserPlus, UserMinus } from "lucide-react";
+import { X, Plus, Trash2, UserPlus, UserMinus, Settings2 } from "lucide-react";
 import type { Office, Agent } from "../types";
 import * as api from "../api/client";
 
@@ -164,7 +164,7 @@ export default function OfficeManagerModal({
                 ? tr("오피스 편집", "Edit Office")
                 : tr("새 오피스", "New Office"))}
             {view === "agents" &&
-              `${agentsOffice?.icon ?? ""} ${isKo ? agentsOffice?.name_ko : agentsOffice?.name} — ${tr("직원 배치", "Assign Agents")}`}
+              `${agentsOffice?.icon ?? ""} ${isKo ? agentsOffice?.name_ko : agentsOffice?.name} — ${tr("멤버 관리", "Manage Members")}`}
           </h2>
           <button onClick={onClose} className="p-1 hover:bg-white/10 rounded">
             <X size={18} style={{ color: "var(--th-text-muted)" }} />
@@ -204,9 +204,9 @@ export default function OfficeManagerModal({
                     <button
                       onClick={() => openAgents(o)}
                       className="p-1.5 rounded hover:bg-white/10"
-                      title={tr("직원 배치", "Assign Agents")}
+                      title={tr("멤버 관리", "Manage Members")}
                     >
-                      <UserPlus
+                      <Settings2
                         size={14}
                         style={{ color: "var(--th-text-secondary)" }}
                       />

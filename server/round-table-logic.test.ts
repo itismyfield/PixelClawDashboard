@@ -108,6 +108,7 @@ test("prune and summarize issue creation keep only current proposals", () => {
   assert.equal(pruned.length, 1);
   assert.equal(summary.created, 1);
   assert.equal(summary.failed, 0);
+  assert.equal(summary.discarded, 0);
   assert.equal(summary.pending, 1);
 });
 
@@ -149,7 +150,9 @@ test("getPendingIssues and mergeIssueCreationResults retry only failed items", (
 
   assert.equal(summary.created, 2);
   assert.equal(summary.failed, 0);
+  assert.equal(summary.discarded, 0);
   assert.equal(summary.all_created, true);
+  assert.equal(summary.all_resolved, true);
 });
 
 test("normalizeIssueCreationResults treats legacy created flag as completed", () => {
@@ -160,4 +163,40 @@ test("normalizeIssueCreationResults treats legacy created flag as completed", ()
   assert.equal(normalized.length, issues.length);
   assert.equal(summary.created, issues.length);
   assert.equal(summary.all_created, true);
+  assert.equal(summary.all_resolved, true);
+});
+
+test("discarded issues are excluded from pending and counted separately", () => {
+  const issues = sampleIssues();
+  const results: IssueCreationRecord[] = [
+    {
+      key: proposedIssueKey(issues[0]),
+      title: issues[0].title,
+      assignee: issues[0].assignee,
+      ok: true,
+      discarded: false,
+      issue_url: "https://example.test/1",
+      attempted_at: 1,
+    },
+    {
+      key: proposedIssueKey(issues[1]),
+      title: issues[1].title,
+      assignee: issues[1].assignee,
+      ok: false,
+      discarded: true,
+      error: null,
+      attempted_at: 2,
+    },
+  ];
+
+  const pending = getPendingIssues(issues, results);
+  const summary = summarizeIssueCreation(issues, results);
+
+  assert.deepEqual(pending, []);
+  assert.equal(summary.created, 1);
+  assert.equal(summary.failed, 0);
+  assert.equal(summary.discarded, 1);
+  assert.equal(summary.pending, 0);
+  assert.equal(summary.all_created, false);
+  assert.equal(summary.all_resolved, true);
 });

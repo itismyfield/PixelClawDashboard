@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { appendAuditLog, getAuditActor } from "../audit-log.js";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 
@@ -89,6 +90,13 @@ router.post("/api/departments", (req, res) => {
   const dept = db
     .prepare("SELECT * FROM departments WHERE id = ?")
     .get(id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "create",
+    entityType: "department",
+    entityId: id,
+    summary: `Department created: ${String(b.name_ko || b.name || id)}`,
+  });
   broadcast("departments_changed", {});
   res.status(201).json(dept);
 });
@@ -124,6 +132,14 @@ router.patch("/api/departments/:id", (req, res) => {
   const dept = db
     .prepare("SELECT * FROM departments WHERE id = ?")
     .get(req.params.id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "update",
+    entityType: "department",
+    entityId: req.params.id,
+    summary: `Department updated: ${String((dept as { name_ko?: string; name?: string } | undefined)?.name_ko || (dept as { name?: string } | undefined)?.name || req.params.id)}`,
+    metadata: { fields: fields.filter((field) => field in req.body) },
+  });
   res.json(dept);
 });
 
@@ -145,6 +161,9 @@ router.patch("/api/departments/reorder", (req, res) => {
 
 router.delete("/api/departments/:id", (req, res) => {
   const db = getDb();
+  const dept = db
+    .prepare("SELECT id, name, name_ko FROM departments WHERE id = ?")
+    .get(req.params.id) as { id: string; name: string; name_ko: string } | undefined;
   // Check agent count via both agents.department_id and office_agents.department_id
   const agentCount = (
     db
@@ -164,6 +183,13 @@ router.delete("/api/departments/:id", (req, res) => {
     return res.status(409).json({ error: "department_has_agents" });
 
   db.prepare("DELETE FROM departments WHERE id = ?").run(req.params.id);
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "delete",
+    entityType: "department",
+    entityId: req.params.id,
+    summary: `Department deleted: ${dept?.name_ko || dept?.name || req.params.id}`,
+  });
   broadcast("departments_changed", {});
   res.json({ ok: true });
 });

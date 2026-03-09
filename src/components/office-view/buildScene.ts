@@ -119,13 +119,61 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
   spriteMapRef.current = spriteMap;
 
   const OFFICE_W = officeWRef.current;
-  const deptCount = departments.length || 1;
+  const deptCount = departments.length;
   const roomGap = 12;
   const layoutMargin = 12;
   const availableW = OFFICE_W - layoutMargin * 2;
   const minRoomW = 1 * SLOT_W + ROOM_PAD * 2;
 
   const agentsPerDept = departments.map((dept) => agents.filter((agent) => agent.department_id === dept.id));
+
+  if (deptCount === 0) {
+    const breakRoomY = CEO_ZONE_H + HALLWAY_H + BREAK_ROOM_GAP;
+    const totalH = breakRoomY + BREAK_ROOM_H + 30;
+    totalHRef.current = totalH;
+    app.renderer.resize(OFFICE_W, totalH);
+
+    buildCeoAndHallway({
+      app,
+      OFFICE_W,
+      totalH,
+      breakRoomY,
+      isDark,
+    });
+
+    buildBreakRoom({
+      app,
+      textures,
+      agents,
+      spriteMap,
+      activeLocale,
+      breakTheme,
+      isDark,
+      breakRoomY,
+      OFFICE_W,
+      cbRef,
+      breakAnimItemsRef,
+      breakBubblesRef,
+      breakSteamParticlesRef,
+      breakRoomRectRef,
+      wallClocksRef,
+      agentPosRef,
+    });
+
+    buildFinalLayers({
+      app,
+      tasks,
+      ceoPosRef,
+      agentPosRef,
+      deliveriesRef,
+      deliveryLayerRef,
+      highlightRef,
+      prevAssignRef,
+      setSceneRevision,
+    });
+
+    return;
+  }
 
   // Each department's ideal width based on actual agent count
   const deptWidths = agentsPerDept.map((da) => {

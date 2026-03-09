@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AuditLogEntry,
   Department,
   Office,
   DispatchedSession,
@@ -7,6 +8,8 @@ import type {
   RoundTableMeeting,
   SkillCatalogEntry,
 } from "../types";
+
+export type { AuditLogEntry } from "../types";
 
 const BASE = "";
 
@@ -134,6 +137,31 @@ export async function updateAgent(
 
 export async function deleteAgent(id: string): Promise<void> {
   await request(`/api/agents/${id}`, { method: "DELETE" });
+}
+
+export interface AgentOfficeMembership extends Office {
+  assigned: boolean;
+  office_department_id?: string | null;
+  joined_at?: number | null;
+}
+
+export async function getAgentOffices(agentId: string): Promise<AgentOfficeMembership[]> {
+  const data = await request<{ offices: AgentOfficeMembership[] }>(`/api/agents/${agentId}/offices`);
+  return data.offices;
+}
+
+// ── Audit Logs ──
+
+export async function getAuditLogs(
+  limit = 20,
+  filter?: { entityType?: string; entityId?: string },
+): Promise<AuditLogEntry[]> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (filter?.entityType) params.set("entityType", filter.entityType);
+  if (filter?.entityId) params.set("entityId", filter.entityId);
+  const data = await request<{ logs: AuditLogEntry[] }>(`/api/audit-logs?${params.toString()}`);
+  return data.logs;
 }
 
 // ── Departments ──
@@ -270,11 +298,28 @@ export interface DiscordBinding {
   agentId: string;
   channelId: string;
   channelName?: string;
+  source?: string;
 }
 
 export async function getDiscordBindings(): Promise<DiscordBinding[]> {
   const data = await request<{ bindings: DiscordBinding[] }>("/api/discord-bindings");
   return data.bindings;
+}
+
+export interface GitHubRepoOption {
+  nameWithOwner: string;
+  updatedAt: string;
+  isPrivate: boolean;
+  viewerPermission?: string;
+}
+
+export interface GitHubReposResponse {
+  viewer_login: string;
+  repos: GitHubRepoOption[];
+}
+
+export async function getGitHubRepos(): Promise<GitHubReposResponse> {
+  return request("/api/github-repos");
 }
 
 // ── Cron Jobs (global) ──
@@ -412,6 +457,8 @@ export interface ChatMessage {
   sender_id: string | null;
   receiver_type: "agent" | "department" | "all";
   receiver_id: string | null;
+  receiver_name?: string | null;
+  receiver_name_ko?: string | null;
   content: string;
   message_type: string;
   created_at: number;
@@ -423,12 +470,14 @@ export interface ChatMessage {
 export async function getMessages(opts?: {
   receiverId?: string;
   receiverType?: string;
+  messageType?: string;
   limit?: number;
   before?: number;
 }): Promise<{ messages: ChatMessage[] }> {
   const params = new URLSearchParams();
   if (opts?.receiverId) params.set("receiverId", opts.receiverId);
   if (opts?.receiverType) params.set("receiverType", opts.receiverType);
+  if (opts?.messageType && opts.messageType !== "all") params.set("messageType", opts.messageType);
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.before) params.set("before", String(opts.before));
   const q = params.toString();
@@ -440,6 +489,7 @@ export async function sendMessage(payload: {
   sender_id?: string | null;
   receiver_type: string;
   receiver_id?: string | null;
+  discord_target?: string | null;
   content: string;
   message_type?: string;
 }): Promise<ChatMessage> {
@@ -477,6 +527,16 @@ export async function deleteRoundTableMeeting(id: string): Promise<{ ok: boolean
   return request(`/api/round-table-meetings/${id}`, { method: "DELETE" });
 }
 
+export async function updateRoundTableMeetingIssueRepo(
+  id: string,
+  repo: string | null,
+): Promise<{ ok: boolean; meeting: RoundTableMeeting }> {
+  return request(`/api/round-table-meetings/${id}/issue-repo`, {
+    method: "PATCH",
+    body: JSON.stringify({ repo }),
+  });
+}
+
 export interface RoundTableIssueCreationResponse {
   ok: boolean;
   skipped?: boolean;
@@ -485,6 +545,7 @@ export interface RoundTableIssueCreationResponse {
     title: string;
     assignee: string;
     ok: boolean;
+    discarded?: boolean;
     error?: string | null;
     issue_url?: string | null;
     attempted_at: number;
@@ -493,8 +554,10 @@ export interface RoundTableIssueCreationResponse {
     total: number;
     created: number;
     failed: number;
+    discarded: number;
     pending: number;
     all_created: boolean;
+    all_resolved: boolean;
   };
 }
 
@@ -502,6 +565,30 @@ export async function createRoundTableIssues(id: string, repo?: string): Promise
   return request(`/api/round-table-meetings/${id}/issues`, {
     method: "POST",
     body: JSON.stringify({ repo }),
+  });
+}
+
+export async function discardRoundTableIssue(
+  id: string,
+  key: string,
+): Promise<{ ok: boolean; meeting: RoundTableMeeting; summary: RoundTableIssueCreationResponse["summary"] }> {
+  return request(`/api/round-table-meetings/${id}/issues/discard`, {
+    method: "POST",
+    body: JSON.stringify({ key }),
+  });
+}
+
+export async function discardAllRoundTableIssues(
+  id: string,
+): Promise<{
+  ok: boolean;
+  meeting: RoundTableMeeting;
+  summary: RoundTableIssueCreationResponse["summary"];
+  results: RoundTableIssueCreationResponse["results"];
+  skipped?: boolean;
+}> {
+  return request(`/api/round-table-meetings/${id}/issues/discard-all`, {
+    method: "POST",
   });
 }
 
