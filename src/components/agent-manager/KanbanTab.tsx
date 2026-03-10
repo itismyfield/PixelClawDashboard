@@ -571,8 +571,8 @@ export default function KanbanTab({
           borderColor: "rgba(148,163,184,0.28)",
         }}
       >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold" style={{ color: "var(--th-text-heading)" }}>
               {tr("Repo 기반 칸반", "Repo-backed Kanban")}
             </h2>
@@ -598,8 +598,8 @@ export default function KanbanTab({
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_auto]">
-          <div className="space-y-3">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_auto] min-w-0">
+          <div className="space-y-3 min-w-0 overflow-hidden">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {repoSources.length === 0 && (
                 <span className="px-3 py-2 rounded-xl text-sm border border-dashed" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-muted)" }}>
@@ -666,7 +666,7 @@ export default function KanbanTab({
           </label>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-0">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}

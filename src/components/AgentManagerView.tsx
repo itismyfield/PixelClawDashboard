@@ -276,7 +276,7 @@ export default function AgentManagerView({
 
   return (
     <div
-      className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full space-y-4 pb-40"
+      className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full space-y-4 pb-40 min-w-0"
       style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
     >
       {/* Header */}
