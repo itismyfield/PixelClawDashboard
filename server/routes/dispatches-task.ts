@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDb } from "../db/runtime.js";
+import { syncKanbanCardWithDispatch } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 
 const router = Router();
@@ -105,6 +106,7 @@ router.post("/api/dispatches", (req, res) => {
 
   const created = db.prepare("SELECT * FROM task_dispatches WHERE id = ?").get(id);
   broadcast("task_dispatch_created", created);
+  syncKanbanCardWithDispatch(db, String(id));
   res.status(201).json(created);
 });
 
@@ -156,6 +158,7 @@ router.patch("/api/dispatches/:id", (req, res) => {
     .prepare("SELECT * FROM task_dispatches WHERE id = ?")
     .get(req.params.id);
   broadcast("task_dispatch_updated", updated);
+  syncKanbanCardWithDispatch(db, req.params.id);
   res.json(updated);
 });
 

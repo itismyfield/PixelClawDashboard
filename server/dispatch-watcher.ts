@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db/runtime.js";
+import { enforceKanbanTimeouts, syncKanbanCardWithDispatch } from "./kanban-cards.js";
 import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
 import { sendToAgentChannel } from "./discord-announce.js";
@@ -105,6 +106,35 @@ function sendCeoAlert(text: string): void {
   console.log(`[PCD-dispatch] CEO alert: ${text}`);
 }
 
+function getDispatchRow(dispatchId: string): Record<string, unknown> | undefined {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM task_dispatches WHERE id = ? LIMIT 1")
+    .get(dispatchId) as Record<string, unknown> | undefined;
+}
+
+function emitDispatchCreated(dispatchId: string): void {
+  const row = getDispatchRow(dispatchId);
+  if (!row) return;
+  broadcast("task_dispatch_created", row);
+  try {
+    syncKanbanCardWithDispatch(getDb(), dispatchId);
+  } catch (error) {
+    console.error(`[PCD-dispatch] Failed kanban sync for dispatch ${dispatchId}`, error);
+  }
+}
+
+function emitDispatchUpdated(dispatchId: string): void {
+  const row = getDispatchRow(dispatchId);
+  if (!row) return;
+  broadcast("task_dispatch_updated", row);
+  try {
+    syncKanbanCardWithDispatch(getDb(), dispatchId);
+  } catch (error) {
+    console.error(`[PCD-dispatch] Failed kanban sync for dispatch ${dispatchId}`, error);
+  }
+}
+
 // ── Handoff file processing ──
 
 function processHandoffFile(filePath: string): void {
@@ -174,6 +204,7 @@ function processHandoffFile(filePath: string): void {
       handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
       chainDepth, Date.now(), Date.now(),
     );
+    emitDispatchCreated(handoff.dispatch_id);
     return;
   }
 
@@ -200,19 +231,11 @@ function processHandoffFile(filePath: string): void {
       sendCeoAlert(
         `Failed to deliver dispatch "${handoff.title}" to ${toAgent} after ${MAX_RETRIES} retries.`,
       );
-      broadcast("task_dispatch_updated", { id: handoff.dispatch_id, status: "failed" });
+      emitDispatchUpdated(handoff.dispatch_id);
     }
   });
 
-  broadcast("task_dispatch_created", {
-    id: handoff.dispatch_id,
-    from: handoff.from,
-    to: toAgent,
-    type: handoff.type,
-    title: handoff.title,
-    chain_depth: chainDepth,
-    status: "dispatched",
-  });
+  emitDispatchCreated(handoff.dispatch_id);
 
   // CEO warning for deep chains
   if (chainDepth >= CEO_WARN_DEPTH) {
@@ -305,13 +328,7 @@ function processResultFile(filePath: string): void {
   const notifyMsg = `DISPATCH_RESULT:${result.dispatch_id} - ${result.summary}`;
   sendAgentMessage(dispatch.from_agent_id, notifyMsg).catch(() => {});
 
-  broadcast("task_dispatch_updated", {
-    id: result.dispatch_id,
-    status: dispatchStatus,
-    result_summary: result.summary,
-    from: result.from,
-    to: result.to,
-  });
+  emitDispatchUpdated(result.dispatch_id);
 
   // CEO warning for deep chains
   if (dispatch.chain_depth >= CEO_WARN_DEPTH) {
@@ -362,22 +379,36 @@ function cleanupStaleDispatches(): void {
     )
     .all(cutoff) as Array<{ id: string; title: string; to_agent_id: string }>;
 
-  if (stale.length === 0) return;
+  if (stale.length > 0) {
+    const now = Date.now();
+    const update = db.prepare(
+      "UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?",
+    );
 
-  const now = Date.now();
-  const update = db.prepare(
-    "UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?",
-  );
+    for (const s of stale) {
+      update.run(now, s.id);
+      emitDispatchUpdated(s.id);
+    }
 
-  for (const s of stale) {
-    update.run(now, s.id);
-    broadcast("task_dispatch_updated", { id: s.id, status: "failed" });
+    sendCeoAlert(
+      `${stale.length} stale dispatch(es) auto-failed after 24h: ${stale.map((s) => s.title).join(", ").slice(0, 200)}`,
+    );
+    console.log(`[PCD-dispatch] Cleaned up ${stale.length} stale dispatch(es)`);
   }
 
-  sendCeoAlert(
-    `${stale.length} stale dispatch(es) auto-failed after 24h: ${stale.map((s) => s.title).join(", ").slice(0, 200)}`,
-  );
-  console.log(`[PCD-dispatch] Cleaned up ${stale.length} stale dispatch(es)`);
+  const { timedOutRequested, stalledInProgress } = enforceKanbanTimeouts(db);
+  if (timedOutRequested.length > 0) {
+    sendCeoAlert(
+      `${timedOutRequested.length} requested kanban card(s) timed out awaiting acceptance.`,
+    );
+    console.log(`[PCD-dispatch] Timed out ${timedOutRequested.length} requested kanban card(s)`);
+  }
+  if (stalledInProgress.length > 0) {
+    sendCeoAlert(
+      `${stalledInProgress.length} in-progress kanban card(s) auto-blocked due to stale activity.`,
+    );
+    console.log(`[PCD-dispatch] Blocked ${stalledInProgress.length} stale in-progress kanban card(s)`);
+  }
 }
 
 // ── Public API ──

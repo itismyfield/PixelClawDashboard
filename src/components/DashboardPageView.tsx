@@ -21,6 +21,7 @@ import {
   CronTimelineWidget,
   StreakWidget,
   MvpWidget,
+  KanbanOpsWidget,
   SkillTrendWidget,
   CookingHeartRoleBoardWidget,
   GitHubIssuesWidget,
@@ -170,7 +171,7 @@ export default function DashboardPageView({
         time={time}
         date={date}
         briefing={briefing}
-        reviewQueue={0}
+        reviewQueue={stats.kanban.review_queue}
         numberFormatter={numberFormatter}
         primaryCtaEyebrow={t({ ko: "오피스 뷰", en: "OFFICE VIEW", ja: "オフィスビュー", zh: "办公室视图" })}
         primaryCtaDescription={t({
@@ -210,6 +211,7 @@ export default function DashboardPageView({
       {/* === Overview Tab === */}
       {dashTab === "overview" && (
         <>
+          <KanbanOpsWidget kanban={stats.kanban} t={t} />
           <DashboardRankingBoard
             topAgents={topAgents}
             podiumOrder={podiumOrder}

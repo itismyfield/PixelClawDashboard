@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import type { Agent } from "../../types";
+import type { Agent, DashboardStats } from "../../types";
 import * as api from "../../api/client";
 import type { TFunction } from "./model";
 import { getAgentLevel, getAgentTitle } from "../agent-manager/AgentInfoCard";
@@ -139,6 +139,78 @@ export function GitHubIssuesWidget({ t, repo }: GitHubIssuesWidgetProps) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+interface KanbanOpsWidgetProps {
+  kanban: DashboardStats["kanban"];
+  t: TFunction;
+}
+
+export function KanbanOpsWidget({ kanban, t }: KanbanOpsWidgetProps) {
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        borderColor: "var(--th-border)",
+        background: "linear-gradient(145deg, color-mix(in srgb, var(--th-surface) 92%, #0ea5e9 8%), var(--th-surface))",
+      }}
+    >
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <div>
+          <h3 className="text-sm font-semibold" style={{ color: "var(--th-text)" }}>
+            {t({ ko: "칸반 운영 상태", en: "Kanban Ops", ja: "カンバン運用", zh: "看板运营" })}
+          </h3>
+          <p className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+            {t({ ko: "병목과 대기 중인 카드", en: "Bottlenecks and waiting cards", ja: "ボトルネックと待機カード", zh: "瓶颈与等待卡片" })}
+          </p>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
+          {kanban.open_total}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        {[
+          { label: t({ ko: "검토 대기", en: "Review", ja: "レビュー待ち", zh: "待审查" }), value: kanban.review_queue, color: "#14b8a6" },
+          { label: t({ ko: "수락 지연", en: "Ack delay", ja: "受諾遅延", zh: "接收延迟" }), value: kanban.waiting_acceptance, color: "#8b5cf6" },
+          { label: t({ ko: "진행 정체", en: "Stalled", ja: "停滞", zh: "停滞" }), value: kanban.stale_in_progress, color: "#f59e0b" },
+          { label: t({ ko: "막힘/실패", en: "Blocked/Failed", ja: "詰まり/失敗", zh: "阻塞/失败" }), value: kanban.blocked + kanban.failed, color: "#ef4444" },
+        ].map((item) => (
+          <div key={item.label} className="rounded-xl px-3 py-2" style={{ background: "var(--th-bg-surface)" }}>
+            <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>{item.label}</div>
+            <div className="text-xl font-black" style={{ color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {kanban.top_repos.length > 0 && (
+        <div className="mt-4 space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--th-text-muted)" }}>
+            {t({ ko: "압력 높은 Repo", en: "High-pressure repos", ja: "高圧 Repo", zh: "高压 Repo" })}
+          </div>
+          {kanban.top_repos.map((repo) => (
+            <div
+              key={repo.github_repo}
+              className="flex items-center justify-between gap-3 rounded-xl px-3 py-2"
+              style={{ background: "var(--th-bg-surface)" }}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium" style={{ color: "var(--th-text)" }}>
+                  {repo.github_repo}
+                </div>
+                <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                  {t({ ko: "열린 카드", en: "Open cards", ja: "オープンカード", zh: "开放卡片" })}: {repo.open_count}
+                </div>
+              </div>
+              <span className="text-xs px-2 py-1 rounded-full" style={{ color: "#fca5a5", background: "rgba(239,68,68,0.12)" }}>
+                {repo.pressure_count}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

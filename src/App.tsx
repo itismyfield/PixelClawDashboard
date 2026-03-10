@@ -3,11 +3,13 @@ import type {
   Agent,
   AuditLogEntry,
   Department,
+  KanbanCard,
   Office,
   DispatchedSession,
   SubAgent,
   DashboardStats,
   CompanySettings,
+  TaskDispatch,
   WSEvent,
   RoundTableMeeting,
 } from "./types";
@@ -65,7 +67,10 @@ export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [allDepartments, setAllDepartments] = useState<Department[]>([]);
   const [sessions, setSessions] = useState<DispatchedSession[]>([]);
+  const [kanbanCards, setKanbanCards] = useState<KanbanCard[]>([]);
+  const [taskDispatches, setTaskDispatches] = useState<TaskDispatch[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
@@ -92,7 +97,7 @@ export default function App() {
     (async () => {
       try {
         await api.getSession();
-        const [off, ag, dep, ses, st, set, rtm, logs] = await Promise.all([
+        const [off, ag, dep, ses, st, set, rtm, logs, cards, dispatches] = await Promise.all([
           api.getOffices(),
           api.getAgents(),
           api.getDepartments(),
@@ -101,12 +106,17 @@ export default function App() {
           api.getSettings(),
           api.getRoundTableMeetings().catch(() => [] as RoundTableMeeting[]),
           api.getAuditLogs(12).catch(() => [] as AuditLogEntry[]),
+          api.getKanbanCards().catch(() => [] as KanbanCard[]),
+          api.getTaskDispatches({ limit: 200 }).catch(() => [] as TaskDispatch[]),
         ]);
         setOffices(off);
         setAllAgents(ag);
         setAgents(ag);
+        setAllDepartments(dep);
         setDepartments(dep);
         setSessions(ses);
+        setKanbanCards(cards);
+        setTaskDispatches(dispatches);
         setStats(st);
         setRoundTableMeetings(rtm);
         setAuditLogs(logs);
@@ -188,6 +198,18 @@ export default function App() {
     api.getDepartments(selectedOfficeId ?? undefined).then(setDepartments).catch(() => {});
   }, [selectedOfficeId]);
 
+  const refreshAllDepartments = useCallback(() => {
+    api.getDepartments().then(setAllDepartments).catch(() => {});
+  }, []);
+
+  const upsertKanbanCard = useCallback((card: KanbanCard) => {
+    setKanbanCards((prev) => [card, ...prev.filter((p) => p.id !== card.id)]);
+  }, []);
+
+  const upsertTaskDispatch = useCallback((dispatch: TaskDispatch) => {
+    setTaskDispatches((prev) => [dispatch, ...prev.filter((p) => p.id !== dispatch.id)].slice(0, 200));
+  }, []);
+
   const handleWsEvent = useCallback((event: WSEvent) => {
     switch (event.type) {
       case "agent_status": {
@@ -228,6 +250,37 @@ export default function App() {
         refreshOffices();
         refreshAuditLogs();
         break;
+      case "kanban_card_created": {
+        const card = event.payload as KanbanCard;
+        upsertKanbanCard(card);
+        refreshStats();
+        if (card.status === "requested") {
+          pushNotification(`칸반 요청 발사: ${card.title}`, "info");
+        }
+        refreshAuditLogs();
+        break;
+      }
+      case "kanban_card_updated": {
+        const card = event.payload as KanbanCard;
+        upsertKanbanCard(card);
+        refreshStats();
+        if (card.status === "failed" || card.status === "cancelled") {
+          pushNotification(`칸반 상태 변경: ${card.title} → ${card.status}`, "warning");
+        }
+        refreshAuditLogs();
+        break;
+      }
+      case "kanban_card_deleted":
+        setKanbanCards((prev) => prev.filter((card) => card.id !== (event.payload as { id: string }).id));
+        refreshStats();
+        refreshAuditLogs();
+        break;
+      case "task_dispatch_created":
+        upsertTaskDispatch(event.payload as TaskDispatch);
+        break;
+      case "task_dispatch_updated":
+        upsertTaskDispatch(event.payload as TaskDispatch);
+        break;
       case "dispatched_session_new": {
         const ns = event.payload as DispatchedSession;
         setSessions((prev) => [ns, ...prev]);
@@ -258,7 +311,17 @@ export default function App() {
         break;
       }
     }
-  }, [pushNotification, refreshAgents, refreshAllAgents, refreshDepartments, refreshOffices, refreshAuditLogs]);
+  }, [
+    pushNotification,
+    refreshAgents,
+    refreshAllAgents,
+    refreshDepartments,
+    refreshOffices,
+    refreshStats,
+    refreshAuditLogs,
+    upsertKanbanCard,
+    upsertTaskDispatch,
+  ]);
 
   const { wsConnected, wsRef } = useDashboardSocket(handleWsEvent);
 
@@ -267,8 +330,9 @@ export default function App() {
     refreshAgents();
     refreshAllAgents();
     refreshDepartments();
+    refreshAllDepartments();
     refreshAuditLogs();
-  }, [refreshOffices, refreshAgents, refreshAllAgents, refreshDepartments, refreshAuditLogs]);
+  }, [refreshOffices, refreshAgents, refreshAllAgents, refreshDepartments, refreshAllDepartments, refreshAuditLogs]);
 
   if (loading) {
     return (
@@ -420,11 +484,31 @@ export default function App() {
               <AgentManagerView
                 agents={agents}
                 departments={departments}
+                kanbanAgents={allAgents}
+                kanbanDepartments={allDepartments}
+                kanbanCards={kanbanCards}
+                taskDispatches={taskDispatches}
                 language={settings.language}
                 officeId={selectedOfficeId}
                 onAgentsChange={() => { refreshAgents(); refreshAllAgents(); refreshOffices(); }}
-                onDepartmentsChange={() => { refreshDepartments(); refreshOffices(); }}
+                onDepartmentsChange={() => { refreshDepartments(); refreshAllDepartments(); refreshOffices(); }}
+                onAssignKanbanIssue={async (payload) => {
+                  const assigned = await api.assignKanbanIssue(payload);
+                  upsertKanbanCard(assigned);
+                }}
                 sessions={visibleDispatchedSessions}
+                onUpdateKanbanCard={async (id, patch) => {
+                  const updated = await api.updateKanbanCard(id, patch);
+                  upsertKanbanCard(updated);
+                }}
+                onRetryKanbanCard={async (id, payload) => {
+                  const updated = await api.retryKanbanCard(id, payload);
+                  upsertKanbanCard(updated);
+                }}
+                onDeleteKanbanCard={async (id) => {
+                  await api.deleteKanbanCard(id);
+                  setKanbanCards((prev) => prev.filter((card) => card.id !== id));
+                }}
                 onAssign={async (id, patch) => {
                   const updated = await api.assignDispatchedSession(id, patch);
                   setSessions((prev) =>

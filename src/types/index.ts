@@ -355,6 +355,103 @@ export interface RoundTableEntry {
   created_at: number;
 }
 
+export type TaskDispatchStatus =
+  | "pending"
+  | "dispatched"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface TaskDispatch {
+  id: string;
+  from_agent_id: string;
+  to_agent_id: string | null;
+  dispatch_type: string;
+  status: TaskDispatchStatus;
+  title: string;
+  context_file: string | null;
+  result_file: string | null;
+  result_summary: string | null;
+  parent_dispatch_id: string | null;
+  chain_depth: number;
+  created_at: number;
+  dispatched_at: number | null;
+  completed_at: number | null;
+}
+
+export type KanbanCardStatus =
+  | "backlog"
+  | "ready"
+  | "requested"
+  | "in_progress"
+  | "review"
+  | "blocked"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export type KanbanCardPriority = "low" | "medium" | "high" | "urgent";
+
+export interface KanbanReviewChecklistItem {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
+export interface KanbanCardMetadata {
+  retry_count?: number;
+  failover_count?: number;
+  timed_out_stage?: "requested" | "in_progress";
+  timed_out_at?: number;
+  timed_out_reason?: string;
+  review_checklist?: KanbanReviewChecklistItem[];
+  reward?: {
+    granted_at: number;
+    agent_id: string;
+    xp: number;
+    tasks_done: number;
+  };
+}
+
+export interface KanbanCard {
+  id: string;
+  title: string;
+  description: string | null;
+  status: KanbanCardStatus;
+  github_repo: string | null;
+  owner_agent_id: string | null;
+  requester_agent_id: string | null;
+  assignee_agent_id: string | null;
+  parent_card_id: string | null;
+  latest_dispatch_id: string | null;
+  sort_order: number;
+  priority: KanbanCardPriority;
+  depth: number;
+  blocked_reason: string | null;
+  review_notes: string | null;
+  github_issue_number: number | null;
+  github_issue_url: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  requested_at: number | null;
+  completed_at: number | null;
+  latest_dispatch_status?: TaskDispatchStatus | null;
+  latest_dispatch_title?: string | null;
+  latest_dispatch_type?: string | null;
+  latest_dispatch_result_summary?: string | null;
+  latest_dispatch_chain_depth?: number | null;
+  child_count?: number;
+}
+
+export interface KanbanRepoSource {
+  id: string;
+  repo: string;
+  created_at: number;
+}
+
 // Skill Catalog
 export interface SkillCatalogEntry {
   name: string;
@@ -384,6 +481,11 @@ export type WSEventType =
   | "dispatched_session_new"
   | "dispatched_session_update"
   | "dispatched_session_disconnect"
+  | "kanban_card_created"
+  | "kanban_card_updated"
+  | "kanban_card_deleted"
+  | "task_dispatch_created"
+  | "task_dispatch_updated"
   | "round_table_new"
   | "round_table_update"
   | "connected";
@@ -543,4 +645,18 @@ export interface DashboardStats {
     sum_xp?: number;
   }>;
   dispatched_count: number;
+  kanban: {
+    open_total: number;
+    review_queue: number;
+    blocked: number;
+    failed: number;
+    waiting_acceptance: number;
+    stale_in_progress: number;
+    by_status: Record<KanbanCardStatus, number>;
+    top_repos: Array<{
+      github_repo: string;
+      open_count: number;
+      pressure_count: number;
+    }>;
+  };
 }

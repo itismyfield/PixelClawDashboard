@@ -29,6 +29,8 @@ import { startDispatchedSync, stopDispatchedSync } from "./dispatched-sync.js";
 import dispatchTaskRoutes from "./routes/dispatches-task.js";
 import roundTableRoutes from "./routes/round-table.js";
 import { startDispatchWatcher, stopDispatchWatcher } from "./dispatch-watcher.js";
+import kanbanCardRoutes from "./routes/kanban-cards.js";
+import kanbanRepoRoutes from "./routes/kanban-repos.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -77,6 +79,8 @@ app.use(skillRoutes);
 app.use(messageRoutes);
 app.use(auditRoutes);
 app.use(dispatchTaskRoutes);
+app.use(kanbanCardRoutes);
+app.use(kanbanRepoRoutes);
 app.use(roundTableRoutes);
 
 // Static files (production)

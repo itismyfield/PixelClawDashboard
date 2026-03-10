@@ -2,14 +2,17 @@ import type {
   Agent,
   AuditLogEntry,
   Department,
+  KanbanCard,
+  KanbanRepoSource,
   Office,
   DispatchedSession,
   DashboardStats,
   RoundTableMeeting,
   SkillCatalogEntry,
+  TaskDispatch,
 } from "../types";
 
-export type { AuditLogEntry } from "../types";
+export type { AuditLogEntry, KanbanRepoSource } from "../types";
 
 const BASE = "";
 
@@ -219,6 +222,92 @@ export async function getStats(officeId?: string): Promise<DashboardStats> {
   return request(`/api/stats${q}`);
 }
 
+// ── Kanban & Dispatches ──
+
+export async function getKanbanCards(): Promise<KanbanCard[]> {
+  const data = await request<{ cards: KanbanCard[] }>("/api/kanban-cards");
+  return data.cards;
+}
+
+export async function createKanbanCard(
+  card: Partial<KanbanCard> & { title: string; before_card_id?: string | null },
+): Promise<KanbanCard> {
+  return request("/api/kanban-cards", {
+    method: "POST",
+    body: JSON.stringify(card),
+  });
+}
+
+export async function updateKanbanCard(
+  id: string,
+  patch: Partial<KanbanCard> & { before_card_id?: string | null },
+): Promise<KanbanCard> {
+  return request(`/api/kanban-cards/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteKanbanCard(id: string): Promise<void> {
+  await request(`/api/kanban-cards/${id}`, { method: "DELETE" });
+}
+
+export async function retryKanbanCard(
+  id: string,
+  payload?: { assignee_agent_id?: string | null; request_now?: boolean },
+): Promise<KanbanCard> {
+  return request(`/api/kanban-cards/${id}/retry`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export async function assignKanbanIssue(payload: {
+  github_repo: string;
+  github_issue_number: number;
+  github_issue_url?: string | null;
+  title: string;
+  description?: string | null;
+  assignee_agent_id: string;
+}): Promise<KanbanCard> {
+  return request("/api/kanban-cards/assign-issue", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getKanbanRepoSources(): Promise<KanbanRepoSource[]> {
+  const data = await request<{ repos: KanbanRepoSource[] }>("/api/kanban-repos");
+  return data.repos;
+}
+
+export async function addKanbanRepoSource(repo: string): Promise<KanbanRepoSource> {
+  return request("/api/kanban-repos", {
+    method: "POST",
+    body: JSON.stringify({ repo }),
+  });
+}
+
+export async function deleteKanbanRepoSource(id: string): Promise<void> {
+  await request(`/api/kanban-repos/${id}`, { method: "DELETE" });
+}
+
+export async function getTaskDispatches(filters?: {
+  status?: string;
+  from_agent_id?: string;
+  to_agent_id?: string;
+  limit?: number;
+}): Promise<TaskDispatch[]> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.from_agent_id) params.set("from_agent_id", filters.from_agent_id);
+  if (filters?.to_agent_id) params.set("to_agent_id", filters.to_agent_id);
+  if (filters?.limit) params.set("limit", String(filters.limit));
+  const q = params.toString();
+  const data = await request<{ dispatches: TaskDispatch[] }>(`/api/dispatches${q ? `?${q}` : ""}`);
+  return data.dispatches;
+}
+
 // ── Dispatched Sessions ──
 
 export async function getDispatchedSessions(includeMerged = false): Promise<DispatchedSession[]> {
@@ -404,6 +493,7 @@ export interface GitHubIssue {
   number: number;
   title: string;
   state: string;
+  url: string;
   labels: Array<{ name: string; color: string }>;
   assignees: Array<{ login: string }>;
   createdAt: string;

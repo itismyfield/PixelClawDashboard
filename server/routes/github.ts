@@ -11,7 +11,7 @@ type GitHubRepoRow = {
   viewerPermission?: string;
 };
 
-const GITHUB_ISSUE_JSON_FIELDS = "number,title,state,labels,assignees,createdAt,updatedAt";
+const GITHUB_ISSUE_JSON_FIELDS = "number,title,state,url,labels,assignees,createdAt,updatedAt";
 
 let githubRepoCache:
   | {
@@ -105,7 +105,7 @@ router.get("/api/github-issues", async (req, res) => {
     return res.status(400).json({ issues: [], repo: requestedRepo ?? "", error: "invalid_state" });
   }
 
-  const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+  const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
   try {
     const repo = requestedRepo ?? resolveDefaultGithubIssueRepo();
     const result = ghText([

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { execSync } from "node:child_process";
 import { getDb } from "../db/runtime.js";
 import { listLaunchdJobs } from "../launchd-jobs.js";
+import { IN_PROGRESS_STALE_MS, REQUEST_ACK_TIMEOUT_MS } from "../kanban-cards.js";
 
 const router = Router();
 
@@ -122,11 +123,81 @@ router.get("/api/stats", (req, res) => {
       .get() as { cnt: number }
   ).cnt;
 
+  const requestedCutoff = Date.now() - REQUEST_ACK_TIMEOUT_MS;
+  const progressCutoff = Date.now() - IN_PROGRESS_STALE_MS;
+  const kanbanCounts = db.prepare(
+    `SELECT status, COUNT(*) as cnt
+     FROM kanban_cards
+     GROUP BY status`,
+  ).all() as Array<{ status: string; cnt: number }>;
+  const kanbanByStatus = {
+    backlog: 0,
+    ready: 0,
+    requested: 0,
+    in_progress: 0,
+    review: 0,
+    blocked: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  for (const row of kanbanCounts) {
+    if (row.status in kanbanByStatus) {
+      kanbanByStatus[row.status as keyof typeof kanbanByStatus] = row.cnt;
+    }
+  }
+
+  const waitingAcceptance = (
+    db.prepare(
+      `SELECT COUNT(*) as cnt
+       FROM kanban_cards
+       WHERE status = 'requested'
+         AND COALESCE(requested_at, updated_at, created_at) < ?`,
+    ).get(requestedCutoff) as { cnt: number }
+  ).cnt;
+
+  const staleInProgress = (
+    db.prepare(
+      `SELECT COUNT(*) as cnt
+       FROM kanban_cards
+       WHERE status = 'in_progress'
+         AND COALESCE(started_at, updated_at, created_at) < ?`,
+    ).get(progressCutoff) as { cnt: number }
+  ).cnt;
+
+  const topRepos = db.prepare(
+    `SELECT COALESCE(github_repo, '(unscoped)') as github_repo,
+            COUNT(*) as open_count,
+            SUM(CASE WHEN status IN ('review', 'blocked', 'failed') THEN 1 ELSE 0 END) as pressure_count
+     FROM kanban_cards
+     WHERE status NOT IN ('done', 'cancelled')
+     GROUP BY COALESCE(github_repo, '(unscoped)')
+     ORDER BY pressure_count DESC, open_count DESC, github_repo ASC
+     LIMIT 5`,
+  ).all() as Array<{ github_repo: string; open_count: number; pressure_count: number }>;
+
   res.json({
     agents: agentStats,
     top_agents: topAgents,
     departments: deptStats,
     dispatched_count: dispatchedCount,
+    kanban: {
+      open_total:
+        kanbanByStatus.backlog +
+        kanbanByStatus.ready +
+        kanbanByStatus.requested +
+        kanbanByStatus.in_progress +
+        kanbanByStatus.review +
+        kanbanByStatus.blocked +
+        kanbanByStatus.failed,
+      review_queue: kanbanByStatus.review,
+      blocked: kanbanByStatus.blocked,
+      failed: kanbanByStatus.failed,
+      waiting_acceptance: waitingAcceptance,
+      stale_in_progress: staleInProgress,
+      by_status: kanbanByStatus,
+      top_repos: topRepos,
+    },
   });
 });
 

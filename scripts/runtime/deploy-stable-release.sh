@@ -39,6 +39,11 @@ fi
 SMOKE_DB_PATH="$RELEASE_DIR/.smoke.sqlite"
 SMOKE_LOG_PATH="$RELEASE_DIR/.smoke.log"
 rm -f "$SMOKE_DB_PATH" "$SMOKE_DB_PATH-shm" "$SMOKE_DB_PATH-wal" "$SMOKE_LOG_PATH"
+if [[ -f "$PROD_DB_PATH" ]]; then
+  sqlite3 "$PROD_DB_PATH" ".backup '$SMOKE_DB_PATH'"
+elif [[ -f "$SOURCE_DB_PATH" ]]; then
+  sqlite3 "$SOURCE_DB_PATH" ".backup '$SMOKE_DB_PATH'"
+fi
 
 PORT="$SMOKE_PORT" \
 HOST="127.0.0.1" \
