@@ -600,7 +600,7 @@ export default function KanbanTab({
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_auto] min-w-0">
           <div className="space-y-3 min-w-0 overflow-hidden">
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex flex-wrap gap-2">
               {repoSources.length === 0 && (
                 <span className="px-3 py-2 rounded-xl text-sm border border-dashed" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-muted)" }}>
                   {tr("먼저 backlog repo를 추가하세요.", "Add a backlog repo first.")}
@@ -609,12 +609,12 @@ export default function KanbanTab({
               {repoSources.map((source) => (
                 <div
                   key={source.id}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 border text-sm ${selectedRepo === source.repo ? "bg-blue-500/20" : "bg-white/6"}`}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 border text-sm ${selectedRepo === source.repo ? "bg-blue-500/20" : "bg-white/6"}`}
                   style={{ borderColor: selectedRepo === source.repo ? "rgba(96,165,250,0.45)" : "rgba(148,163,184,0.22)" }}
                 >
                   <button
                     onClick={() => setSelectedRepo(source.repo)}
-                    className="text-left whitespace-nowrap"
+                    className="text-left truncate"
                     style={{ color: selectedRepo === source.repo ? "#dbeafe" : "var(--th-text-primary)" }}
                   >
                     {source.repo}
