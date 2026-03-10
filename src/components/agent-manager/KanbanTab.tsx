@@ -563,9 +563,9 @@ export default function KanbanTab({
   };
 
   return (
-    <div className="space-y-4 pb-24 md:pb-0" style={{ paddingBottom: "max(6rem, calc(6rem + env(safe-area-inset-bottom)))" }}>
+    <div className="space-y-4 pb-24 md:pb-0 min-w-0 overflow-x-hidden" style={{ paddingBottom: "max(6rem, calc(6rem + env(safe-area-inset-bottom)))" }}>
       <section
-        className="rounded-2xl border p-4 sm:p-5 space-y-4"
+        className="rounded-2xl border p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden"
         style={{
           background: "linear-gradient(135deg, rgba(15,23,42,0.92), rgba(30,41,59,0.78))",
           borderColor: "rgba(148,163,184,0.28)",
@@ -598,7 +598,7 @@ export default function KanbanTab({
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[2fr_auto]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_auto]">
           <div className="space-y-3">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {repoSources.length === 0 && (
@@ -666,7 +666,7 @@ export default function KanbanTab({
           </label>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
