@@ -31,3 +31,36 @@ test("parseRemoteCcSessionKey keeps legacy session names as Claude", () => {
     channelName: "mac-mini",
   });
 });
+
+test("parseRemoteCcSessionKey parses local-project session (cc suffix)", () => {
+  assert.deepEqual(
+    parseRemoteCcSessionKey("mac-mini:local-project-pixelclawdashboard-cc"),
+    {
+      tmuxName: "local-project-pixelclawdashboard-cc",
+      provider: "claude",
+      channelName: "pixelclawdashboard-cc",
+    },
+  );
+});
+
+test("parseRemoteCcSessionKey parses local-project session (cdx suffix)", () => {
+  assert.deepEqual(
+    parseRemoteCcSessionKey("mac-mini:local-project-pixelclawdashboard-cdx"),
+    {
+      tmuxName: "local-project-pixelclawdashboard-cdx",
+      provider: "codex",
+      channelName: "pixelclawdashboard-cdx",
+    },
+  );
+});
+
+test("parseRemoteCcSessionKey parses local-project session without host prefix", () => {
+  assert.deepEqual(
+    parseRemoteCcSessionKey("local-project-remotecc-cc"),
+    {
+      tmuxName: "local-project-remotecc-cc",
+      provider: "claude",
+      channelName: "remotecc-cc",
+    },
+  );
+});

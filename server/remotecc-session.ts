@@ -12,6 +12,7 @@ function inferProviderFromChannelName(name?: string | null): RemoteCcProvider {
 }
 
 export function parseRemoteCcSessionKey(sessionKey: string, name?: string | null): RemoteCcSessionRef {
+  // Provider-aware RemoteCC: "remoteCC-(claude|codex)-channelName"
   const providerMatch = sessionKey.match(/:?(remoteCC-(claude|codex)-(.+))$/i);
   if (providerMatch?.[1]) {
     return {
@@ -21,6 +22,19 @@ export function parseRemoteCcSessionKey(sessionKey: string, name?: string | null
     };
   }
 
+  // Local project sessions: "local-project-channelName" (must check before legacy remoteCC
+  // because channel names like "remotecc-cc" would otherwise match the legacy regex)
+  const localMatch = sessionKey.match(/:?(local-project-(.+))$/i);
+  if (localMatch?.[1]) {
+    const channelName = localMatch[2]?.trim() || name?.trim() || null;
+    return {
+      tmuxName: localMatch[1],
+      provider: inferProviderFromChannelName(channelName),
+      channelName,
+    };
+  }
+
+  // Legacy RemoteCC: "remoteCC-channelName" (no provider prefix)
   const legacyMatch = sessionKey.match(/:?(remoteCC-(.+))$/i);
   if (legacyMatch?.[1]) {
     return {

@@ -70,6 +70,7 @@ export function initSchema(db: DatabaseSync): void {
       status TEXT NOT NULL DEFAULT 'working'
         CHECK(status IN ('working','idle','disconnected')),
       session_info TEXT DEFAULT NULL,
+      cwd TEXT DEFAULT NULL,
       sprite_number INTEGER DEFAULT NULL,
       avatar_emoji TEXT NOT NULL DEFAULT '👤',
       connected_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
@@ -152,6 +153,43 @@ export function initSchema(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_dispatches_status ON task_dispatches (status, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_dispatches_chain ON task_dispatches (parent_dispatch_id);
+
+    CREATE TABLE IF NOT EXISTS kanban_cards (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT NULL,
+      status TEXT NOT NULL DEFAULT 'backlog'
+        CHECK(status IN ('backlog','ready','requested','in_progress','review','blocked','done','failed','cancelled')),
+      github_repo TEXT DEFAULT NULL,
+      owner_agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
+      requester_agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
+      assignee_agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
+      parent_card_id TEXT DEFAULT NULL REFERENCES kanban_cards(id) ON DELETE SET NULL,
+      latest_dispatch_id TEXT DEFAULT NULL REFERENCES task_dispatches(id) ON DELETE SET NULL,
+      sort_order REAL NOT NULL DEFAULT 0,
+      priority TEXT NOT NULL DEFAULT 'medium'
+        CHECK(priority IN ('low','medium','high','urgent')),
+      depth INTEGER NOT NULL DEFAULT 0,
+      blocked_reason TEXT DEFAULT NULL,
+      review_notes TEXT DEFAULT NULL,
+      github_issue_number INTEGER DEFAULT NULL,
+      github_issue_url TEXT DEFAULT NULL,
+      metadata_json TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      started_at INTEGER DEFAULT NULL,
+      requested_at INTEGER DEFAULT NULL,
+      completed_at INTEGER DEFAULT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_status ON kanban_cards (status, sort_order, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_assignee ON kanban_cards (assignee_agent_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_parent ON kanban_cards (parent_card_id);
+    CREATE TABLE IF NOT EXISTS kanban_repo_sources (
+      id TEXT PRIMARY KEY,
+      repo TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_repo_sources_created ON kanban_repo_sources (created_at DESC);
 
     CREATE TABLE IF NOT EXISTS round_table_meetings (
       id TEXT PRIMARY KEY,
@@ -240,6 +278,9 @@ function migrate(db: DatabaseSync): void {
       "ALTER TABLE dispatched_sessions ADD COLUMN stats_xp INTEGER NOT NULL DEFAULT 0",
     );
   }
+  if (!dsCols.some((c) => c.name === "cwd")) {
+    db.exec("ALTER TABLE dispatched_sessions ADD COLUMN cwd TEXT DEFAULT NULL");
+  }
 
   // Add office_id column to departments if missing (existing DB upgrade)
   const deptCols = db
@@ -305,6 +346,16 @@ function migrate(db: DatabaseSync): void {
   if (!agentCols3.some((c) => c.name === "discord_channel_id_codex")) {
     db.exec("ALTER TABLE agents ADD COLUMN discord_channel_id_codex TEXT DEFAULT NULL");
   }
+
+  const kanbanCols = db
+    .prepare("PRAGMA table_info(kanban_cards)")
+    .all() as Array<{ name: string }>;
+  if (kanbanCols.length > 0 && !kanbanCols.some((c) => c.name === "github_repo")) {
+    db.exec("ALTER TABLE kanban_cards ADD COLUMN github_repo TEXT DEFAULT NULL");
+  }
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_kanban_cards_repo_issue ON kanban_cards (github_repo, github_issue_number, status, updated_at DESC)",
+  );
 
   if (!dsCols.some((c) => c.name === "provider")) {
     db.exec("ALTER TABLE dispatched_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'");

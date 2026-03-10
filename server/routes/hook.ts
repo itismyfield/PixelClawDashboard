@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
+import { promoteRequestedKanbanCardForAgent } from "../kanban-cards.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
 import { recordSkillUsageEvent } from "../skill-sync.js";
@@ -89,6 +90,9 @@ router.patch("/api/hook/agent-status", (req, res) => {
   );
 
   emitLinkedAgentStatus(agent.id as string);
+  if (status === "working" || session_info !== undefined) {
+    promoteRequestedKanbanCardForAgent(db, agent.id as string);
+  }
   res.json({ ok: true });
 });
 
@@ -116,7 +120,7 @@ router.post("/api/hook/reset-status", (_req, res) => {
 // Dispatched session: register / heartbeat
 router.post("/api/hook/session", (req, res) => {
   const db = getDb();
-  const { session_key, name, model, status, session_info, tokens } = req.body;
+  const { session_key, name, model, status, session_info, tokens, cwd } = req.body;
   if (!session_key)
     return res.status(400).json({ error: "session_key required" });
   const provider = inferRemoteCcProvider(session_key, name ?? null, req.body.provider ?? null);
@@ -154,6 +158,10 @@ router.post("/api/hook/session", (req, res) => {
     if (session_info !== undefined) {
       sets.push("session_info = ?");
       vals.push(session_info);
+    }
+    if (cwd !== undefined) {
+      sets.push("cwd = ?");
+      vals.push(cwd);
     }
     if (model) {
       sets.push("model = ?");
@@ -196,6 +204,9 @@ router.post("/api/hook/session", (req, res) => {
 
     broadcast("dispatched_session_update", updated);
     if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
+    if (linkedAgentId && (status === "working" || session_info !== undefined)) {
+      promoteRequestedKanbanCardForAgent(db, linkedAgentId);
+    }
     return res.json(updated);
   }
 
@@ -203,8 +214,8 @@ router.post("/api/hook/session", (req, res) => {
   const id = crypto.randomUUID();
   const linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
   db.prepare(
-    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, linked_agent_id, stats_xp, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, cwd, linked_agent_id, stats_xp, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     session_key,
@@ -213,6 +224,7 @@ router.post("/api/hook/session", (req, res) => {
     model ?? null,
     status ?? "working",
     session_info ?? null,
+    cwd ?? null,
     linkedAgentId,
     0,
     Date.now(),
@@ -229,6 +241,9 @@ router.post("/api/hook/session", (req, res) => {
     .get(id) as Record<string, unknown>;
   broadcast("dispatched_session_new", session);
   if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
+  if (linkedAgentId && (status === "working" || status === undefined || session_info !== undefined)) {
+    promoteRequestedKanbanCardForAgent(db, linkedAgentId);
+  }
   res.status(201).json(session);
 });
 
