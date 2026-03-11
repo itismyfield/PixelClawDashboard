@@ -1,13 +1,13 @@
 /**
  * Dispatch input parser — separates UI display data from structured dispatch payloads.
  *
- * Design principles (from PCD#3):
- * - UI description (issue body) is for display only
- * - Dispatch input is a structured checklist array + issue link
+ * Follows PMD issue format spec (ch-issue-format-spec.md):
+ * - Issue body is single source of truth (no triple-expression drift)
+ * - `## 배경` → intent (why), `## 내용` → description (what)
+ * - `## DoD` → checklist items (`- [ ]` task-list only)
+ * - Checklist extracted ONLY from `## DoD` section (other `- [ ]` ignored)
  * - Token/item limits: ≤10 items AND ≤2k tokens; fallback to link+summary
- * - Each item must include minimum context (intent + judgment criteria) inline
  * - Parse failure → link+summary fallback, fetch 1x allowed
- * - Single source of truth: issue body (no triple-expression drift)
  */
 
 // ── Constants ──
@@ -54,8 +54,8 @@ export interface DispatchPayload {
 
 // ── Parsing ──
 
-const CHECKLIST_RE = /^[\s]*[-*]\s*\[([xX ])\]\s*(.+)$/;
-const HEADING_RE = /^#{1,6}\s+(.+)$/;
+const CHECKLIST_RE = /^[\s]*-\s*\[([xX ])\]\s*(.+)$/;
+const HEADING_RE = /^(#{1,6})\s+(.+)$/;
 
 /**
  * Parse a GitHub issue body into structured dispatch input.
@@ -92,25 +92,64 @@ export function parseIssueBody(
   }
 }
 
-function doParse(body: string, base: DispatchInput): DispatchInput {
-  const lines = body.split("\n");
-  const checklist: ChecklistItem[] = [];
-  let intent = "";
+/**
+ * Split issue body into named sections keyed by H2 heading.
+ * Lines before the first heading go into key "".
+ */
+function splitSections(body: string): Map<string, string[]> {
+  const sections = new Map<string, string[]>();
+  let current = "";
+  sections.set(current, []);
 
-  for (const line of lines) {
+  for (const line of body.split("\n")) {
+    const match = line.match(HEADING_RE);
+    if (match && match[1] === "##") {
+      current = match[2].trim();
+      if (!sections.has(current)) sections.set(current, []);
+    } else {
+      sections.get(current)!.push(line);
+    }
+  }
+  return sections;
+}
+
+function doParse(body: string, base: DispatchInput): DispatchInput {
+  const sections = splitSections(body);
+
+  // Extract intent from ## 배경 section (first non-empty line)
+  const bgLines = sections.get("배경") ?? [];
+  let intent = "";
+  for (const line of bgLines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-
-    // Extract intent: skip headings, use first descriptive line
-    if (!intent) {
-      if (HEADING_RE.test(trimmed)) continue;
-      if (!CHECKLIST_RE.test(line)) {
-        intent = trimmed;
-        continue;
-      }
+    if (!CHECKLIST_RE.test(line)) {
+      intent = trimmed;
+      break;
     }
+  }
 
-    // Parse checklist items
+  // Fallback: first descriptive line anywhere
+  if (!intent) {
+    for (const [, sectionLines] of sections) {
+      for (const line of sectionLines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (HEADING_RE.test(trimmed)) continue;
+        if (!CHECKLIST_RE.test(line)) {
+          intent = trimmed;
+          break;
+        }
+      }
+      if (intent) break;
+    }
+  }
+  if (!intent) intent = extractFirstLine(body);
+  base.intent = intent;
+
+  // Extract checklist ONLY from ## DoD section
+  const dodLines = sections.get("DoD") ?? [];
+  const checklist: ChecklistItem[] = [];
+  for (const line of dodLines) {
     const match = line.match(CHECKLIST_RE);
     if (match) {
       checklist.push({
@@ -120,21 +159,31 @@ function doParse(body: string, base: DispatchInput): DispatchInput {
     }
   }
 
-  // If no heading/line found for intent, use first checklist item
-  if (!intent && checklist.length > 0) {
-    intent = checklist[0].text;
+  // Fallback: if no DoD section, try legacy whole-body scan
+  if (checklist.length === 0) {
+    for (const line of body.split("\n")) {
+      const match = line.match(CHECKLIST_RE);
+      if (match) {
+        checklist.push({
+          text: match[2].trim(),
+          done: match[1].toLowerCase() === "x",
+        });
+      }
+    }
+    if (checklist.length > 0) {
+      base.fallback_reason = "no_dod_section";
+    }
   }
-  if (!intent) {
-    intent = extractFirstLine(body);
-  }
-
-  base.intent = intent;
 
   // Apply limits
   const { items, truncated, reason } = applyLimits(checklist);
   base.checklist = items;
   base.truncated = truncated;
-  if (reason) base.fallback_reason = reason;
+  if (reason) {
+    base.fallback_reason = base.fallback_reason
+      ? `${base.fallback_reason};${reason}`
+      : reason;
+  }
 
   return base;
 }
