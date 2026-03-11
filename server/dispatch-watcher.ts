@@ -38,7 +38,7 @@ interface HandoffFile {
   /** Structured dispatch input (separated from UI description) */
   structured_input?: {
     intent: string;
-    checklist: Array<{ text: string; done: boolean }>;
+    checklist: Array<{ text: string; done: boolean; verify: "auto" | "manual" | "semi" }>;
     issue_url: string | null;
     truncated: boolean;
     fallback_reason: string | null;

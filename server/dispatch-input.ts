@@ -17,13 +17,61 @@ const MAX_TOKEN_ESTIMATE = 2000;
 /** Rough token estimate: ~4 chars per token for mixed CJK/English */
 const CHARS_PER_TOKEN = 4;
 
+// ── DoD verification classification (DD 합의 2026-03-11) ──
+
+const AUTO_KEYWORDS = ["빌드", "컴파일", "테스트 통과", "에러 없음", "로그 확인", "실행", "크래시"];
+const MANUAL_KEYWORDS = ["느낌", "재미", "감정선", "연출", "분위기", "톤", "몰입", "직관적", "사용성", "체감"];
+const SEMI_KEYWORDS = ["성능", "프레임", "메모리", "수치 확인", "WP 계산", "비율", "밸런스 수치", "드로우콜"];
+
+/** Edge cases: standalone keywords with special default classification */
+const EDGE_CASES: Array<{ pattern: RegExp; default: "auto" | "manual" | "semi" }> = [
+  { pattern: /밸런스(?!\s*수치)/, default: "semi" },
+  { pattern: /NPC\s*반응/, default: "semi" },
+  { pattern: /연출/, default: "manual" },
+];
+
+function classifyDodItem(text: string): "auto" | "manual" | "semi" {
+  const lower = text.toLowerCase();
+
+  // Check edge cases first (more specific patterns)
+  for (const edge of EDGE_CASES) {
+    if (edge.pattern.test(text)) return edge.default;
+  }
+
+  // "확인" alone doesn't count — only compound forms like "수치 확인", "로그 확인"
+  // (already handled by keyword lists containing the compound forms)
+
+  let autoScore = 0;
+  let manualScore = 0;
+  let semiScore = 0;
+
+  for (const kw of AUTO_KEYWORDS) {
+    if (lower.includes(kw.toLowerCase())) autoScore++;
+  }
+  for (const kw of MANUAL_KEYWORDS) {
+    if (lower.includes(kw.toLowerCase())) manualScore++;
+  }
+  for (const kw of SEMI_KEYWORDS) {
+    if (lower.includes(kw.toLowerCase())) semiScore++;
+  }
+
+  if (autoScore === 0 && manualScore === 0 && semiScore === 0) return "auto";
+  if (semiScore > 0) return "semi";
+  if (manualScore > autoScore) return "manual";
+  return "auto";
+}
+
 // ── Types ──
+
+export type DodVerifyType = "auto" | "manual" | "semi";
 
 export interface ChecklistItem {
   /** Raw text of the checklist item (markdown stripped) */
   text: string;
   /** Whether already completed */
   done: boolean;
+  /** Verification classification per DD spec */
+  verify: DodVerifyType;
 }
 
 export interface DispatchInput {
@@ -152,9 +200,11 @@ function doParse(body: string, base: DispatchInput): DispatchInput {
   for (const line of dodLines) {
     const match = line.match(CHECKLIST_RE);
     if (match) {
+      const itemText = match[2].trim();
       checklist.push({
-        text: match[2].trim(),
+        text: itemText,
         done: match[1].toLowerCase() === "x",
+        verify: classifyDodItem(itemText),
       });
     }
   }
@@ -164,9 +214,11 @@ function doParse(body: string, base: DispatchInput): DispatchInput {
     for (const line of body.split("\n")) {
       const match = line.match(CHECKLIST_RE);
       if (match) {
+        const itemText = match[2].trim();
         checklist.push({
-          text: match[2].trim(),
+          text: itemText,
           done: match[1].toLowerCase() === "x",
+          verify: classifyDodItem(itemText),
         });
       }
     }
@@ -283,7 +335,7 @@ export function formatInstructionsFromInput(input: DispatchInput): string {
   if (input.checklist.length > 0) {
     parts.push("## Checklist");
     for (const item of input.checklist) {
-      parts.push(`- [${item.done ? "x" : " "}] ${item.text}`);
+      parts.push(`- [${item.done ? "x" : " "}] ${item.text}  \`[${item.verify}]\``);
     }
   }
 
