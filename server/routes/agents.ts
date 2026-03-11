@@ -22,11 +22,15 @@ function hydrateActivitySource<T extends Record<string, unknown>>(rows: T[]): T[
 
     const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 
+    // If agent has no session_info, inherit from the most recent working linked session
+    const sessionInfo = row.session_info || row.linked_session_info || null;
+
     return {
       ...row,
       status: effectiveStatus,
       activity_source: activitySource,
       remotecc_working_count: remoteCcWorking,
+      session_info: sessionInfo,
     } as T;
   });
 }
@@ -44,6 +48,10 @@ router.get("/api/agents", (req, res) => {
       GROUP BY linked_agent_id
     ) ds ON ds.aid = a.id
   `;
+  const linkedSessionInfoExpr = `(SELECT COALESCE(ds2.session_info, ds2.name)
+     FROM dispatched_sessions ds2
+     WHERE ds2.linked_agent_id = a.id AND ds2.status = 'working'
+     ORDER BY ds2.last_seen_at DESC LIMIT 1) AS linked_session_info`;
 
   let rows;
   if (officeId) {
@@ -52,7 +60,8 @@ router.get("/api/agents", (req, res) => {
       .prepare(
         `SELECT a.*, oa.department_id as office_department_id,
                 d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
+                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count,
+                ${linkedSessionInfoExpr}
          FROM office_agents oa
          JOIN agents a ON a.id = oa.agent_id
          LEFT JOIN departments d ON d.id = oa.department_id
@@ -65,7 +74,8 @@ router.get("/api/agents", (req, res) => {
     rows = db
       .prepare(
         `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
+                COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count,
+                ${linkedSessionInfoExpr}
          FROM agents a LEFT JOIN departments d ON a.department_id = d.id
          ${remoteCcJoin}
          ORDER BY a.created_at`,
@@ -80,7 +90,11 @@ router.get("/api/agents/:id", (req, res) => {
   const row = db
     .prepare(
       `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
+              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count,
+              (SELECT COALESCE(ds2.session_info, ds2.name)
+               FROM dispatched_sessions ds2
+               WHERE ds2.linked_agent_id = a.id AND ds2.status = 'working'
+               ORDER BY ds2.last_seen_at DESC LIMIT 1) AS linked_session_info
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
        LEFT JOIN (
          SELECT linked_agent_id as aid,
@@ -217,7 +231,11 @@ router.patch("/api/agents/:id", (req, res) => {
   const updated = db
     .prepare(
       `SELECT a.*, d.name AS department_name, d.name_ko AS department_name_ko, d.color AS department_color,
-              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count
+              COALESCE(ds.remotecc_working_count, 0) AS remotecc_working_count,
+              (SELECT COALESCE(ds2.session_info, ds2.name)
+               FROM dispatched_sessions ds2
+               WHERE ds2.linked_agent_id = a.id AND ds2.status = 'working'
+               ORDER BY ds2.last_seen_at DESC LIMIT 1) AS linked_session_info
        FROM agents a LEFT JOIN departments d ON a.department_id = d.id
        LEFT JOIN (
          SELECT linked_agent_id as aid,

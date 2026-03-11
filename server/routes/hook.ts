@@ -57,11 +57,25 @@ function emitLinkedAgentStatus(agentId: string): void {
           : "idle";
   const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 
+  // If agent has no session_info, inherit from the most recent working linked session
+  let sessionInfo = row.session_info as string | null;
+  if (!sessionInfo && remoteCcWorking > 0) {
+    const linked = db
+      .prepare(
+        `SELECT session_info, name FROM dispatched_sessions
+         WHERE linked_agent_id = ? AND status = 'working'
+         ORDER BY last_seen_at DESC LIMIT 1`,
+      )
+      .get(agentId) as { session_info: string | null; name: string | null } | undefined;
+    sessionInfo = linked?.session_info || linked?.name || null;
+  }
+
   broadcast("agent_status", {
     ...row,
     status: effectiveStatus,
     activity_source: activitySource,
     remotecc_working_count: remoteCcWorking,
+    session_info: sessionInfo ?? row.session_info,
   });
 }
 
