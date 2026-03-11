@@ -3,7 +3,6 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
-import { promoteRequestedKanbanCardForAgent } from "../kanban-cards.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
 import { recordSkillUsageEvent } from "../skill-sync.js";
@@ -90,9 +89,6 @@ router.patch("/api/hook/agent-status", (req, res) => {
   );
 
   emitLinkedAgentStatus(agent.id as string);
-  if (status === "working" || session_info !== undefined) {
-    promoteRequestedKanbanCardForAgent(db, agent.id as string);
-  }
   res.json({ ok: true });
 });
 
@@ -204,9 +200,6 @@ router.post("/api/hook/session", (req, res) => {
 
     broadcast("dispatched_session_update", updated);
     if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
-    if (linkedAgentId && (status === "working" || session_info !== undefined)) {
-      promoteRequestedKanbanCardForAgent(db, linkedAgentId);
-    }
     return res.json(updated);
   }
 
@@ -241,9 +234,6 @@ router.post("/api/hook/session", (req, res) => {
     .get(id) as Record<string, unknown>;
   broadcast("dispatched_session_new", session);
   if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
-  if (linkedAgentId && (status === "working" || status === undefined || session_info !== undefined)) {
-    promoteRequestedKanbanCardForAgent(db, linkedAgentId);
-  }
   res.status(201).json(session);
 });
 
