@@ -29,6 +29,7 @@ export {
   assignKanbanIssue,
   getKanbanRepoSources,
   addKanbanRepoSource,
+  updateKanbanRepoSource,
   deleteKanbanRepoSource,
   getTaskDispatches,
   getDispatchedSessions,

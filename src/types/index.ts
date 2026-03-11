@@ -449,6 +449,7 @@ export interface KanbanCard {
 export interface KanbanRepoSource {
   id: string;
   repo: string;
+  default_agent_id: string | null;
   created_at: number;
 }
 

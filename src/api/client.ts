@@ -288,6 +288,13 @@ export async function addKanbanRepoSource(repo: string): Promise<KanbanRepoSourc
   });
 }
 
+export async function updateKanbanRepoSource(id: string, data: { default_agent_id?: string | null }): Promise<KanbanRepoSource> {
+  return request(`/api/kanban-repos/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function deleteKanbanRepoSource(id: string): Promise<void> {
   await request(`/api/kanban-repos/${id}`, { method: "DELETE" });
 }
@@ -492,6 +499,7 @@ export async function getSkillRanking(
 export interface GitHubIssue {
   number: number;
   title: string;
+  body: string;
   state: string;
   url: string;
   labels: Array<{ name: string; color: string }>;

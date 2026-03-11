@@ -566,6 +566,7 @@ export default function KanbanTab({
         github_issue_number: assignIssue.number,
         github_issue_url: assignIssue.url,
         title: assignIssue.title,
+        description: assignIssue.body || null,
         assignee_agent_id: assignAssigneeId,
       });
       setAssignIssue(null);
@@ -671,14 +672,40 @@ export default function KanbanTab({
             </div>
           </div>
 
-          <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20 self-start w-full sm:w-auto" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
-            <input
-              type="checkbox"
-              checked={showClosed}
-              onChange={(event) => setShowClosed(event.target.checked)}
-            />
-            {tr("닫힌 컬럼 표시", "Show closed columns")}
-          </label>
+          <div className="flex flex-col gap-2 self-start w-full lg:w-auto">
+            <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
+              <input
+                type="checkbox"
+                checked={showClosed}
+                onChange={(event) => setShowClosed(event.target.checked)}
+              />
+              {tr("닫힌 컬럼 표시", "Show closed columns")}
+            </label>
+            {selectedRepo && (() => {
+              const currentSource = repoSources.find((s) => s.repo === selectedRepo);
+              if (!currentSource) return null;
+              return (
+                <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
+                  <span className="shrink-0">{tr("기본 담당자", "Default agent")}</span>
+                  <select
+                    value={currentSource.default_agent_id ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value || null;
+                      void api.updateKanbanRepoSource(currentSource.id, { default_agent_id: value });
+                      setRepoSources((prev) => prev.map((s) => s.id === currentSource.id ? { ...s, default_agent_id: value } : s));
+                    }}
+                    className="min-w-0 flex-1 rounded-lg px-2 py-1 text-xs bg-white/6 border"
+                    style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-primary)" }}
+                  >
+                    <option value="">{tr("없음", "None")}</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>{getAgentLabel(agent.id)}</option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })()}
+          </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-0">
@@ -843,7 +870,8 @@ export default function KanbanTab({
                             <button
                               onClick={() => {
                                 setAssignIssue(issue);
-                                setAssignAssigneeId("");
+                                const repoSource = repoSources.find((s) => s.repo === selectedRepo);
+                                setAssignAssigneeId(repoSource?.default_agent_id ?? "");
                               }}
                               className="rounded-lg px-3 py-1.5 text-white"
                               style={{ backgroundColor: column.accent }}

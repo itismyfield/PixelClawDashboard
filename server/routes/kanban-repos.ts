@@ -23,7 +23,7 @@ function ensureGitHubRepoAccessible(repo: string): void {
 router.get("/api/kanban-repos", (_req, res) => {
   const db = getDb();
   const repos = db.prepare(
-    `SELECT id, repo, created_at
+    `SELECT id, repo, default_agent_id, created_at
      FROM kanban_repo_sources
      ORDER BY created_at DESC`,
   ).all();
@@ -46,7 +46,7 @@ router.post("/api/kanban-repos", (req, res) => {
   }
 
   const existing = db.prepare(
-    `SELECT id, repo, created_at
+    `SELECT id, repo, default_agent_id, created_at
      FROM kanban_repo_sources
      WHERE repo = ?
      LIMIT 1`,
@@ -65,7 +65,7 @@ router.post("/api/kanban-repos", (req, res) => {
   ).run(id, repo, createdAt);
 
   const created = db.prepare(
-    `SELECT id, repo, created_at
+    `SELECT id, repo, default_agent_id, created_at
      FROM kanban_repo_sources
      WHERE id = ?
      LIMIT 1`,
@@ -80,6 +80,20 @@ router.post("/api/kanban-repos", (req, res) => {
   });
 
   res.status(201).json(created);
+});
+
+router.patch("/api/kanban-repos/:id", (req, res) => {
+  const db = getDb();
+  const defaultAgentId = typeof req.body?.default_agent_id === "string" ? req.body.default_agent_id.trim() || null : null;
+  db.prepare("UPDATE kanban_repo_sources SET default_agent_id = ? WHERE id = ?").run(defaultAgentId, req.params.id);
+  const updated = db.prepare(
+    `SELECT id, repo, default_agent_id, created_at FROM kanban_repo_sources WHERE id = ? LIMIT 1`,
+  ).get(req.params.id);
+  if (!updated) {
+    res.status(404).json({ error: "kanban_repo_not_found" });
+    return;
+  }
+  res.json(updated);
 });
 
 router.delete("/api/kanban-repos/:id", (req, res) => {

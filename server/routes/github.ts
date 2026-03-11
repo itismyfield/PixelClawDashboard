@@ -11,7 +11,7 @@ type GitHubRepoRow = {
   viewerPermission?: string;
 };
 
-const GITHUB_ISSUE_JSON_FIELDS = "number,title,state,url,labels,assignees,createdAt,updatedAt";
+const GITHUB_ISSUE_JSON_FIELDS = "number,title,body,state,url,labels,assignees,createdAt,updatedAt";
 
 let githubRepoCache:
   | {

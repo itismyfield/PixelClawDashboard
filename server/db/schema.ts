@@ -187,6 +187,7 @@ export function initSchema(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS kanban_repo_sources (
       id TEXT PRIMARY KEY,
       repo TEXT NOT NULL UNIQUE,
+      default_agent_id TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_repo_sources_created ON kanban_repo_sources (created_at DESC);
@@ -368,6 +369,11 @@ function migrate(db: DatabaseSync): void {
     END
     WHERE provider IS NULL OR provider = '' OR provider = 'claude'
   `);
+
+  const repoSrcCols = db.prepare("PRAGMA table_info(kanban_repo_sources)").all() as Array<{ name: string }>;
+  if (!repoSrcCols.some((c) => c.name === "default_agent_id")) {
+    db.exec("ALTER TABLE kanban_repo_sources ADD COLUMN default_agent_id TEXT DEFAULT NULL");
+  }
 
   // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)
   const linkedXpRows = db
