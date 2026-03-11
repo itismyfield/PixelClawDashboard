@@ -15,10 +15,7 @@ function hydrateActivitySource<T extends Record<string, unknown>>(rows: T[]): T[
     const remoteCcWorking = Number(row.remotecc_working_count || 0);
     const baseStatus = String(row.status || "idle");
 
-    let activitySource = "idle";
-    if (baseStatus === "working" && remoteCcWorking > 0) activitySource = "both";
-    else if (remoteCcWorking > 0) activitySource = "remotecc";
-    else if (baseStatus === "working") activitySource = "openclaw";
+    const activitySource = remoteCcWorking > 0 ? "remotecc" : "idle";
 
     const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 

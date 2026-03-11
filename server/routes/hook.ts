@@ -47,14 +47,7 @@ function emitLinkedAgentStatus(agentId: string): void {
 
   const remoteCcWorking = Number(row.remotecc_working_count || 0);
   const baseStatus = String(row.status || "idle");
-  const activitySource =
-    baseStatus === "working" && remoteCcWorking > 0
-      ? "both"
-      : remoteCcWorking > 0
-        ? "remotecc"
-        : baseStatus === "working"
-          ? "openclaw"
-          : "idle";
+  const activitySource = remoteCcWorking > 0 ? "remotecc" : "idle";
   const effectiveStatus = remoteCcWorking > 0 ? "working" : baseStatus;
 
   // If agent has no session_info, inherit from the most recent working linked session
@@ -79,34 +72,7 @@ function emitLinkedAgentStatus(agentId: string): void {
   });
 }
 
-// OpenClaw hook: agent status update
-router.patch("/api/hook/agent-status", (req, res) => {
-  const db = getDb();
-  const { openclaw_id, status, session_info } = req.body;
-  if (!openclaw_id)
-    return res.status(400).json({ error: "openclaw_id required" });
-
-  const agent = db
-    .prepare("SELECT * FROM agents WHERE openclaw_id = ?")
-    .get(openclaw_id) as Record<string, unknown> | undefined;
-  if (!agent) return res.status(404).json({ error: "agent_not_found" });
-
-  const sets = ["status = ?"];
-  const vals: (string | number | null)[] = [status ?? "idle"];
-  if (session_info !== undefined) {
-    sets.push("session_info = ?");
-    vals.push(session_info);
-  }
-  vals.push(agent.id as string);
-  db.prepare(`UPDATE agents SET ${sets.join(", ")} WHERE id = ?`).run(
-    ...vals,
-  );
-
-  emitLinkedAgentStatus(agent.id as string);
-  res.json({ ok: true });
-});
-
-// Force sync OpenClaw agent list into PCD (upsert missing agents)
+// Sync agent list into PCD (upsert missing agents from role-map)
 router.post("/api/hook/sync-agents", (_req, res) => {
   const created = syncAgentsOnce();
   const reconciled = reconcileAgentStatusOnce();
@@ -190,7 +156,7 @@ router.post("/api/hook/session", (req, res) => {
       `UPDATE dispatched_sessions SET ${sets.join(", ")} WHERE id = ?`,
     ).run(...vals);
 
-    // If this session is linked to an existing OpenClaw agent, merge XP there too.
+    // If this session is linked to an agent, merge XP there too.
     if (linkedAgentId && xpDelta > 0) {
       db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(
         xpDelta,

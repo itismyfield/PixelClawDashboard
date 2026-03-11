@@ -64,16 +64,8 @@ function getMessageTypeLabel(type: string, isKo: boolean): string {
 }
 
 function getActivitySourceLabel(agent: Agent, isKo: boolean): string {
-  switch (agent.activity_source) {
-    case "both":
-      return isKo ? "OpenClaw + RemoteCC" : "OpenClaw + RemoteCC";
-    case "openclaw":
-      return "OpenClaw";
-    case "remotecc":
-      return "RemoteCC";
-    default:
-      return isKo ? "기본" : "Default";
-  }
+  if (agent.activity_source === "remotecc") return "RemoteCC";
+  return isKo ? "기본" : "Default";
 }
 
 function getBindingSourceLabel(source: string | undefined, isKo: boolean): string {

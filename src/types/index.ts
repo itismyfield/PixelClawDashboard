@@ -39,7 +39,7 @@ export type AgentStatus = "idle" | "working" | "break" | "offline";
 export type CliProvider = "claude" | "codex" | "gemini" | "opencode" | "copilot" | "antigravity" | "api";
 export type MeetingReviewDecision = "reviewing" | "approved" | "hold";
 
-export type ActivitySource = "idle" | "openclaw" | "remotecc" | "both";
+export type ActivitySource = "idle" | "remotecc";
 
 export interface Agent {
   id: string;

@@ -35,7 +35,7 @@ export default function OfficeInsightPanel({
   const [showWarnings, setShowWarnings] = useState(false);
   const workingCount = agents.filter((agent) => agent.status === "working").length;
   const remoteCcCount = agents.filter(
-    (agent) => agent.activity_source === "remotecc" || agent.activity_source === "both",
+    (agent) => agent.activity_source === "remotecc",
   ).length;
   const warningCount = agents.filter((agent) => getAgentWarnings(agent).length > 0).length;
   const warningAgents = agents

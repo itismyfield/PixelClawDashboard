@@ -58,16 +58,7 @@ export function getAgentWorkSummary(
 
   if (agent.status !== "working") return null;
 
-  switch (agent.activity_source) {
-    case "both":
-      return "OpenClaw + RemoteCC task in progress";
-    case "remotecc":
-      return "RemoteCC task in progress";
-    case "openclaw":
-      return "OpenClaw task in progress";
-    default:
-      return "Task in progress";
-  }
+  return "Task in progress";
 }
 
 export function getAgentWorkElapsedMs(

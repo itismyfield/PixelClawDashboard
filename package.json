@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "OpenClaw agent dashboard with Pixi.js office visualization",
+  "description": "Agent dashboard with Pixi.js office visualization",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",

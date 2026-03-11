@@ -89,7 +89,7 @@ const JOB_OVERRIDES: Record<string, { name: string; agentId?: string; descriptio
     description_ko: "중앙 skill 동기화",
   },
   "com.itismyfield.md-source-relocator": {
-    name: "매일 09:30·21:30 OpenClaw·Claude 문서 동기화",
+    name: "매일 09:30·21:30 Claude 문서 동기화",
     agentId: "project-scheduler",
     description_ko: "Markdown source 동기화",
   },

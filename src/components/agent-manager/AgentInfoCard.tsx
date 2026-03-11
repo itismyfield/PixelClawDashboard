@@ -76,9 +76,7 @@ export function getAgentTitle(xp: number, isKo: boolean) {
 }
 
 const ACTIVITY_SOURCE_COLORS: Record<string, string> = {
-  openclaw: "#34d399",
   remotecc: "#a78bfa",
-  both: "#fbbf24",
   idle: "#64748b",
 };
 
@@ -293,18 +291,9 @@ export default function AgentInfoCard({
     offline: { ko: "오프라인", en: "Offline" },
   };
 
-  const sourceLabel = (() => {
-    switch (agent.activity_source) {
-      case "openclaw":
-        return tr("OpenClaw 작업", "OpenClaw");
-      case "remotecc":
-        return tr("RemoteCC 작업", "RemoteCC");
-      case "both":
-        return tr("OpenClaw+RemoteCC", "OpenClaw+RemoteCC");
-      default:
-        return null;
-    }
-  })();
+  const sourceLabel = agent.activity_source === "remotecc"
+    ? tr("RemoteCC 작업", "RemoteCC")
+    : null;
 
   const workingLinkedSessions = claudeSessions.filter((session) => session.status === "working");
   const currentWorkSummary = getAgentWorkSummary(agent, { linkedSessions: workingLinkedSessions });
