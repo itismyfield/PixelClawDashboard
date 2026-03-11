@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { buildDispatchPayload, formatInstructionsFromInput } from "./dispatch-input.js";
 import { PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
 import { broadcast } from "./ws.js";
 
@@ -418,6 +419,14 @@ export function createDispatchForKanbanCard(db: DatabaseSync, cardId: string): K
   const fileName = `${now}-${dispatchId}.json`;
   const filePath = path.join(PCD_HANDOFF_DIR, fileName);
 
+  const payload = buildDispatchPayload({
+    title: card.title,
+    description: card.description,
+    github_issue_url: card.github_issue_url,
+    github_repo: card.github_repo,
+    github_issue_number: card.github_issue_number,
+  });
+
   const handoff = {
     dispatch_id: dispatchId,
     from: requesterAgentId,
@@ -426,10 +435,17 @@ export function createDispatchForKanbanCard(db: DatabaseSync, cardId: string): K
     title: card.title,
     parent_dispatch_id: parentDispatchId,
     context: {
-      summary: card.description ?? undefined,
+      summary: payload.input.intent || undefined,
       repo_path: process.cwd(),
     },
-    instructions: card.description ?? undefined,
+    instructions: formatInstructionsFromInput(payload.input),
+    structured_input: {
+      intent: payload.input.intent,
+      checklist: payload.input.checklist,
+      issue_url: payload.input.issue_url,
+      truncated: payload.input.truncated,
+      fallback_reason: payload.input.fallback_reason,
+    },
   };
 
   fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));

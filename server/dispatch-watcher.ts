@@ -35,6 +35,14 @@ interface HandoffFile {
     test_hints?: string[];
   };
   instructions?: string;
+  /** Structured dispatch input (separated from UI description) */
+  structured_input?: {
+    intent: string;
+    checklist: Array<{ text: string; done: boolean }>;
+    issue_url: string | null;
+    truncated: boolean;
+    fallback_reason: string | null;
+  };
 }
 
 interface ResultFile {
