@@ -227,6 +227,7 @@ export default function KanbanTab({
   const [mobileColumnStatus, setMobileColumnStatus] = useState<KanbanCardStatus>("backlog");
   const [retryAssigneeId, setRetryAssigneeId] = useState("");
   const [newChecklistItem, setNewChecklistItem] = useState("");
+  const [closingIssueNumber, setClosingIssueNumber] = useState<number | null>(null);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
@@ -541,6 +542,20 @@ export default function KanbanTab({
     }
   };
 
+  const handleCloseIssue = async (issue: GitHubIssue) => {
+    if (!selectedRepo) return;
+    setClosingIssueNumber(issue.number);
+    setActionError(null);
+    try {
+      await api.closeGitHubIssue(selectedRepo, issue.number);
+      setIssues((prev) => prev.filter((i) => i.number !== issue.number));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : tr("이슈 닫기에 실패했습니다.", "Failed to close issue."));
+    } finally {
+      setClosingIssueNumber(null);
+    }
+  };
+
   const handleAssignIssue = async () => {
     if (!assignIssue || !selectedRepo || !assignAssigneeId) return;
     setAssigningIssue(true);
@@ -816,16 +831,26 @@ export default function KanbanTab({
                         </div>
                         <div className="mt-3 flex flex-col items-start gap-2 text-xs sm:flex-row sm:items-center sm:justify-between" style={{ color: "var(--th-text-muted)" }}>
                           <span>{tr("업데이트", "Updated")}: {formatIso(issue.updatedAt, locale)}</span>
-                          <button
-                            onClick={() => {
-                              setAssignIssue(issue);
-                              setAssignAssigneeId("");
-                            }}
-                            className="rounded-lg px-3 py-1.5 text-white"
-                            style={{ backgroundColor: column.accent }}
-                          >
-                            {tr("할당", "Assign")}
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => void handleCloseIssue(issue)}
+                              disabled={closingIssueNumber === issue.number}
+                              className="rounded-lg px-3 py-1.5 border disabled:opacity-50"
+                              style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-muted)" }}
+                            >
+                              {closingIssueNumber === issue.number ? tr("닫는 중", "Closing") : tr("닫기", "Close")}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAssignIssue(issue);
+                                setAssignAssigneeId("");
+                              }}
+                              className="rounded-lg px-3 py-1.5 text-white"
+                              style={{ backgroundColor: column.accent }}
+                            >
+                              {tr("할당", "Assign")}
+                            </button>
+                          </div>
                         </div>
                       </article>
                     ))}

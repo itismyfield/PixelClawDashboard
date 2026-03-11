@@ -44,6 +44,7 @@ export {
   getStreaks,
   getAchievements,
   getGitHubIssues,
+  closeGitHubIssue,
   getGitHubRepos,
   getMessages,
   sendMessage,

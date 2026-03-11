@@ -131,4 +131,20 @@ router.get("/api/github-issues", async (req, res) => {
   }
 });
 
+router.patch("/api/github-issues/:owner/:repo/:number/close", (req, res) => {
+  const owner = req.params.owner;
+  const repo = req.params.repo;
+  const number = req.params.number;
+  const fullRepo = normalizeGitHubRepoName(`${owner}/${repo}`);
+  if (!fullRepo || !/^\d+$/.test(number)) {
+    return res.status(400).json({ error: "invalid_params" });
+  }
+  try {
+    ghText(["issue", "close", number, "--repo", fullRepo]);
+    res.json({ ok: true, repo: fullRepo, number: Number(number) });
+  } catch {
+    res.status(500).json({ error: "failed to close issue via gh CLI" });
+  }
+});
+
 export default router;

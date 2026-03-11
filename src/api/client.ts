@@ -602,6 +602,16 @@ export async function getGitHubIssues(
   return request(`/api/github-issues?${params}`);
 }
 
+export async function closeGitHubIssue(
+  repo: string,
+  issueNumber: number,
+): Promise<{ ok: boolean; repo: string; number: number }> {
+  const [owner, repoName] = repo.split("/");
+  return request(`/api/github-issues/${owner}/${repoName}/${issueNumber}/close`, {
+    method: "PATCH",
+  });
+}
+
 // ── Round Table Meetings ──
 
 export async function getRoundTableMeetings(): Promise<RoundTableMeeting[]> {
