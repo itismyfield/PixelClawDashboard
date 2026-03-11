@@ -7,6 +7,7 @@ interface BuildCeoAndHallwayParams {
   app: Application;
   OFFICE_W: number;
   totalH: number;
+  meetingRoomY?: number;
   breakRoomY: number;
   isDark: boolean;
 }
@@ -15,6 +16,7 @@ export function buildCeoAndHallway({
   app,
   OFFICE_W,
   totalH,
+  meetingRoomY,
   breakRoomY,
   isDark,
 }: BuildCeoAndHallwayParams): void {
@@ -59,6 +61,26 @@ export function buildCeoAndHallway({
     .ellipse(OFFICE_W / 2, hallY + HALLWAY_H / 2 + 1, Math.max(120, OFFICE_W * 0.28), 6)
     .fill({ color: hallGlow, alpha: isDark ? 0.06 : 0.08 });
 
+  // Hallway before meeting room (between departments and meeting room)
+  if (meetingRoomY != null) {
+    const hallMtgY = meetingRoomY - HALLWAY_H;
+    hallG.rect(4, hallMtgY, OFFICE_W - 8, HALLWAY_H).fill(hallBase);
+    drawBandGradient(hallG, 4, hallMtgY, OFFICE_W - 8, HALLWAY_H, hallTile1, hallTile2, 5, 0.38);
+    for (let dx = 4; dx < OFFICE_W - 4; dx += TILE * 2) {
+      hallG.rect(dx, hallMtgY, TILE * 2, HALLWAY_H).fill({ color: hallTile1, alpha: 0.5 });
+      hallG.rect(dx + TILE * 2, hallMtgY, TILE * 2, HALLWAY_H).fill({ color: hallTile2, alpha: 0.3 });
+    }
+    for (let dx = 20; dx < OFFICE_W - 20; dx += 16) {
+      hallG.rect(dx, hallMtgY + HALLWAY_H / 2, 6, 1).fill({ color: hallDash, alpha: 0.4 });
+    }
+    hallG.rect(4, hallMtgY, OFFICE_W - 8, 1.5).fill({ color: hallTrim, alpha: 0.5 });
+    hallG.rect(4, hallMtgY + HALLWAY_H - 1.5, OFFICE_W - 8, 1.5).fill({ color: hallTrim, alpha: 0.5 });
+    hallG
+      .ellipse(OFFICE_W / 2, hallMtgY + HALLWAY_H / 2 + 1, Math.max(120, OFFICE_W * 0.28), 6)
+      .fill({ color: hallGlow, alpha: isDark ? 0.06 : 0.08 });
+  }
+
+  // Hallway before break room
   const hall2Y = breakRoomY - HALLWAY_H;
   hallG.rect(4, hall2Y, OFFICE_W - 8, HALLWAY_H).fill(hallBase);
   drawBandGradient(hallG, 4, hall2Y, OFFICE_W - 8, HALLWAY_H, hallTile1, hallTile2, 5, 0.38);

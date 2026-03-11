@@ -60,8 +60,22 @@ const DEFAULT_BREAK_THEME_DARK: RoomTheme = {
   accent: 0x4a3c18,
 };
 
+const DEFAULT_MEETING_THEME_LIGHT: RoomTheme = {
+  floor1: 0xe8e0d0,
+  floor2: 0xe0d8c8,
+  wall: 0x6b7c94,
+  accent: 0x4a7cb8,
+};
+const DEFAULT_MEETING_THEME_DARK: RoomTheme = {
+  floor1: 0x121418,
+  floor2: 0x0e1014,
+  wall: 0x1e2838,
+  accent: 0x2a4a70,
+};
+
 let DEFAULT_CEO_THEME = DEFAULT_CEO_THEME_LIGHT;
 let DEFAULT_BREAK_THEME = DEFAULT_BREAK_THEME_LIGHT;
+let DEFAULT_MEETING_THEME = DEFAULT_MEETING_THEME_LIGHT;
 
 type SupportedLocale = UiLanguage;
 
@@ -105,6 +119,18 @@ const LOCALE_TEXT = {
     en: "☕ Break Room",
     ja: "☕ 休憩室",
     zh: "☕ 休息室",
+  },
+  meetingRoom: {
+    ko: "🗣️ 회의실",
+    en: "🗣️ Meeting Room",
+    ja: "🗣️ 会議室",
+    zh: "🗣️ 会议室",
+  },
+  meetingInProgress: {
+    ko: "회의 진행중",
+    en: "In Session",
+    ja: "会議中",
+    zh: "会议中",
   },
   collabBadge: {
     ko: "🤝 협업",
@@ -424,6 +450,7 @@ function applyOfficeThemeMode(isDark: boolean): void {
   OFFICE_PASTEL = isDark ? OFFICE_PASTEL_DARK : OFFICE_PASTEL_LIGHT;
   DEFAULT_CEO_THEME = isDark ? DEFAULT_CEO_THEME_DARK : DEFAULT_CEO_THEME_LIGHT;
   DEFAULT_BREAK_THEME = isDark ? DEFAULT_BREAK_THEME_DARK : DEFAULT_BREAK_THEME_LIGHT;
+  DEFAULT_MEETING_THEME = isDark ? DEFAULT_MEETING_THEME_DARK : DEFAULT_MEETING_THEME_LIGHT;
   DEPT_THEME = isDark ? DEPT_THEME_DARK : DEPT_THEME_LIGHT;
 }
 
@@ -437,6 +464,9 @@ export {
   DEFAULT_BREAK_THEME_DARK,
   DEFAULT_CEO_THEME,
   DEFAULT_BREAK_THEME,
+  DEFAULT_MEETING_THEME_LIGHT,
+  DEFAULT_MEETING_THEME_DARK,
+  DEFAULT_MEETING_THEME,
   type SupportedLocale,
   LOCALE_TEXT,
   BREAK_CHAT_MESSAGES,

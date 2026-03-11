@@ -1,6 +1,6 @@
 import { useEffect, type MutableRefObject } from "react";
 import { Application, Assets, TextureStyle, type Texture } from "pixi.js";
-import type { Agent, Department, SubAgent, Task } from "../../types";
+import type { Agent, Department, RoundTableMeeting, SubAgent, Task } from "../../types";
 import { buildSpriteMap } from "../AgentAvatar";
 import { type Delivery, MIN_OFFICE_W, findScrollContainer } from "./model";
 import { runOfficeTickerStep, type OfficeTickerContext } from "./officeTicker";
@@ -29,6 +29,7 @@ interface UseOfficePixiRuntimeParams {
   unreadAgentIds?: Set<string>;
   language: string;
   activeMeetingTaskId?: string | null;
+  activeMeeting?: RoundTableMeeting | null;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
   currentTheme: string;
 }
@@ -57,6 +58,7 @@ export function useOfficePixiRuntime({
   unreadAgentIds,
   language,
   activeMeetingTaskId,
+  activeMeeting,
   customDeptThemes,
   currentTheme,
 }: UseOfficePixiRuntimeParams): void {
@@ -209,6 +211,7 @@ export function useOfficePixiRuntime({
     unreadAgentIds,
     language,
     activeMeetingTaskId,
+    activeMeeting,
     customDeptThemes,
     currentTheme,
     buildScene,

@@ -6,15 +6,17 @@ import {
   CEO_ZONE_H,
   COLS_PER_ROW,
   HALLWAY_H,
+  MEETING_ROOM_H,
   ROOM_PAD,
   SLOT_H,
   SLOT_W,
   detachNode,
 } from "./model";
-import { DEFAULT_BREAK_THEME, applyOfficeThemeMode } from "./themes-locale";
+import { DEFAULT_BREAK_THEME, DEFAULT_MEETING_THEME, applyOfficeThemeMode } from "./themes-locale";
 import type { BuildOfficeSceneContext } from "./buildScene-types";
 import { buildCeoAndHallway } from "./buildScene-ceo-hallway";
 import { buildDepartmentRooms } from "./buildScene-departments";
+import { buildMeetingRoom } from "./buildScene-meeting-room";
 import { buildBreakRoom } from "./buildScene-break-room";
 import { buildFinalLayers } from "./buildScene-final-layers";
 
@@ -91,6 +93,7 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     subAgents,
     unreadAgentIds: unread,
     customDeptThemes: customThemes,
+    activeMeeting,
   } = dataRef.current;
 
   const previousSubSnapshot = subCloneSnapshotRef.current;
@@ -127,8 +130,11 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
 
   const agentsPerDept = departments.map((dept) => agents.filter((agent) => agent.department_id === dept.id));
 
+  const meetingTheme = DEFAULT_MEETING_THEME;
+
   if (deptCount === 0) {
-    const breakRoomY = CEO_ZONE_H + HALLWAY_H + BREAK_ROOM_GAP;
+    const meetingRoomY = CEO_ZONE_H + HALLWAY_H;
+    const breakRoomY = meetingRoomY + MEETING_ROOM_H + BREAK_ROOM_GAP;
     const totalH = breakRoomY + BREAK_ROOM_H + 30;
     totalHRef.current = totalH;
     app.renderer.resize(OFFICE_W, totalH);
@@ -137,8 +143,25 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
       app,
       OFFICE_W,
       totalH,
+      meetingRoomY,
       breakRoomY,
       isDark,
+    });
+
+    buildMeetingRoom({
+      app,
+      textures,
+      agents,
+      spriteMap,
+      activeLocale,
+      meetingTheme,
+      isDark,
+      meetingRoomY,
+      OFFICE_W,
+      activeMeeting: activeMeeting ?? null,
+      cbRef,
+      wallClocksRef,
+      agentPosRef,
     });
 
     buildBreakRoom({
@@ -228,7 +251,8 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
   }
 
   const lastRowY = curY - roomGap;
-  const breakRoomY = lastRowY + BREAK_ROOM_GAP;
+  const meetingRoomY = lastRowY + HALLWAY_H;
+  const breakRoomY = meetingRoomY + MEETING_ROOM_H + BREAK_ROOM_GAP;
   const totalH = breakRoomY + BREAK_ROOM_H + 30;
   totalHRef.current = totalH;
 
@@ -238,6 +262,7 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     app,
     OFFICE_W,
     totalH,
+    meetingRoomY,
     breakRoomY,
     isDark,
   });
@@ -266,6 +291,22 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     nextSubSnapshot,
   });
   subCloneSnapshotRef.current = nextSubSnapshot;
+
+  buildMeetingRoom({
+    app,
+    textures,
+    agents,
+    spriteMap,
+    activeLocale,
+    meetingTheme,
+    isDark,
+    meetingRoomY,
+    OFFICE_W,
+    activeMeeting: activeMeeting ?? null,
+    cbRef,
+    wallClocksRef,
+    agentPosRef,
+  });
 
   buildBreakRoom({
     app,

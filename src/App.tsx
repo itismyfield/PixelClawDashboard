@@ -466,6 +466,7 @@ export default function App() {
                 subAgents={subAgents}
                 notifications={notifications}
                 auditLogs={auditLogs}
+                activeMeeting={roundTableMeetings.find((m) => m.status === "in_progress") ?? roundTableMeetings[0] ?? null}
                 onSelectAgent={(agent) => setOfficeInfoAgent(agent)}
                 onSelectDepartment={() => { setView("agents"); }}
                 customDeptThemes={settings.roomThemes}

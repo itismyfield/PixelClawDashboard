@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Application, Container, Graphics, Text, Texture } from "pixi.js";
-import type { Agent, AuditLogEntry, Department, Task, SubAgent } from "../types";
+import type { Agent, AuditLogEntry, Department, RoundTableMeeting, Task, SubAgent } from "../types";
 import type { ThemeMode } from "../ThemeContext";
 import type { UiLanguage } from "../i18n";
 import { buildSpriteMap } from "./AgentAvatar";
@@ -33,6 +33,7 @@ interface OfficeViewProps {
   subAgents?: SubAgent[];
   notifications?: Notification[];
   auditLogs?: AuditLogEntry[];
+  activeMeeting?: RoundTableMeeting | null;
   onSelectAgent?: (agent: Agent) => void;
   onSelectDepartment?: (dept: Department) => void;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
@@ -51,6 +52,7 @@ export default function OfficeView({
   subAgents = EMPTY_SUB_AGENTS,
   notifications = EMPTY_NOTIFICATIONS,
   auditLogs = EMPTY_AUDIT_LOGS,
+  activeMeeting = null,
   onSelectAgent,
   onSelectDepartment,
   customDeptThemes,
@@ -107,8 +109,9 @@ export default function OfficeView({
     tasks: EMPTY_TASKS,
     subAgents,
     customDeptThemes,
+    activeMeeting,
   });
-  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes };
+  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes, activeMeeting };
 
   const cbRef = useRef<CallbackSnapshot>({
     onSelectAgent: onSelectAgent ?? (() => {}),
@@ -248,6 +251,7 @@ export default function OfficeView({
     subAgents,
     language,
     activeMeetingTaskId: null,
+    activeMeeting,
     customDeptThemes,
     currentTheme: theme,
   });
