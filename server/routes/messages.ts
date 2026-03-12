@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
-import { sendDiscordTarget, sendToAgentChannel } from "../discord-announce.js";
+import { sendDiscordTarget, sendToAgentChannel, type BotType } from "../discord-announce.js";
 import { listRoleBindings } from "../role-map.js";
 import { appendAuditLog, getAuditActor } from "../audit-log.js";
 
@@ -215,7 +215,7 @@ router.post("/api/messages", (req, res) => {
 });
 
 router.post("/api/discord/send-target", async (req, res) => {
-  const { target, content, source = "pcd" } = req.body ?? {};
+  const { target, content, source = "pcd", bot = "command" } = req.body ?? {};
 
   if (!target || typeof target !== "string") {
     res.status(400).json({ error: "target required" });
@@ -226,14 +226,15 @@ router.post("/api/discord/send-target", async (req, res) => {
     return;
   }
 
-  const ok = await sendDiscordTarget(target, content.trim());
+  const botType: BotType = bot === "notify" ? "notify" : "command";
+  const ok = await sendDiscordTarget(target, content.trim(), botType);
   if (!ok) {
     res.status(502).json({ ok: false, error: "discord send failed", target });
     return;
   }
 
-  console.log(`[PCD→Discord] send-target source=${source} target=${target}`);
-  res.json({ ok: true, target, source });
+  console.log(`[PCD→Discord] send-target source=${source} target=${target} bot=${botType}`);
+  res.json({ ok: true, target, source, bot: botType });
 });
 
 export default router;

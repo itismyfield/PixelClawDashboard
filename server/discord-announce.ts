@@ -8,20 +8,22 @@ import { listRoleBindings } from "./role-map.js";
 
 const execFileAsync = promisify(execFile);
 const REMOTECC_BIN = path.join(os.homedir(), ".remotecc", "bin", "remotecc");
-const AUTOMATION_TOKEN_FILE = path.join(
+const PCD_STATE_DIR = path.join(
   os.homedir(),
   ".local",
   "state",
   "pixel-claw-dashboard",
-  "discord-automation-token",
 );
 
-/** Load announce bot token: env var > .env file */
-function loadToken(): string {
+export type BotType = "command" | "notify";
+
+/** Load command (명령봇) token: env var > state file > .env file */
+function loadCommandToken(): string {
   if (process.env.DISCORD_AUTOMATION_BOT_TOKEN) return process.env.DISCORD_AUTOMATION_BOT_TOKEN;
   try {
-    if (fs.existsSync(AUTOMATION_TOKEN_FILE)) {
-      const fileToken = fs.readFileSync(AUTOMATION_TOKEN_FILE, "utf-8").trim();
+    const tokenFile = path.join(PCD_STATE_DIR, "discord-automation-token");
+    if (fs.existsSync(tokenFile)) {
+      const fileToken = fs.readFileSync(tokenFile, "utf-8").trim();
       if (fileToken) return fileToken;
     }
   } catch {}
@@ -37,12 +39,30 @@ function loadToken(): string {
   return "";
 }
 
-const BOT_TOKEN = loadToken();
+/** Load notify (알림봇) token: env var > state file */
+function loadNotifyToken(): string {
+  if (process.env.DISCORD_NOTIFY_BOT_TOKEN) return process.env.DISCORD_NOTIFY_BOT_TOKEN;
+  try {
+    const tokenFile = path.join(PCD_STATE_DIR, "discord-notify-token");
+    if (fs.existsSync(tokenFile)) {
+      const fileToken = fs.readFileSync(tokenFile, "utf-8").trim();
+      if (fileToken) return fileToken;
+    }
+  } catch {}
+  return "";
+}
+
+const COMMAND_BOT_TOKEN = loadCommandToken();
+const NOTIFY_BOT_TOKEN = loadNotifyToken();
 const CHANNEL_NAME_CACHE = new Map<string, string | null>();
 
-function discordHeaders(): Record<string, string> {
+function getToken(bot: BotType = "command"): string {
+  return bot === "notify" ? (NOTIFY_BOT_TOKEN || COMMAND_BOT_TOKEN) : COMMAND_BOT_TOKEN;
+}
+
+function discordHeaders(bot: BotType = "command"): Record<string, string> {
   return {
-    Authorization: `Bot ${BOT_TOKEN}`,
+    Authorization: `Bot ${getToken(bot)}`,
     "Content-Type": "application/json",
   };
 }
@@ -54,7 +74,7 @@ interface DiscordChannelLookup {
 }
 
 export async function resolveDiscordChannelName(channelId: string): Promise<string | null> {
-  if (!/^\d+$/.test(channelId) || !BOT_TOKEN) return null;
+  if (!/^\d+$/.test(channelId) || !COMMAND_BOT_TOKEN) return null;
   if (CHANNEL_NAME_CACHE.has(channelId)) {
     return CHANNEL_NAME_CACHE.get(channelId) ?? null;
   }
@@ -108,12 +128,13 @@ function normalizeChannelTarget(target: string): string | null {
   return null;
 }
 
-async function openDiscordDm(userId: string): Promise<string | null> {
-  if (!BOT_TOKEN || !/^\d+$/.test(userId)) return null;
+async function openDiscordDm(userId: string, bot: BotType = "command"): Promise<string | null> {
+  const token = getToken(bot);
+  if (!token || !/^\d+$/.test(userId)) return null;
   try {
     const resp = await fetch("https://discord.com/api/v10/users/@me/channels", {
       method: "POST",
-      headers: discordHeaders(),
+      headers: discordHeaders(bot),
       body: JSON.stringify({ recipient_id: userId }),
     });
     if (!resp.ok) {
@@ -128,20 +149,22 @@ async function openDiscordDm(userId: string): Promise<string | null> {
   }
 }
 
-/** Send a message to a Discord channel via the announce bot */
-export async function sendDiscordMessage(channelId: string, text: string): Promise<boolean> {
+/** Send a message to a Discord channel.
+ * @param bot - "command" (명령봇, default) or "notify" (알림봇, info-only) */
+export async function sendDiscordMessage(channelId: string, text: string, bot: BotType = "command"): Promise<boolean> {
   if (!channelId) return false;
-  if (BOT_TOKEN) {
+  const token = getToken(bot);
+  if (token) {
     try {
       const resp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
         method: "POST",
-        headers: discordHeaders(),
+        headers: discordHeaders(bot),
         body: JSON.stringify({ content: text }),
       });
       if (resp.ok) return true;
-      console.error(`[discord-announce] Failed ${channelId}: ${resp.status} ${resp.statusText}`);
+      console.error(`[discord-announce] Failed ${channelId} (bot=${bot}): ${resp.status} ${resp.statusText}`);
     } catch (err) {
-      console.error(`[discord-announce] Error ${channelId}:`, err);
+      console.error(`[discord-announce] Error ${channelId} (bot=${bot}):`, err);
     }
   }
   return sendDiscordViaRemoteCc(channelId, text);
@@ -154,11 +177,13 @@ export async function sendDiscordMessage(channelId: string, text: string): Promi
  * - raw channel ID
  * - `dm:<userId>`
  * - `user:<userId>`
+ *
+ * @param bot - "command" (명령봇, default) or "notify" (알림봇, info-only)
  */
-export async function sendDiscordTarget(target: string, text: string): Promise<boolean> {
+export async function sendDiscordTarget(target: string, text: string, bot: BotType = "command"): Promise<boolean> {
   const channelId = normalizeChannelTarget(target);
   if (channelId) {
-    return sendDiscordMessage(channelId, text);
+    return sendDiscordMessage(channelId, text, bot);
   }
 
   const trimmed = target.trim();
@@ -166,9 +191,9 @@ export async function sendDiscordTarget(target: string, text: string): Promise<b
   for (const prefix of dmPrefixes) {
     if (!trimmed.startsWith(prefix)) continue;
     const userId = trimmed.slice(prefix.length).trim();
-    const dmChannelId = await openDiscordDm(userId);
+    const dmChannelId = await openDiscordDm(userId, bot);
     if (dmChannelId) {
-      return sendDiscordMessage(dmChannelId, text);
+      return sendDiscordMessage(dmChannelId, text, bot);
     }
     return false;
   }
@@ -225,6 +250,7 @@ export async function sendToAgentChannel(
   agentId: string,
   text: string,
   preferredTarget?: string | null,
+  bot: BotType = "command",
 ): Promise<boolean> {
   const db = getDb();
   const agent = db
@@ -251,7 +277,7 @@ export async function sendToAgentChannel(
       : targets;
 
   for (const target of orderedTargets) {
-    const ok = await sendDiscordTarget(target, text);
+    const ok = await sendDiscordTarget(target, text, bot);
     if (ok) return true;
     console.error(`[discord-announce] Channel failed for ${agentId}: ${target}`);
   }
