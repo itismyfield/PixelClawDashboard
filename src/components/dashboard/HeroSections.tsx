@@ -94,11 +94,11 @@ interface DashboardHudStatsProps {
 
 export function DashboardHudStats({ hudStats, numberFormatter }: DashboardHudStatsProps) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
       {hudStats.map((stat) => (
         <div
           key={stat.id}
-          className="game-panel group relative overflow-hidden p-4 transition-all duration-300 hover:-translate-y-0.5"
+          className="game-panel group relative overflow-hidden px-2 py-2 sm:p-4 transition-all duration-300 hover:-translate-y-0.5"
           style={{ borderColor: `${stat.color}25` }}
         >
           <div
@@ -106,22 +106,22 @@ export function DashboardHudStats({ hudStats, numberFormatter }: DashboardHudSta
             style={{ background: `linear-gradient(90deg, transparent, ${stat.color}, transparent)` }}
           />
           <div className="relative flex items-center justify-between">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--th-text-muted)" }}>
+            <div className="min-w-0">
+              <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.1em] sm:tracking-[0.15em] truncate" style={{ color: "var(--th-text-muted)" }}>
                 {stat.label}
               </p>
               <p
-                className="mt-1 text-3xl font-black tracking-tight"
+                className="mt-0.5 sm:mt-1 text-lg sm:text-3xl font-black tracking-tight"
                 style={{ color: stat.color, textShadow: `0 0 20px ${stat.color}40` }}
               >
                 {typeof stat.value === "number" ? numberFormatter.format(stat.value) : stat.value}
               </p>
-              <p className="mt-0.5 text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+              <p className="hidden sm:block mt-0.5 text-[10px]" style={{ color: "var(--th-text-muted)" }}>
                 {stat.sub}
               </p>
             </div>
             <span
-              className="text-3xl opacity-20 transition-all duration-300 group-hover:opacity-40 group-hover:scale-110"
+              className="hidden sm:inline text-3xl opacity-20 transition-all duration-300 group-hover:opacity-40 group-hover:scale-110"
               style={{ filter: `drop-shadow(0 0 8px ${stat.color}40)` }}
             >
               {stat.icon}
