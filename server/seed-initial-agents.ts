@@ -79,9 +79,9 @@ async function main() {
   console.log(`Seeding ${agents.length} agents...`);
   const insertAgentStmt = db.prepare(
     `INSERT OR REPLACE INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
-      department_id, role, avatar_emoji, sprite_number, personality, status,
+      department_id, avatar_emoji, sprite_number, personality, status,
       stats_tasks_done, stats_xp, workflow_pack_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateAgentByOpenclawIdStmt = db.prepare(
     `UPDATE agents
@@ -90,7 +90,6 @@ async function main() {
            name_ja = ?,
            name_zh = ?,
            department_id = ?,
-           role = ?,
            avatar_emoji = ?,
            sprite_number = ?,
            personality = ?,
@@ -109,7 +108,6 @@ async function main() {
       (a.name_ja as string) || "",
       (a.name_zh as string) || "",
       (a.department_id as string) || null,
-      (a.role as string) || "senior",
       (a.avatar_emoji as string) || "🙂",
       (a.sprite_number as number) || null,
       (a.personality as string) || null,

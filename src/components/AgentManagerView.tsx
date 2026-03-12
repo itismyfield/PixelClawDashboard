@@ -125,7 +125,6 @@ export default function AgentManagerView({
         name_ja: form.name_ja.trim() || undefined,
         name_zh: form.name_zh.trim() || undefined,
         department_id: form.department_id || null,
-        role: form.role,
         cli_provider: form.cli_provider,
         avatar_emoji: form.avatar_emoji,
         sprite_number: form.sprite_number,

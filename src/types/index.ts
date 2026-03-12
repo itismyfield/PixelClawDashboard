@@ -33,8 +33,6 @@ export interface Department {
   agent_count?: number;
 }
 
-// Agent roles
-export type AgentRole = "team_leader" | "senior" | "junior" | "intern";
 export type AgentStatus = "idle" | "working" | "break" | "offline";
 export type CliProvider = "claude" | "codex" | "gemini" | "opencode" | "copilot" | "antigravity" | "api";
 export type MeetingReviewDecision = "reviewing" | "approved" | "hold";
@@ -50,7 +48,6 @@ export interface Agent {
   name_zh?: string | null;
   department_id: string | null;
   department?: Department;
-  role: AgentRole;
   acts_as_planning_leader?: number | null;
   cli_provider?: CliProvider;
   openclaw_id?: string | null;

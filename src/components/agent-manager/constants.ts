@@ -41,7 +41,6 @@ export const BLANK: FormData = {
   name_ja: "",
   name_zh: "",
   department_id: "",
-  role: "junior",
   cli_provider: "claude",
   avatar_emoji: "🤖",
   sprite_number: null,

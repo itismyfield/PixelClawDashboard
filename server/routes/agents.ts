@@ -137,8 +137,8 @@ router.post("/api/agents", (req, res) => {
   const b = req.body;
   db.prepare(
     `INSERT INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
-      department_id, role, avatar_emoji, sprite_number, personality, cli_provider, status, alias, discord_channel_id_codex)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      department_id, avatar_emoji, sprite_number, personality, cli_provider, status, alias, discord_channel_id_codex)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.openclaw_id ?? null,
@@ -147,7 +147,6 @@ router.post("/api/agents", (req, res) => {
     b.name_ja ?? "",
     b.name_zh ?? "",
     b.department_id ?? null,
-    b.role ?? "senior",
     b.avatar_emoji ?? "🙂",
     b.sprite_number ?? null,
     b.personality ?? null,
@@ -190,7 +189,6 @@ router.patch("/api/agents/:id", (req, res) => {
     "name_ja",
     "name_zh",
     "department_id",
-    "role",
     "avatar_emoji",
     "sprite_number",
     "personality",

@@ -1,4 +1,4 @@
-import type { Agent, AgentRole, CliProvider, Department, RoomTheme, WorkflowPackKey } from "../types";
+import type { Agent, CliProvider, Department, RoomTheme, WorkflowPackKey } from "../types";
 
 export type UiLanguageLike = "ko" | "en" | "ja" | "zh";
 
@@ -43,7 +43,6 @@ export type OfficePackStarterAgentDraft = {
   name_zh: string;
   department_id: string | null;
   seed_order_in_department: number;
-  role: AgentRole;
   acts_as_planning_leader: number;
   avatar_emoji: string;
   sprite_number: number;
@@ -589,12 +588,11 @@ function resolveSeedSpriteNumber(
   params: {
     packKey: WorkflowPackKey;
     deptId: string;
-    role: AgentRole;
     order: number;
   },
   usedSpriteNumbers: Set<number>,
 ): number {
-  const seed = `${params.packKey}:${params.deptId}:${params.role}:${params.order}`;
+  const seed = `${params.packKey}:${params.deptId}:${params.order}`;
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
@@ -613,7 +611,6 @@ function resolveSeedSpriteNumber(
 function buildSeedPersonality(params: {
   packKey: WorkflowPackKey;
   deptId: string;
-  role: AgentRole;
   locale: UiLanguageLike;
   defaultPrefix: Localized;
   departmentName: { ko: string; en: string; ja: string; zh: string };
@@ -757,7 +754,6 @@ export function buildOfficePackPresentation(params: {
 export function resolveOfficePackSeedProvider(params: {
   packKey: WorkflowPackKey;
   departmentId?: string | null;
-  role: AgentRole;
   seedIndex: number;
   seedOrderInDepartment?: number;
 }): OfficePackSeedProvider {
@@ -794,7 +790,6 @@ export function buildOfficePackStarterAgents(params: {
   const planningLeadDeptIds =
     (preset.staff?.planningLeadDeptIds ?? ["planning"]).filter((deptId) => departmentById.has(deptId)) || [];
   const workerCycle = nonLeaderCycle.length > 0 ? nonLeaderCycle : baseDeptOrder;
-  const rolePool: AgentRole[] = ["senior", "junior", "intern"];
   const desiredCount = Math.max(baseDeptOrder.length + 2, params.targetCount ?? Math.min(10, baseDeptOrder.length * 2));
 
   const perDeptCounter = new Map<string, number>();
@@ -825,7 +820,7 @@ export function buildOfficePackStarterAgents(params: {
     return departmentById.get(deptId)?.icon ?? "🤖";
   };
 
-  const pushAgent = (deptId: string, role: AgentRole) => {
+  const pushAgent = (deptId: string, isLeader: boolean) => {
     const nextOrder = (perDeptCounter.get(deptId) ?? 0) + 1;
     perDeptCounter.set(deptId, nextOrder);
     const prefix = resolveDeptPrefix(deptId);
@@ -840,7 +835,6 @@ export function buildOfficePackStarterAgents(params: {
       {
         packKey,
         deptId,
-        role,
         order: nextOrder,
       },
       usedSpriteNumbers,
@@ -850,14 +844,12 @@ export function buildOfficePackStarterAgents(params: {
       ...localizedNames,
       department_id: deptId,
       seed_order_in_department: nextOrder,
-      role,
-      acts_as_planning_leader: role === "team_leader" && planningLeadDeptIds.includes(deptId) ? 1 : 0,
+      acts_as_planning_leader: isLeader && planningLeadDeptIds.includes(deptId) ? 1 : 0,
       avatar_emoji: resolveAvatar(deptId, nextOrder),
       sprite_number: spriteNumber,
       personality: buildSeedPersonality({
         packKey,
         deptId,
-        role,
         locale,
         defaultPrefix: prefix,
         departmentName: {
@@ -871,15 +863,14 @@ export function buildOfficePackStarterAgents(params: {
   };
 
   for (const deptId of baseDeptOrder) {
-    pushAgent(deptId, "team_leader");
+    pushAgent(deptId, true);
   }
 
   let cursor = 0;
   while (result.length < desiredCount) {
     const deptId = workerCycle[cursor % workerCycle.length];
-    const role = rolePool[cursor % rolePool.length] ?? "junior";
     if (!deptId) break;
-    pushAgent(deptId, role);
+    pushAgent(deptId, false);
     cursor += 1;
   }
 

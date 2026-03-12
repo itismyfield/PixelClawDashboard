@@ -82,12 +82,6 @@ const ACTIVITY_SOURCE_COLORS: Record<string, string> = {
 
 const GENERIC_BINDING_NAMES = new Set(["RoleMap", "Primary", "Alt", "Codex"]);
 
-const AGENT_ROLE_LABELS: Record<string, { ko: string; en: string }> = {
-  team_leader: { ko: "팀장", en: "Team Lead" },
-  senior: { ko: "시니어", en: "Senior" },
-  junior: { ko: "주니어", en: "Junior" },
-  intern: { ko: "인턴", en: "Intern" },
-};
 
 function inferBindingSource(binding: DiscordBinding): string {
   if (binding.channelId.startsWith("dm:")) return "dm";
@@ -117,11 +111,6 @@ function bindingSourceLabel(source: string): string {
   }
 }
 
-function formatAgentRole(role: string | null | undefined, isKo: boolean): string {
-  if (!role) return isKo ? "없음" : "None";
-  const label = AGENT_ROLE_LABELS[role];
-  return label ? (isKo ? label.ko : label.en) : role;
-}
 
 export default function AgentInfoCard({
   agent,
@@ -226,8 +215,6 @@ export default function AgentInfoCard({
   };
 
   const dept = departments.find((d) => d.id === selectedDeptId);
-  const roleLabel = formatAgentRole(agent.role, isKo);
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -431,12 +418,6 @@ export default function AgentInfoCard({
                 }}
               >
                 {isKo ? statusLabel[agent.status]?.ko : statusLabel[agent.status]?.en}
-              </span>
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full"
-                style={{ background: "rgba(59,130,246,0.14)", color: "#93c5fd" }}
-              >
-                {tr("직급", "Role")}: {roleLabel}
               </span>
               {agent.status === "working" && sourceLabel && (
                 <span

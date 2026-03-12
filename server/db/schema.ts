@@ -35,8 +35,6 @@ export function initSchema(db: DatabaseSync): void {
       name_ja TEXT NOT NULL DEFAULT '',
       name_zh TEXT NOT NULL DEFAULT '',
       department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
-      role TEXT NOT NULL DEFAULT 'senior'
-        CHECK(role IN ('team_leader','senior','junior','intern')),
       avatar_emoji TEXT NOT NULL DEFAULT '🙂',
       sprite_number INTEGER DEFAULT NULL,
       personality TEXT DEFAULT NULL,
