@@ -1,10 +1,77 @@
 import { Router } from "express";
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { getDb } from "../db/runtime.js";
 import { listLaunchdJobs } from "../launchd-jobs.js";
 import { IN_PROGRESS_STALE_MS, REQUEST_ACK_TIMEOUT_MS } from "../kanban-cards.js";
 
 const router = Router();
+
+/* ── GitHub closed-today cache ── */
+
+interface GitHubClosedTodayCache {
+  count: number;
+  fetchedAt: number;
+  dateKey: string;
+}
+
+let ghClosedCache: GitHubClosedTodayCache | null = null;
+const GH_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function todayDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getGitHubClosedToday(): number {
+  const dateKey = todayDateKey();
+  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < GH_CACHE_TTL) {
+    return ghClosedCache.count;
+  }
+  // return stale value while refreshing in background
+  refreshGitHubClosedToday(dateKey);
+  return ghClosedCache?.dateKey === dateKey ? ghClosedCache.count : 0;
+}
+
+function refreshGitHubClosedToday(dateKey: string): void {
+  const db = getDb();
+  const repos = db
+    .prepare("SELECT repo FROM kanban_repo_sources")
+    .all() as Array<{ repo: string }>;
+
+  if (repos.length === 0) {
+    ghClosedCache = { count: 0, fetchedAt: Date.now(), dateKey };
+    return;
+  }
+
+  const repoArgs = repos.map((r) => r.repo);
+  const script = `
+import json, subprocess, sys
+repos = json.loads(sys.argv[1])
+total = 0
+for repo in repos:
+    try:
+        result = subprocess.run(
+            ["gh", "issue", "list", "-R", repo, "--state", "closed",
+             "--search", f"closed:>={sys.argv[2]}", "--json", "number", "--jq", "length"],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0:
+            total += int(result.stdout.strip() or "0")
+    except Exception:
+        pass
+print(total)
+`;
+
+  execFile("python3", ["-c", script, JSON.stringify(repoArgs), dateKey], { timeout: 30_000 }, (err, stdout) => {
+    if (err) {
+      console.error("[analytics] GitHub closed-today refresh error:", err.message);
+      return;
+    }
+    const count = parseInt(stdout.trim(), 10);
+    if (!isNaN(count)) {
+      ghClosedCache = { count, fetchedAt: Date.now(), dateKey };
+    }
+  });
+}
 
 router.get("/api/stats", (req, res) => {
   const db = getDb();
@@ -183,6 +250,7 @@ router.get("/api/stats", (req, res) => {
     top_agents: topAgents,
     departments: deptStats,
     dispatched_count: dispatchedCount,
+    github_closed_today: getGitHubClosedToday(),
     kanban: {
       open_total:
         kanbanByStatus.backlog +

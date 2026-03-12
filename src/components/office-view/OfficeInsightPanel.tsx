@@ -37,10 +37,28 @@ export default function OfficeInsightPanel({
 }: OfficeInsightPanelProps) {
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [showWarnings, setShowWarnings] = useState(false);
-  const workingCount = agents.filter((agent) => agent.status === "working").length;
+  const [ghClosedToday, setGhClosedToday] = useState(0);
   const activeCards = kanbanCards ?? [];
-  const inProgressCount = activeCards.filter((c) => c.status === "in_progress").length;
   const reviewCount = activeCards.filter((c) => c.status === "review").length;
+  const terminalStatuses = new Set(["done", "failed", "cancelled"]);
+  const openIssueCount = activeCards.filter((c) => !terminalStatuses.has(c.status)).length;
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/stats", { credentials: "include" });
+        if (!res.ok) return;
+        const json = await res.json() as { github_closed_today?: number };
+        if (mounted && typeof json.github_closed_today === "number") {
+          setGhClosedToday(json.github_closed_today);
+        }
+      } catch { /* ignore */ }
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, []);
   const warningCount = agents.filter((agent) => getAgentWarnings(agent).length > 0).length;
   const warningAgents = agents
     .map((agent) => ({ agent, warnings: getAgentWarnings(agent) }))
@@ -63,8 +81,20 @@ export default function OfficeInsightPanel({
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--th-text-muted)" }}>
-              {isKo ? "상황판" : "Situation"}
+            <div className="flex items-center gap-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--th-text-muted)" }}>
+                {isKo ? "상황판" : "Situation"}
+              </div>
+              {warningCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowWarnings((v) => !v)}
+                  className="rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+                  style={{ color: "#92400e", background: "rgba(251,191,36,0.25)", border: "1px solid rgba(251,191,36,0.4)" }}
+                >
+                  ⚠ {warningCount}
+                </button>
+              )}
             </div>
             <button
               type="button"
@@ -80,17 +110,14 @@ export default function OfficeInsightPanel({
             </button>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            <StatChip label={isKo ? "진행중" : "Active"} value={String(inProgressCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
-            <StatChip label={isKo ? "검토" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
-            <StatChip
-              label={isKo ? "경고" : "Alerts"}
-              value={String(warningCount)}
-              color="#fbbf24"
-              interactive={warningCount > 0}
-              onClick={() => setShowWarnings((value) => !value)}
-            />
+            <StatChip label={isKo ? "검토필요" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "오늘 진행" : "Done Today"} value={String(ghClosedToday)} color="#34d399" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "열린이슈" : "Open"} value={String(openIssueCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
           </div>
-          {showWarnings ? (
+
+          <MiniRateLimitBar isKo={isKo} />
+
+          {showWarnings && warningCount > 0 ? (
             <WarningList
               items={warningAgents}
               isKo={isKo}
@@ -100,8 +127,6 @@ export default function OfficeInsightPanel({
               }}
             />
           ) : null}
-
-          <MiniRateLimitBar isKo={isKo} />
 
           {mobileExpanded ? (
             <div className="mt-3 max-h-[38vh] space-y-3 overflow-y-auto pr-1">
@@ -167,21 +192,27 @@ export default function OfficeInsightPanel({
             backdropFilter: "blur(18px)",
           }}
         >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--th-text-muted)" }}>
-            {isKo ? "상황판" : "Situation"}
+          <div className="flex items-center gap-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--th-text-muted)" }}>
+              {isKo ? "상황판" : "Situation"}
+            </div>
+            {warningCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowWarnings((v) => !v)}
+                className="rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+                style={{ color: "#92400e", background: "rgba(251,191,36,0.25)", border: "1px solid rgba(251,191,36,0.4)" }}
+              >
+                ⚠ {warningCount}
+              </button>
+            )}
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            <StatChip label={isKo ? "진행중" : "Active"} value={String(inProgressCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
-            <StatChip label={isKo ? "검토" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
-            <StatChip
-              label={isKo ? "경고" : "Alerts"}
-              value={String(warningCount)}
-              color="#fbbf24"
-              interactive={warningCount > 0}
-              onClick={() => setShowWarnings((value) => !value)}
-            />
+            <StatChip label={isKo ? "검토필요" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "오늘 진행" : "Done Today"} value={String(ghClosedToday)} color="#34d399" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "열린이슈" : "Open"} value={String(openIssueCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
           </div>
-          {showWarnings ? (
+          {showWarnings && warningCount > 0 ? (
             <WarningList
               items={warningAgents}
               isKo={isKo}

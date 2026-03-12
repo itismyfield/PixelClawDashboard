@@ -647,6 +647,7 @@ export interface DashboardStats {
     sum_xp?: number;
   }>;
   dispatched_count: number;
+  github_closed_today?: number;
   kanban: {
     open_total: number;
     review_queue: number;
