@@ -149,8 +149,8 @@ router.post("/api/hook/session", (req, res) => {
   const provider = inferRemoteCcProvider(session_key, name ?? null, req.body.provider ?? null);
   const activeDispatchId = typeof dispatch_id === "string" && dispatch_id.trim() ? dispatch_id.trim() : null;
 
-  // Convert tokens → XP (1000 tokens = 1 XP, matching agent XP formula)
-  const xpDelta = typeof tokens === "number" && tokens > 0 ? Math.floor(tokens / 1000) : 0;
+  // Raw token delta for accumulation
+  const tokenDelta = typeof tokens === "number" && tokens > 0 ? tokens : 0;
 
   const existing = db
     .prepare("SELECT * FROM dispatched_sessions WHERE session_key = ?")
@@ -199,34 +199,40 @@ router.post("/api/hook/session", (req, res) => {
       sets.push("active_dispatch_id = ?");
       vals.push(activeDispatchId);
     }
-    if (xpDelta > 0 && !linkedAgentId) {
-      sets.push("stats_xp = stats_xp + ?");
-      vals.push(xpDelta);
+    if (tokenDelta > 0) {
+      sets.push("tokens = tokens + ?");
+      vals.push(tokenDelta);
+      if (!linkedAgentId) {
+        sets.push("stats_xp = stats_xp + ?");
+        vals.push(Math.floor(tokenDelta / 1000));
+      }
     }
     vals.push(existing.id as string);
     db.prepare(
       `UPDATE dispatched_sessions SET ${sets.join(", ")} WHERE id = ?`,
     ).run(...vals);
 
-    // If this session is linked to an agent, merge XP there too.
-    if (linkedAgentId && xpDelta > 0) {
-      db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(
-        xpDelta,
-        linkedAgentId,
-      );
+    // If this session is linked to an agent, accumulate tokens there too.
+    if (linkedAgentId && tokenDelta > 0) {
+      db.prepare(
+        "UPDATE agents SET stats_tokens = stats_tokens + ?, stats_xp = (stats_tokens + ?) / 1000 WHERE id = ?",
+      ).run(tokenDelta, tokenDelta, linkedAgentId);
     }
 
     const updated = db
       .prepare("SELECT * FROM dispatched_sessions WHERE id = ?")
       .get(existing.id as string) as Record<string, unknown>;
 
-    // Backfill previously accumulated dispatched XP into linked agent once.
+    // Backfill previously accumulated dispatched tokens into linked agent once.
     if (linkedAgentId && !hadLinkedAgent) {
-      const carry = Number(existing.stats_xp || 0);
-      if (carry > 0) {
-        db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(carry, linkedAgentId);
-        db.prepare("UPDATE dispatched_sessions SET stats_xp = 0 WHERE id = ?").run(existing.id as string);
+      const carryTokens = Number(existing.tokens || 0);
+      if (carryTokens > 0) {
+        db.prepare(
+          "UPDATE agents SET stats_tokens = stats_tokens + ?, stats_xp = (stats_tokens + ?) / 1000 WHERE id = ?",
+        ).run(carryTokens, carryTokens, linkedAgentId);
+        db.prepare("UPDATE dispatched_sessions SET stats_xp = 0, tokens = 0 WHERE id = ?").run(existing.id as string);
         updated.stats_xp = 0;
+        updated.tokens = 0;
       }
     }
 
@@ -251,8 +257,8 @@ router.post("/api/hook/session", (req, res) => {
   const id = crypto.randomUUID();
   const linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
   db.prepare(
-    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, cwd, linked_agent_id, active_dispatch_id, stats_xp, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, cwd, linked_agent_id, active_dispatch_id, stats_xp, tokens, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     session_key,
@@ -265,13 +271,16 @@ router.post("/api/hook/session", (req, res) => {
     linkedAgentId,
     activeDispatchId,
     0,
+    tokenDelta,
     Date.now(),
   );
 
-  if (linkedAgentId && xpDelta > 0) {
-    db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?").run(xpDelta, linkedAgentId);
-  } else if (xpDelta > 0) {
-    db.prepare("UPDATE dispatched_sessions SET stats_xp = stats_xp + ? WHERE id = ?").run(xpDelta, id);
+  if (linkedAgentId && tokenDelta > 0) {
+    db.prepare(
+      "UPDATE agents SET stats_tokens = stats_tokens + ?, stats_xp = (stats_tokens + ?) / 1000 WHERE id = ?",
+    ).run(tokenDelta, tokenDelta, linkedAgentId);
+  } else if (tokenDelta > 0) {
+    db.prepare("UPDATE dispatched_sessions SET stats_xp = ? WHERE id = ?").run(Math.floor(tokenDelta / 1000), id);
   }
 
   const session = db

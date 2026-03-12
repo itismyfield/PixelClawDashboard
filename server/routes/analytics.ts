@@ -48,10 +48,11 @@ router.get("/api/stats", (req, res) => {
 
     topAgents = db
       .prepare(
-        `SELECT a.id, a.name, a.alias, a.name_ko, a.avatar_emoji, a.stats_tasks_done, a.stats_xp
+        `SELECT a.id, a.name, a.alias, a.name_ko, a.avatar_emoji, a.stats_tasks_done,
+                a.stats_tokens, a.stats_tokens / 1000 AS stats_xp
          FROM office_agents oa JOIN agents a ON a.id = oa.agent_id
          WHERE oa.office_id = ?
-         ORDER BY a.stats_xp DESC LIMIT 10`,
+         ORDER BY a.stats_tokens DESC LIMIT 10`,
       )
       .all(officeId);
 
@@ -60,7 +61,7 @@ router.get("/api/stats", (req, res) => {
         `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
                 COUNT(oa.agent_id) as total_agents,
                 SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents,
-                COALESCE(SUM(a.stats_xp), 0) as sum_xp
+                COALESCE(SUM(a.stats_tokens), 0) / 1000 as sum_xp
          FROM departments d
          LEFT JOIN office_agents oa ON oa.department_id = d.id AND oa.office_id = ?
          LEFT JOIN agents a ON a.id = oa.agent_id
@@ -96,8 +97,9 @@ router.get("/api/stats", (req, res) => {
 
     topAgents = db
       .prepare(
-        `SELECT id, name, alias, name_ko, avatar_emoji, stats_tasks_done, stats_xp
-         FROM agents ORDER BY stats_xp DESC LIMIT 10`,
+        `SELECT id, name, alias, name_ko, avatar_emoji, stats_tasks_done,
+                stats_tokens, stats_tokens / 1000 AS stats_xp
+         FROM agents ORDER BY stats_tokens DESC LIMIT 10`,
       )
       .all();
 
@@ -106,7 +108,7 @@ router.get("/api/stats", (req, res) => {
         `SELECT d.id, d.name, d.name_ko, d.icon, d.color,
                 COUNT(a.id) as total_agents,
                 SUM(CASE WHEN a.status = 'working' THEN 1 ELSE 0 END) as working_agents,
-                COALESCE(SUM(a.stats_xp), 0) as sum_xp
+                COALESCE(SUM(a.stats_tokens), 0) / 1000 as sum_xp
          FROM departments d
          LEFT JOIN agents a ON a.department_id = d.id
          GROUP BY d.id
@@ -281,7 +283,7 @@ router.get("/api/skills/trend", (req, res) => {
 router.get("/api/streaks", (_req, res) => {
   const db = getDb();
 
-  const agents = db.prepare("SELECT id, name, alias, name_ko, avatar_emoji, stats_xp FROM agents").all() as Array<{
+  const agents = db.prepare("SELECT id, name, alias, name_ko, avatar_emoji, stats_tokens / 1000 AS stats_xp FROM agents").all() as Array<{
     id: string;
     name: string;
     alias: string | null;
@@ -350,7 +352,7 @@ router.get("/api/achievements", (req, res) => {
 });
 
 function autoGenerateAchievements(db: ReturnType<typeof getDb>) {
-  const agents = db.prepare("SELECT id, name, stats_tasks_done, stats_xp FROM agents").all() as Array<{
+  const agents = db.prepare("SELECT id, name, stats_tasks_done, stats_tokens / 1000 AS stats_xp FROM agents").all() as Array<{
     id: string;
     name: string;
     stats_tasks_done: number;

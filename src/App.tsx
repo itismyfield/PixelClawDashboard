@@ -375,6 +375,7 @@ export default function App() {
       current_task_id: null,
       stats_tasks_done: 0,
       stats_xp: s.stats_xp,
+      stats_tokens: s.tokens || 0,
       created_at: s.connected_at,
       session_info: s.session_info,
       department_name: s.department_name,

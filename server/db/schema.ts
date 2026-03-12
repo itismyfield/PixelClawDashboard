@@ -45,6 +45,7 @@ export function initSchema(db: DatabaseSync): void {
       session_info TEXT DEFAULT NULL,
       stats_tasks_done INTEGER NOT NULL DEFAULT 0,
       stats_xp INTEGER NOT NULL DEFAULT 0,
+      stats_tokens INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
 
@@ -72,7 +73,9 @@ export function initSchema(db: DatabaseSync): void {
       sprite_number INTEGER DEFAULT NULL,
       avatar_emoji TEXT NOT NULL DEFAULT '👤',
       connected_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      last_seen_at INTEGER DEFAULT NULL
+      last_seen_at INTEGER DEFAULT NULL,
+      stats_xp INTEGER NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -267,15 +270,15 @@ export function initSchema(db: DatabaseSync): void {
     console.log(`[PCD] Reset ${staleDispatched} stale dispatched session(s) to disconnected`);
   }
 
-  // Monthly XP soft reset (reduce to 1/10 on first boot of each month)
+  // Monthly token/XP soft reset (reduce to 1/10 on first boot of each month)
   db.exec("CREATE TABLE IF NOT EXISTS kv_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
   const lastReset = db.prepare("SELECT value FROM kv_meta WHERE key = 'xp_reset_month'").get() as { value: string } | undefined;
   if (lastReset?.value !== currentMonth) {
-    db.exec("UPDATE agents SET stats_xp = stats_xp / 10");
+    db.exec("UPDATE agents SET stats_tokens = stats_tokens / 10, stats_xp = stats_tokens / 10 / 1000");
     db.prepare("INSERT INTO kv_meta (key, value) VALUES ('xp_reset_month', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(currentMonth);
     const agentCount = (db.prepare("SELECT COUNT(*) as cnt FROM agents").get() as { cnt: number }).cnt;
-    console.log(`[PCD] Monthly XP soft reset (1/10) applied for ${currentMonth} — ${agentCount} agent(s)`);
+    console.log(`[PCD] Monthly token/XP soft reset (1/10) applied for ${currentMonth} — ${agentCount} agent(s)`);
   }
 }
 
@@ -398,20 +401,25 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE skill_usage_events RENAME COLUMN agent_openclaw_id TO agent_role_id");
   }
 
-  // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)
-  const linkedXpRows = db
-    .prepare(
-      "SELECT id, linked_agent_id, stats_xp FROM dispatched_sessions WHERE linked_agent_id IS NOT NULL AND stats_xp > 0",
-    )
-    .all() as Array<{ id: string; linked_agent_id: string; stats_xp: number }>;
-  if (linkedXpRows.length > 0) {
-    const addXp = db.prepare("UPDATE agents SET stats_xp = stats_xp + ? WHERE id = ?");
-    const clearXp = db.prepare("UPDATE dispatched_sessions SET stats_xp = 0 WHERE id = ?");
-    for (const row of linkedXpRows) {
-      addXp.run(row.stats_xp, row.linked_agent_id);
-      clearXp.run(row.id);
-    }
-    console.log(`[PCD] Migrated dispatched XP into linked agents: ${linkedXpRows.length} row(s)`);
+  // Add stats_tokens column to agents if missing
+  const agentCols5 = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
+  if (!agentCols5.some((c) => c.name === "stats_tokens")) {
+    db.exec("ALTER TABLE agents ADD COLUMN stats_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // Add tokens column to dispatched_sessions if missing
+  const dsCols2 = db.prepare("PRAGMA table_info(dispatched_sessions)").all() as Array<{ name: string }>;
+  if (!dsCols2.some((c) => c.name === "tokens")) {
+    db.exec("ALTER TABLE dispatched_sessions ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // One-time migration: reset all XP/token data to 0 (PCD #5)
+  const tokenMigDone = db.prepare("SELECT value FROM kv_meta WHERE key = 'token_migration_v1'").get() as { value: string } | undefined;
+  if (!tokenMigDone) {
+    db.exec("UPDATE agents SET stats_xp = 0, stats_tokens = 0");
+    db.exec("UPDATE dispatched_sessions SET stats_xp = 0, tokens = 0");
+    db.prepare("INSERT INTO kv_meta (key, value) VALUES ('token_migration_v1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(new Date().toISOString());
+    console.log("[PCD] Token migration v1: reset all XP/token data to 0");
   }
 
   // If no offices exist and there are agents or departments, seed default office

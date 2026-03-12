@@ -65,6 +65,7 @@ export interface Agent {
   current_task_id?: string | null;
   stats_tasks_done: number;
   stats_xp: number;
+  stats_tokens: number;
   discord_channel_id?: string | null;
   discord_channel_id_alt?: string | null;
   discord_channel_id_codex?: string | null;
@@ -273,6 +274,7 @@ export interface CompanyStats {
     avatar_emoji: string;
     stats_tasks_done: number;
     stats_xp: number;
+    stats_tokens: number;
   }>;
   tasks_by_department: Array<{
     id: string;
@@ -607,6 +609,7 @@ export interface DispatchedSession {
   sprite_number: number | null;
   avatar_emoji: string;
   stats_xp: number;
+  tokens: number;
   connected_at: number;
   last_seen_at: number | null;
   department_name?: string | null;
@@ -631,6 +634,7 @@ export interface DashboardStats {
     avatar_emoji: string;
     stats_tasks_done: number;
     stats_xp: number;
+    stats_tokens: number;
   }>;
   departments: Array<{
     id: string;

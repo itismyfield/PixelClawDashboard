@@ -22,12 +22,15 @@ function hydrateActivitySource<T extends Record<string, unknown>>(rows: T[]): T[
     // If agent has no session_info, inherit from the most recent working linked session
     const sessionInfo = row.session_info || row.linked_session_info || null;
 
+    // Compute XP from tokens at response time
+    const statsTokens = Number(row.stats_tokens || 0);
     return {
       ...row,
       status: effectiveStatus,
       activity_source: activitySource,
       remotecc_working_count: remoteCcWorking,
       session_info: sessionInfo,
+      stats_xp: Math.floor(statsTokens / 1000),
     } as T;
   });
 }

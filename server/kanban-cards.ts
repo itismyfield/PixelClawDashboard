@@ -97,11 +97,12 @@ interface TaskDispatchRow {
   completed_at: number | null;
 }
 
-const PRIORITY_XP_REWARD: Record<KanbanCardPriority, number> = {
-  low: 5,
-  medium: 10,
-  high: 18,
-  urgent: 30,
+// Token rewards per priority (1 XP = 1000 tokens)
+const PRIORITY_TOKEN_REWARD: Record<KanbanCardPriority, number> = {
+  low: 5000,
+  medium: 10000,
+  high: 18000,
+  urgent: 30000,
 };
 
 export interface KanbanCardRow extends KanbanCardBaseRow {
@@ -499,13 +500,15 @@ export function rewardKanbanCompletion(db: DatabaseSync, cardId: string): Kanban
   }
 
   const now = Date.now();
-  const xp = PRIORITY_XP_REWARD[card.priority] + Math.min(Math.max(card.depth, 0), 3) * 4;
+  const tokenReward = PRIORITY_TOKEN_REWARD[card.priority] + Math.min(Math.max(card.depth, 0), 3) * 4000;
+  const xp = Math.floor(tokenReward / 1000);
   db.prepare(
     `UPDATE agents
      SET stats_tasks_done = stats_tasks_done + 1,
-         stats_xp = stats_xp + ?
+         stats_tokens = stats_tokens + ?,
+         stats_xp = (stats_tokens + ?) / 1000
      WHERE id = ?`,
-  ).run(xp, card.assignee_agent_id);
+  ).run(tokenReward, tokenReward, card.assignee_agent_id);
 
   const day = new Date(now).toISOString().slice(0, 10);
   db.prepare(
