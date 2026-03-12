@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import type { Notification } from "../NotificationCenter";
 import type { Agent, AuditLogEntry, KanbanCard } from "../../types";
 import { getAgentWarnings } from "../../agent-insights";
@@ -101,6 +101,8 @@ export default function OfficeInsightPanel({
             />
           ) : null}
 
+          <MiniRateLimitBar isKo={isKo} />
+
           {mobileExpanded ? (
             <div className="mt-3 max-h-[38vh] space-y-3 overflow-y-auto pr-1">
               <InsightCard title={isKo ? "최근 이벤트" : "Recent Activity"} count={recentNotifications.length}>
@@ -189,6 +191,7 @@ export default function OfficeInsightPanel({
               }}
             />
           ) : null}
+          <MiniRateLimitBar isKo={isKo} />
         </section>
 
         <InsightCard title={isKo ? "최근 이벤트" : "Recent Activity"} count={recentNotifications.length}>
@@ -393,6 +396,96 @@ function EventRow({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Mini Rate Limit Bar (inline in insight panel) ── */
+
+interface RLBucket {
+  id: string;
+  label: string;
+  utilization: number;
+  level: "normal" | "warning" | "danger";
+}
+
+interface RLProvider {
+  provider: string;
+  buckets: RLBucket[];
+  stale: boolean;
+}
+
+const RL_COLORS: Record<string, { normal: string; warning: string; danger: string; accent: string }> = {
+  Claude: { accent: "#f59e0b", normal: "#f59e0b", warning: "#ea580c", danger: "#ef4444" },
+  Codex: { accent: "#34d399", normal: "#34d399", warning: "#fbbf24", danger: "#f87171" },
+};
+
+function barColor(provider: string, level: string) {
+  const p = RL_COLORS[provider] || RL_COLORS.Codex;
+  if (level === "danger") return p.danger;
+  if (level === "warning") return p.warning;
+  return p.normal;
+}
+
+function MiniRateLimitBar({ isKo }: { isKo: boolean }) {
+  const [providers, setProviders] = useState<RLProvider[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/rate-limits", { credentials: "include" });
+        if (!res.ok) return;
+        const json = await res.json() as { providers: RLProvider[] };
+        if (mounted) setProviders(json.providers);
+      } catch { /* ignore */ }
+    };
+    load();
+    const timer = setInterval(load, 30_000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, []);
+
+  if (providers.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-1">
+      {providers.map((p) => {
+        const accent = (RL_COLORS[p.provider] || RL_COLORS.Codex).accent;
+        const visible = p.buckets.filter((b) => b.id !== "7d_sonnet");
+        return (
+          <div key={p.provider} className="flex items-center gap-1.5">
+            <span className="text-[9px] font-bold uppercase shrink-0" style={{ color: accent }}>
+              {p.provider === "Claude" ? "🤖" : "⚡"} {p.provider}
+            </span>
+            {visible.map((b) => (
+              <div key={b.id} className="flex items-center gap-1 flex-1 min-w-0">
+                <span className="text-[8px] font-bold shrink-0" style={{ color: barColor(p.provider, b.level) }}>
+                  {b.label}
+                </span>
+                <div className="flex-1 min-w-[20px] max-w-[50px]">
+                  <div className="relative h-[3px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full"
+                      style={{ width: `${Math.min(b.utilization, 100)}%`, background: barColor(p.provider, b.level) }}
+                    />
+                  </div>
+                </div>
+                <span className="text-[8px] font-mono font-bold shrink-0" style={{ color: barColor(p.provider, b.level) }}>
+                  {b.utilization}%
+                </span>
+              </div>
+            ))}
+            {p.stale && (
+              <span
+                className="rounded px-0.5 text-[7px] font-medium shrink-0"
+                style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
+              >
+                {isKo ? "지연" : "STALE"}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
