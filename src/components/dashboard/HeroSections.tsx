@@ -51,22 +51,21 @@ export function DashboardHeroHeader({
               {t({ ko: "실시간", en: "LIVE", ja: "ライブ", zh: "实时" })}
             </span>
           </div>
-          <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
-            {t({
-              ko: "에이전트들이 실시간으로 미션을 수행 중입니다",
-              en: "Agents are executing missions in real time",
-              ja: "エージェントがリアルタイムでミッションを実行中です",
-              zh: "代理正在实时执行任务",
-            })}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+              {t({
+                ko: "에이전트들이 실시간으로 미션을 수행 중입니다",
+                en: "Agents are executing missions in real time",
+                ja: "エージェントがリアルタイムでミッションを実行中です",
+                zh: "代理正在实时执行任务",
+              })}
+            </p>
+            <span className="font-mono text-[11px] tracking-tight" style={{ color: "var(--th-text-muted)" }}>{time}</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] px-4 py-2">
-            <span className="text-xs text-cyan-400/60">⏰</span>
-            <span className="dashboard-time-display font-mono text-xl font-bold tracking-tight">{time}</span>
-          </div>
-          <div className="hidden flex-col gap-1 sm:flex">
+        <div className="hidden sm:flex items-center gap-3">
+          <div className="flex flex-col gap-1">
             <span className="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] text-slate-400">
               {date}
             </span>
@@ -74,12 +73,6 @@ export function DashboardHeroHeader({
               {briefing}
             </span>
           </div>
-          {reviewQueue > 0 && (
-            <span className="flex items-center gap-1.5 rounded-lg border border-orange-400/30 bg-orange-500/15 px-3 py-1.5 text-xs font-bold text-orange-300 animate-neon-pulse-orange">
-              🔔 {t({ ko: "대기", en: "Queued", ja: "待機", zh: "待处理" })} {numberFormatter.format(reviewQueue)}
-              {t({ ko: "건", en: "", ja: "件", zh: "项" })}
-            </span>
-          )}
         </div>
       </div>
 
