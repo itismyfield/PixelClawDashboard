@@ -117,8 +117,8 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                 )}
               </div>
               {/* Buckets */}
-              <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 overflow-x-auto">
-                {provider.buckets.map((bucket) => {
+              <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                {provider.buckets.filter((b) => b.id !== "7d_sonnet").map((bucket) => {
                   const colors = getColors(provider.provider, bucket.level);
                   const remaining = formatTimeRemaining(bucket.resets_at);
                   return (
