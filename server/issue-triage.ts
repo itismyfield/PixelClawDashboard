@@ -376,6 +376,17 @@ async function triageOnce(): Promise<void> {
       const key = `${repo}#${issue.number}`;
       if (triaged.has(key)) continue;
 
+      // Skip if already has an agent:* label (PMD pre-assigned)
+      const existingAgentLabel = issue.labels.find((l) => l.name.startsWith("agent:"));
+      if (existingAgentLabel) {
+        const assignedId = existingAgentLabel.name.replace("agent:", "");
+        db.prepare(
+          `INSERT OR IGNORE INTO issue_triage_log (github_repo, github_issue_number, github_issue_title, assigned_agent_id, confidence, reason, triaged_at)
+           VALUES (?, ?, ?, ?, 'high', 'pre-assigned agent label', ?)`,
+        ).run(repo, issue.number, issue.title, assignedId, Date.now());
+        continue;
+      }
+
       // Double-check: skip if already has triage comment on GitHub
       if (hasTriageComment(repo, issue.number)) {
         // Record in DB so we don't check again
