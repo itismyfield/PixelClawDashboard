@@ -105,14 +105,6 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                 {provider.provider === "Claude" ? "🤖" : "⚡"}{" "}
                 {provider.provider}
               </span>
-              {provider.stale && (
-                <span
-                  className="rounded px-1 py-0.5 text-[8px] font-medium shrink-0"
-                  style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
-                >
-                  {t({ ko: "지연", en: "STALE", ja: "遅延", zh: "延迟" })}
-                </span>
-              )}
               {/* Buckets inline */}
               {visibleBuckets.map((bucket) => {
                 const colors = getColors(provider.provider, bucket.level);
@@ -160,6 +152,14 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                   </div>
                 );
               })}
+              {provider.stale && (
+                <span
+                  className="rounded px-1 py-0.5 text-[8px] font-medium shrink-0"
+                  style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
+                >
+                  {t({ ko: "지연", en: "STALE", ja: "遅延", zh: "延迟" })}
+                </span>
+              )}
             </div>
           );
         })}
