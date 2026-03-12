@@ -324,6 +324,26 @@ export default function KanbanTab({
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const dispatchMap = useMemo(() => new Map(dispatches.map((dispatch) => [dispatch.id, dispatch])), [dispatches]);
 
+  /** Resolve agent from `agent:*` GitHub labels by matching openclaw_id. */
+  const resolveAgentFromLabels = useMemo(() => {
+    const openclawMap = new Map<string, Agent>();
+    for (const agent of agents) {
+      if (agent.openclaw_id) {
+        openclawMap.set(agent.openclaw_id, agent);
+      }
+    }
+    return (labels: Array<{ name: string; color: string }>): Agent | null => {
+      for (const label of labels) {
+        if (label.name.startsWith("agent:")) {
+          const openclawId = label.name.slice("agent:".length).trim();
+          const matched = openclawMap.get(openclawId);
+          if (matched) return matched;
+        }
+      }
+      return null;
+    };
+  }, [agents]);
+
   const selectedCard = selectedCardId ? cardsById.get(selectedCardId) ?? null : null;
 
   useEffect(() => {
@@ -534,17 +554,62 @@ export default function KanbanTab({
     }
   };
 
+  /** Assign a backlog issue directly (auto-assign from agent:* label). */
+  const handleDirectAssignIssue = async (issue: GitHubIssue, agentId: string) => {
+    if (!selectedRepo) return;
+    setAssigningIssue(true);
+    setActionError(null);
+    try {
+      await onAssignIssue({
+        github_repo: selectedRepo,
+        github_issue_number: issue.number,
+        github_issue_url: issue.url,
+        title: issue.title,
+        description: issue.body || null,
+        assignee_agent_id: agentId,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : tr("이슈 할당에 실패했습니다.", "Failed to assign issue."));
+    } finally {
+      setAssigningIssue(false);
+    }
+  };
+
   const handleDrop = async (
     targetStatus: KanbanCardStatus,
     beforeCardId: string | null,
     event: DragEvent<HTMLElement>,
   ) => {
     event.preventDefault();
-    const draggedId = draggingCardId;
-    setDraggingCardId(null);
     setDragOverStatus(null);
     setDragOverCardId(null);
     setActionError(null);
+
+    // --- Backlog issue drop ---
+    const issueJson = event.dataTransfer.getData("application/x-backlog-issue");
+    if (issueJson) {
+      setDraggingCardId(null);
+      if (targetStatus === "backlog") return; // no-op: dropped back on backlog
+      try {
+        const issue = JSON.parse(issueJson) as GitHubIssue;
+        const autoAgent = resolveAgentFromLabels(issue.labels);
+        if (autoAgent) {
+          await handleDirectAssignIssue(issue, autoAgent.id);
+        } else {
+          // Open modal for manual agent selection
+          setAssignIssue(issue);
+          const repoSource = repoSources.find((s) => s.repo === selectedRepo);
+          setAssignAssigneeId(repoSource?.default_agent_id ?? "");
+        }
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : tr("이슈 할당에 실패했습니다.", "Failed to assign issue."));
+      }
+      return;
+    }
+
+    // --- Existing card drag ---
+    const draggedId = draggingCardId;
+    setDraggingCardId(null);
     if (!draggedId) return;
     if (beforeCardId === draggedId) return;
     try {
@@ -928,6 +993,11 @@ export default function KanbanTab({
                         className="rounded-2xl border p-3 cursor-pointer transition-colors hover:border-[rgba(148,163,184,0.4)]"
                         style={{ borderColor: "rgba(148,163,184,0.2)", backgroundColor: "rgba(2,6,23,0.82)" }}
                         onClick={() => setSelectedBacklogIssue(issue)}
+                        draggable={!compactBoard}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("application/x-backlog-issue", JSON.stringify(issue));
+                          event.dataTransfer.effectAllowed = "move";
+                        }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -974,14 +1044,24 @@ export default function KanbanTab({
                             <button
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setAssignIssue(issue);
-                                const repoSource = repoSources.find((s) => s.repo === selectedRepo);
-                                setAssignAssigneeId(repoSource?.default_agent_id ?? "");
+                                const autoAgent = resolveAgentFromLabels(issue.labels);
+                                if (autoAgent) {
+                                  void handleDirectAssignIssue(issue, autoAgent.id);
+                                } else {
+                                  setAssignIssue(issue);
+                                  const repoSource = repoSources.find((s) => s.repo === selectedRepo);
+                                  setAssignAssigneeId(repoSource?.default_agent_id ?? "");
+                                }
                               }}
-                              className="rounded-lg px-3 py-1.5 text-white"
+                              disabled={assigningIssue}
+                              className="rounded-lg px-3 py-1.5 text-white disabled:opacity-50"
                               style={{ backgroundColor: column.accent }}
                             >
-                              {tr("할당", "Assign")}
+                              {(() => {
+                                const autoAgent = resolveAgentFromLabels(issue.labels);
+                                if (autoAgent) return `→ ${getAgentLabel(autoAgent.id)}`;
+                                return tr("할당", "Assign");
+                              })()}
                             </button>
                           </div>
                         </div>
