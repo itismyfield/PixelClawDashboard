@@ -13,7 +13,7 @@
 
 import { execFileSync } from "node:child_process";
 import { getDb } from "./db/runtime.js";
-import { sendToAgentChannel } from "./discord-announce.js";
+import { sendToAgentChannel, sendDiscordMessage } from "./discord-announce.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -21,6 +21,9 @@ import { sendToAgentChannel } from "./discord-announce.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5분
 const TRIAGE_COMMENT_TAG = "<!-- pcd-auto-triage -->";
+const PMD_CHANNEL_ID = "1478652416533463101";
+const PMD_TRIAGE_TIMEOUT_MS = 5 * 60 * 1000; // 5분 타임아웃
+const PMD_POLL_INTERVAL_MS = 15 * 1000; // 15초 간격 폴링
 
 // ---------------------------------------------------------------------------
 // Classification rules
@@ -144,6 +147,124 @@ function fetchOpenIssues(repo: string): GitHubIssueRow[] {
   }
 }
 
+// ---------------------------------------------------------------------------
+// PMD agent-based classification
+// ---------------------------------------------------------------------------
+
+interface PmdTriageResult {
+  agentId: string;
+  reason: string;
+  confidence: "high" | "medium" | "low";
+}
+
+function buildTriageRequestTag(repo: string, issueNumber: number): string {
+  return `[TRIAGE-REQ:${repo}#${issueNumber}]`;
+}
+
+async function fetchChannelMessages(channelId: string, afterMessageId?: string, limit = 20): Promise<Array<{ id: string; content: string; author: { id: string; bot?: boolean } }>> {
+  const token = process.env.DISCORD_AUTOMATION_BOT_TOKEN || process.env.DISCORD_ANNOUNCE_BOT_TOKEN || "";
+  if (!token) return [];
+  try {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (afterMessageId) params.set("after", afterMessageId);
+    const resp = await fetch(
+      `https://discord.com/api/v10/channels/${channelId}/messages?${params}`,
+      { headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" } },
+    );
+    if (!resp.ok) return [];
+    return (await resp.json()) as Array<{ id: string; content: string; author: { id: string; bot?: boolean } }>;
+  } catch {
+    return [];
+  }
+}
+
+function parsePmdTriageResponse(content: string): PmdTriageResult | null {
+  // PMD 응답에서 agent:role_id 패턴을 찾는다
+  // 예상 형식: "agent:ch-td" 또는 "담당: ch-td" 또는 "→ ch-td"
+  const agentPatterns = [
+    /agent:\s*([a-z][a-z0-9_-]+)/i,
+    /담당[:\s]+([a-z][a-z0-9_-]+)/i,
+    /→\s*([a-z][a-z0-9_-]+)/i,
+    /할당[:\s]+([a-z][a-z0-9_-]+)/i,
+    /배정[:\s]+([a-z][a-z0-9_-]+)/i,
+  ];
+
+  let agentId: string | null = null;
+  for (const pattern of agentPatterns) {
+    const match = content.match(pattern);
+    if (match) {
+      agentId = match[1].toLowerCase();
+      break;
+    }
+  }
+
+  if (!agentId) return null;
+
+  // 사유 추출: "사유:" 또는 "이유:" 뒤의 텍스트
+  const reasonMatch = content.match(/(?:사유|이유|reason)[:\s]+(.+?)(?:\n|$)/i);
+  const reason = reasonMatch ? reasonMatch[1].trim() : "PMD 에이전트 분류";
+
+  return { agentId, reason: `PMD 분류: ${reason}`, confidence: "high" };
+}
+
+async function requestPmdTriage(
+  repo: string,
+  issue: GitHubIssueRow,
+): Promise<PmdTriageResult | null> {
+  const tag = buildTriageRequestTag(repo, issue.number);
+  const labels = issue.labels.map((l) => l.name).join(", ") || "(없음)";
+  const body = (issue.body || "").slice(0, 500);
+
+  const requestMsg = [
+    `${tag}`,
+    `**이슈 분류 요청** — ${repo}#${issue.number}`,
+    `> **제목**: ${issue.title}`,
+    `> **라벨**: ${labels}`,
+    `> **본문 요약**: ${body}`,
+    "",
+    "담당 에이전트를 **agent:역할ID** 형식으로 답변해주세요.",
+    "예) agent:ch-td, 사유: 아키텍처 관련 이슈",
+  ].join("\n");
+
+  // 전송 전 마지막 메시지 ID 기록
+  const beforeMsgs = await fetchChannelMessages(PMD_CHANNEL_ID, undefined, 1);
+  const lastMsgId = beforeMsgs.length > 0 ? beforeMsgs[0].id : undefined;
+
+  // PMD 채널에 분류 요청 전송 (command bot → PMD 자동 응답 트리거)
+  const sent = await sendDiscordMessage(PMD_CHANNEL_ID, requestMsg, "command");
+  if (!sent) {
+    console.error(`[triage] Failed to send PMD triage request for ${repo}#${issue.number}`);
+    return null;
+  }
+
+  // Poll for response
+  const deadline = Date.now() + PMD_TRIAGE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, PMD_POLL_INTERVAL_MS));
+
+    const msgs = await fetchChannelMessages(PMD_CHANNEL_ID, lastMsgId, 10);
+    // PMD 응답을 찾는다 (요청 tag를 포함하거나, 요청 이후 봇 메시지)
+    for (const msg of msgs) {
+      // 요청 메시지 자체는 건너뛰기
+      if (msg.content.includes(tag)) continue;
+
+      // PMD 에이전트의 응답인지 확인 (봇 메시지이고, agent: 패턴 포함)
+      const result = parsePmdTriageResponse(msg.content);
+      if (result) {
+        console.log(`[triage] PMD classified ${repo}#${issue.number} → ${result.agentId}`);
+        return result;
+      }
+    }
+  }
+
+  console.log(`[triage] PMD triage timeout for ${repo}#${issue.number}, falling back to keyword`);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Keyword-based classification (fallback)
+// ---------------------------------------------------------------------------
+
 function classifyIssue(
   repo: string,
   issue: GitHubIssueRow,
@@ -265,10 +386,29 @@ async function triageOnce(): Promise<void> {
         continue;
       }
 
-      const classification = classifyIssue(repo, issue);
+      // Try PMD agent-based classification first, fall back to keyword
+      let classification: { agentId: string; reason: string; confidence: "high" | "medium" | "low" };
+      const pmdResult = await requestPmdTriage(repo, issue);
+      if (pmdResult) {
+        classification = pmdResult;
+      } else {
+        classification = classifyIssue(repo, issue);
+      }
+
       const agentName = resolveAgentName(classification.agentId);
 
-      // 1. Record in DB
+      // 1. Add agent label to GitHub issue
+      try {
+        ghJson([
+          "issue", "edit", String(issue.number),
+          "--repo", repo,
+          "--add-label", `agent:${classification.agentId}`,
+        ]);
+      } catch (err) {
+        console.error(`[triage] Failed to add label to ${repo}#${issue.number}:`, err);
+      }
+
+      // 2. Record in DB
       db.prepare(
         `INSERT OR IGNORE INTO issue_triage_log (github_repo, github_issue_number, github_issue_title, assigned_agent_id, confidence, reason, triaged_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -282,10 +422,10 @@ async function triageOnce(): Promise<void> {
         Date.now(),
       );
 
-      // 2. Post GitHub comment
+      // 3. Post GitHub comment
       postTriageComment(repo, issue.number, agentName, classification.reason);
 
-      // 3. Notify agent channel
+      // 4. Notify agent channel
       const notifyText = [
         `📋 **새 이슈 분류됨** — ${repo}#${issue.number}`,
         `> **${issue.title}**`,
