@@ -96,28 +96,28 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
           const accent = getAccent(provider.provider);
           const visibleBuckets = provider.buckets.filter((b) => b.id !== "7d_sonnet");
           return (
-            <div key={provider.provider} className="flex items-center gap-2 min-w-0">
-              {/* Provider tag */}
+            <div key={provider.provider} className="flex items-center gap-1.5 min-w-0">
+              {/* Provider tag — fixed width for alignment */}
               <span
-                className="text-[10px] sm:text-xs font-bold uppercase tracking-wider shrink-0"
+                className="text-[10px] sm:text-xs font-bold uppercase tracking-wider shrink-0 w-[76px] sm:w-[88px]"
                 style={{ color: accent }}
               >
                 {provider.provider === "Claude" ? "🤖" : "⚡"}{" "}
                 {provider.provider}
               </span>
-              {/* Buckets inline */}
+              {/* Buckets — each takes equal half of remaining space */}
               {visibleBuckets.map((bucket) => {
                 const colors = getColors(provider.provider, bucket.level);
                 const remaining = formatTimeRemaining(bucket.resets_at);
                 return (
-                  <div key={bucket.id} className="flex items-center gap-1 min-w-0 flex-1">
+                  <div key={bucket.id} className="flex items-center gap-1 flex-1 min-w-0">
                     <span
-                      className="text-[9px] sm:text-[10px] font-bold shrink-0"
+                      className="text-[9px] sm:text-[10px] font-bold shrink-0 w-[16px] sm:w-[20px]"
                       style={{ color: colors.text }}
                     >
                       {bucket.label}
                     </span>
-                    <div className="flex-1 min-w-[32px] max-w-[80px] sm:max-w-[100px]">
+                    <div className="flex-1 min-w-[32px]">
                       <div
                         className="relative h-[4px] sm:h-[5px] rounded-full overflow-hidden"
                         style={{ background: "rgba(255,255,255,0.06)" }}
@@ -133,7 +133,7 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                       </div>
                     </div>
                     <span
-                      className="text-[9px] sm:text-[10px] font-mono font-bold shrink-0"
+                      className="text-[9px] sm:text-[10px] font-mono font-bold shrink-0 w-[28px] sm:w-[32px] text-right"
                       style={{
                         color: colors.text,
                         textShadow: bucket.level === "danger" ? `0 0 6px ${colors.glow}` : "none",
@@ -143,7 +143,7 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                     </span>
                     {remaining && (
                       <span
-                        className="text-[7px] sm:text-[8px] shrink-0 hidden sm:inline"
+                        className="text-[7px] sm:text-[8px] shrink-0 hidden sm:inline w-[40px]"
                         style={{ color: "var(--th-text-muted)" }}
                       >
                         ⏱{remaining}

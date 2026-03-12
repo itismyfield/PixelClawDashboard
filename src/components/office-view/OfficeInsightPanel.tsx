@@ -453,16 +453,16 @@ function MiniRateLimitBar({ isKo }: { isKo: boolean }) {
         const accent = (RL_COLORS[p.provider] || RL_COLORS.Codex).accent;
         const visible = p.buckets.filter((b) => b.id !== "7d_sonnet");
         return (
-          <div key={p.provider} className="flex items-center gap-1.5">
-            <span className="text-[9px] font-bold uppercase shrink-0" style={{ color: accent }}>
+          <div key={p.provider} className="flex items-center gap-1">
+            <span className="text-[9px] font-bold uppercase shrink-0 w-[72px]" style={{ color: accent }}>
               {p.provider === "Claude" ? "🤖" : "⚡"} {p.provider}
             </span>
             {visible.map((b) => (
-              <div key={b.id} className="flex items-center gap-1 flex-1 min-w-0">
-                <span className="text-[8px] font-bold shrink-0" style={{ color: barColor(p.provider, b.level) }}>
+              <div key={b.id} className="flex items-center gap-1" style={{ width: "calc((100% - 72px) / 2)" }}>
+                <span className="text-[8px] font-bold shrink-0 w-[16px]" style={{ color: barColor(p.provider, b.level) }}>
                   {b.label}
                 </span>
-                <div className="flex-1 min-w-[20px] max-w-[50px]">
+                <div className="flex-1 min-w-0">
                   <div className="relative h-[3px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
                     <div
                       className="absolute inset-y-0 left-0 rounded-full"
@@ -470,7 +470,7 @@ function MiniRateLimitBar({ isKo }: { isKo: boolean }) {
                     />
                   </div>
                 </div>
-                <span className="text-[8px] font-mono font-bold shrink-0" style={{ color: barColor(p.provider, b.level) }}>
+                <span className="text-[8px] font-mono font-bold shrink-0 w-[24px] text-right" style={{ color: barColor(p.provider, b.level) }}>
                   {b.utilization}%
                 </span>
               </div>
