@@ -32,6 +32,7 @@ import { startDispatchWatcher, stopDispatchWatcher } from "./dispatch-watcher.js
 import kanbanCardRoutes from "./routes/kanban-cards.js";
 import kanbanRepoRoutes from "./routes/kanban-repos.js";
 import { startIssueTriage, stopIssueTriage } from "./issue-triage.js";
+import rateLimitRoutes from "./routes/rate-limits.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -83,6 +84,7 @@ app.use(dispatchTaskRoutes);
 app.use(kanbanCardRoutes);
 app.use(kanbanRepoRoutes);
 app.use(roundTableRoutes);
+app.use(rateLimitRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
