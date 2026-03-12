@@ -271,7 +271,16 @@ body {
   padding: 0.55rem 0.7rem;
   border: 1px solid color-mix(in srgb, var(--th-border) 88%, transparent);
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media (min-width: 640px) {
+  .pcd-markdown th,
+  .pcd-markdown td {
+    white-space: nowrap;
+    word-break: normal;
+  }
 }
 
 .pcd-markdown th {

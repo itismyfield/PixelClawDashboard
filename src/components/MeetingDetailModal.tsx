@@ -61,7 +61,7 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
         style={{ background: "var(--th-surface)", borderColor: "var(--th-border)" }}
       >
         {/* Header */}
-        <div className="p-5 border-b flex items-start justify-between gap-3" style={{ borderColor: "var(--th-border)" }}>
+        <div className="p-3 sm:p-5 border-b flex items-start justify-between gap-3" style={{ borderColor: "var(--th-border)" }}>
           <div className="min-w-0">
             <h2 className="text-lg font-bold" style={{ color: "var(--th-text)" }}>
               {meeting.agenda}
@@ -96,7 +96,7 @@ export default function MeetingDetailModal({ meeting, onClose }: Props) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-auto p-5 space-y-4">
+        <div className="flex-1 overflow-auto p-3 sm:p-5 space-y-4">
           {(meeting.primary_provider || meeting.reviewer_provider) && (
             <div className="rounded-2xl p-4 space-y-2" style={{ background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.14)" }}>
               <MeetingProviderFlow

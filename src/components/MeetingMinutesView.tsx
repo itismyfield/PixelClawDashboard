@@ -384,8 +384,8 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
           </h3>
 
           {/* Channel ID row */}
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 w-20" style={{ color: "var(--th-text-muted)" }}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 sm:w-20" style={{ color: "var(--th-text-muted)" }}>
               채널 ID
             </label>
             {showChannelEdit || !channelId ? (
@@ -416,8 +416,8 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
           </div>
 
           {/* Agenda input */}
-          <div className="flex items-start gap-2">
-            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 w-20 pt-2" style={{ color: "var(--th-text-muted)" }}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 sm:w-20 sm:pt-2" style={{ color: "var(--th-text-muted)" }}>
               안건
             </label>
             <input
@@ -431,8 +431,8 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 w-20" style={{ color: "var(--th-text-muted)" }}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-widest shrink-0 sm:w-20" style={{ color: "var(--th-text-muted)" }}>
               진행 모델
             </label>
             <select
@@ -710,8 +710,8 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
               )}
 
               {/* Actions */}
-              <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between min-w-0">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <button
                     onClick={() => handleOpenDetail(m)}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
@@ -787,7 +787,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
                   )}
                 </div>
                 {hasProposedIssues && (
-                  <div className="flex flex-col gap-1 sm:min-w-[280px]">
+                  <div className="flex flex-col gap-1 min-w-0 sm:min-w-[280px]">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-left sm:text-right" style={{ color: "var(--th-text-muted)" }}>
                       이 회의용 Repo
                     </div>
