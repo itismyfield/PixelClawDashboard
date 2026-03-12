@@ -453,36 +453,42 @@ function MiniRateLimitBar({ isKo }: { isKo: boolean }) {
         const accent = (RL_COLORS[p.provider] || RL_COLORS.Codex).accent;
         const visible = p.buckets.filter((b) => b.id !== "7d_sonnet");
         return (
-          <div key={p.provider} className="flex items-center gap-1">
-            <span className="text-[9px] font-bold uppercase shrink-0 w-[72px]" style={{ color: accent }}>
-              {p.provider === "Claude" ? "🤖" : "⚡"} {p.provider}
-            </span>
-            {visible.map((b) => (
-              <div key={b.id} className="flex items-center gap-1" style={{ width: "calc((100% - 72px) / 2)" }}>
-                <span className="text-[8px] font-bold shrink-0 w-[16px]" style={{ color: barColor(p.provider, b.level) }}>
-                  {b.label}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="relative h-[3px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-full"
-                      style={{ width: `${Math.min(b.utilization, 100)}%`, background: barColor(p.provider, b.level) }}
-                    />
-                  </div>
-                </div>
-                <span className="text-[8px] font-mono font-bold shrink-0 w-[24px] text-right" style={{ color: barColor(p.provider, b.level) }}>
-                  {b.utilization}%
-                </span>
-              </div>
-            ))}
-            {p.stale && (
-              <span
-                className="rounded px-0.5 text-[7px] font-medium shrink-0"
-                style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
-              >
-                {isKo ? "지연" : "STALE"}
+          <div key={p.provider} className="flex items-center gap-0">
+            {/* Fixed-width left: provider + stale placeholder */}
+            <div className="flex items-center gap-1 shrink-0" style={{ width: 96 }}>
+              <span className="text-[9px] font-bold uppercase truncate" style={{ color: accent }}>
+                {p.provider === "Claude" ? "🤖" : "⚡"} {p.provider}
               </span>
-            )}
+              {p.stale ? (
+                <span
+                  className="rounded px-0.5 text-[7px] font-medium shrink-0"
+                  style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
+                >
+                  {isKo ? "지연" : "STALE"}
+                </span>
+              ) : null}
+            </div>
+            {/* Buckets grid — fixed 2-column */}
+            <div className="flex-1 grid grid-cols-2 gap-x-2">
+              {visible.map((b) => (
+                <div key={b.id} className="flex items-center gap-1">
+                  <span className="text-[8px] font-bold shrink-0 w-[14px]" style={{ color: barColor(p.provider, b.level) }}>
+                    {b.label}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="relative h-[3px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full"
+                        style={{ width: `${Math.min(b.utilization, 100)}%`, background: barColor(p.provider, b.level) }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[8px] font-mono font-bold shrink-0 w-[22px] text-right" style={{ color: barColor(p.provider, b.level) }}>
+                    {b.utilization}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}

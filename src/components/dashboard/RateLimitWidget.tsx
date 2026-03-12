@@ -96,70 +96,74 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
           const accent = getAccent(provider.provider);
           const visibleBuckets = provider.buckets.filter((b) => b.id !== "7d_sonnet");
           return (
-            <div key={provider.provider} className="flex items-center gap-1.5 min-w-0">
-              {/* Provider tag — fixed width for alignment */}
-              <span
-                className="text-[10px] sm:text-xs font-bold uppercase tracking-wider shrink-0 w-[76px] sm:w-[88px]"
-                style={{ color: accent }}
-              >
-                {provider.provider === "Claude" ? "🤖" : "⚡"}{" "}
-                {provider.provider}
-              </span>
-              {/* Buckets — each takes equal half of remaining space */}
-              {visibleBuckets.map((bucket) => {
-                const colors = getColors(provider.provider, bucket.level);
-                const remaining = formatTimeRemaining(bucket.resets_at);
-                return (
-                  <div key={bucket.id} className="flex items-center gap-1 flex-1 min-w-0">
-                    <span
-                      className="text-[9px] sm:text-[10px] font-bold shrink-0 w-[16px] sm:w-[20px]"
-                      style={{ color: colors.text }}
-                    >
-                      {bucket.label}
-                    </span>
-                    <div className="flex-1 min-w-[32px]">
-                      <div
-                        className="relative h-[4px] sm:h-[5px] rounded-full overflow-hidden"
-                        style={{ background: "rgba(255,255,255,0.06)" }}
-                      >
-                        <div
-                          className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
-                          style={{
-                            width: `${Math.min(bucket.utilization, 100)}%`,
-                            background: colors.bar,
-                            boxShadow: bucket.level !== "normal" ? `0 0 8px ${colors.glow}` : "none",
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <span
-                      className="text-[9px] sm:text-[10px] font-mono font-bold shrink-0 w-[28px] sm:w-[32px] text-right"
-                      style={{
-                        color: colors.text,
-                        textShadow: bucket.level === "danger" ? `0 0 6px ${colors.glow}` : "none",
-                      }}
-                    >
-                      {bucket.utilization}%
-                    </span>
-                    {remaining && (
-                      <span
-                        className="text-[7px] sm:text-[8px] shrink-0 hidden sm:inline w-[40px]"
-                        style={{ color: "var(--th-text-muted)" }}
-                      >
-                        ⏱{remaining}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-              {provider.stale && (
+            <div key={provider.provider} className="flex items-center gap-0 min-w-0">
+              {/* Fixed-width left: provider + stale */}
+              <div className="flex items-center gap-1.5 shrink-0" style={{ width: 100 }}>
                 <span
-                  className="rounded px-1 py-0.5 text-[8px] font-medium shrink-0"
-                  style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
+                  className="text-[10px] sm:text-xs font-bold uppercase tracking-wider"
+                  style={{ color: accent }}
                 >
-                  {t({ ko: "지연", en: "STALE", ja: "遅延", zh: "延迟" })}
+                  {provider.provider === "Claude" ? "🤖" : "⚡"}{" "}
+                  {provider.provider}
                 </span>
-              )}
+                {provider.stale ? (
+                  <span
+                    className="rounded px-1 py-0.5 text-[8px] font-medium shrink-0"
+                    style={{ color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)" }}
+                  >
+                    {t({ ko: "지연", en: "STALE", ja: "遅延", zh: "延迟" })}
+                  </span>
+                ) : null}
+              </div>
+              {/* Buckets grid — fixed 2 columns */}
+              <div className="flex-1 grid grid-cols-2 gap-x-2 sm:gap-x-3">
+                {visibleBuckets.map((bucket) => {
+                  const colors = getColors(provider.provider, bucket.level);
+                  const remaining = formatTimeRemaining(bucket.resets_at);
+                  return (
+                    <div key={bucket.id} className="flex items-center gap-1">
+                      <span
+                        className="text-[9px] sm:text-[10px] font-bold shrink-0 w-[16px]"
+                        style={{ color: colors.text }}
+                      >
+                        {bucket.label}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="relative h-[4px] sm:h-[5px] rounded-full overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.06)" }}
+                        >
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(bucket.utilization, 100)}%`,
+                              background: colors.bar,
+                              boxShadow: bucket.level !== "normal" ? `0 0 8px ${colors.glow}` : "none",
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <span
+                        className="text-[9px] sm:text-[10px] font-mono font-bold shrink-0 w-[28px] text-right"
+                        style={{
+                          color: colors.text,
+                          textShadow: bucket.level === "danger" ? `0 0 6px ${colors.glow}` : "none",
+                        }}
+                      >
+                        {bucket.utilization}%
+                      </span>
+                      {remaining && (
+                        <span
+                          className="text-[7px] sm:text-[8px] shrink-0 hidden sm:inline w-[40px]"
+                          style={{ color: "var(--th-text-muted)" }}
+                        >
+                          ⏱{remaining}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
