@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import * as api from "../../api";
 import type { GitHubIssue, GitHubRepoOption, KanbanRepoSource } from "../../api";
+import MarkdownContent from "../common/MarkdownContent";
 import type {
   Agent,
   Department,
@@ -228,6 +229,7 @@ export default function KanbanTab({
   const [retryAssigneeId, setRetryAssigneeId] = useState("");
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [closingIssueNumber, setClosingIssueNumber] = useState<number | null>(null);
+  const [selectedBacklogIssue, setSelectedBacklogIssue] = useState<GitHubIssue | null>(null);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
@@ -823,8 +825,9 @@ export default function KanbanTab({
                     {column.status === "backlog" && backlogIssues.map((issue) => (
                       <article
                         key={`issue-${issue.number}`}
-                        className="rounded-2xl border p-3"
+                        className="rounded-2xl border p-3 cursor-pointer transition-colors hover:border-[rgba(148,163,184,0.4)]"
                         style={{ borderColor: "rgba(148,163,184,0.2)", backgroundColor: "rgba(2,6,23,0.82)" }}
+                        onClick={() => setSelectedBacklogIssue(issue)}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -852,6 +855,7 @@ export default function KanbanTab({
                             rel="noreferrer"
                             className="text-xs hover:underline"
                             style={{ color: "#93c5fd" }}
+                            onClick={(event) => event.stopPropagation()}
                           >
                             GH
                           </a>
@@ -860,7 +864,7 @@ export default function KanbanTab({
                           <span>{tr("업데이트", "Updated")}: {formatIso(issue.updatedAt, locale)}</span>
                           <div className="flex gap-2">
                             <button
-                              onClick={() => void handleCloseIssue(issue)}
+                              onClick={(event) => { event.stopPropagation(); void handleCloseIssue(issue); }}
                               disabled={closingIssueNumber === issue.number}
                               className="rounded-lg px-3 py-1.5 border disabled:opacity-50"
                               style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-muted)" }}
@@ -868,7 +872,8 @@ export default function KanbanTab({
                               {closingIssueNumber === issue.number ? tr("닫는 중", "Closing") : tr("닫기", "Close")}
                             </button>
                             <button
-                              onClick={() => {
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 setAssignIssue(issue);
                                 const repoSource = repoSources.find((s) => s.repo === selectedRepo);
                                 setAssignAssigneeId(repoSource?.default_agent_id ?? "");
@@ -1394,6 +1399,121 @@ export default function KanbanTab({
                   style={{ backgroundColor: "#2563eb" }}
                 >
                   {savingCard ? tr("저장 중", "Saving") : tr("저장", "Save")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedBacklogIssue && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4">
+          <div
+            className="w-full max-w-3xl max-h-[88svh] overflow-y-auto rounded-t-3xl border p-5 sm:max-h-[90vh] sm:rounded-3xl sm:p-6 space-y-4"
+            style={{
+              backgroundColor: "rgba(2,6,23,0.96)",
+              borderColor: "rgba(148,163,184,0.24)",
+              paddingBottom: "max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))",
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
+                    #{selectedBacklogIssue.number}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-xs" style={{ backgroundColor: "#64748b33", color: "#64748b" }}>
+                    {tr("백로그", "Backlog")}
+                  </span>
+                  {selectedBacklogIssue.labels.map((label) => (
+                    <span
+                      key={label.name}
+                      className="px-2 py-0.5 rounded-full text-xs"
+                      style={{ backgroundColor: `#${label.color}22`, color: `#${label.color}` }}
+                    >
+                      {label.name}
+                    </span>
+                  ))}
+                </div>
+                <h3 className="mt-2 text-xl font-semibold" style={{ color: "var(--th-text-heading)" }}>
+                  {selectedBacklogIssue.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedBacklogIssue(null)}
+                className="rounded-xl px-3 py-2 text-sm bg-white/8 shrink-0"
+                style={{ color: "var(--th-text-secondary)" }}
+              >
+                {tr("닫기", "Close")}
+              </button>
+            </div>
+
+            {selectedBacklogIssue.assignees.length > 0 && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: "var(--th-text-secondary)" }}>
+                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("담당자", "Assignees")}:</span>
+                {selectedBacklogIssue.assignees.map((a) => (
+                  <span key={a.login} className="px-2 py-0.5 rounded-full text-xs bg-white/8">{a.login}</span>
+                ))}
+              </div>
+            )}
+
+            <div className="grid gap-3 md:grid-cols-2 text-sm">
+              <div className="rounded-2xl border p-3 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                <div className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("생성", "Created")}</div>
+                <div style={{ color: "var(--th-text-primary)" }}>{formatIso(selectedBacklogIssue.createdAt, locale)}</div>
+              </div>
+              <div className="rounded-2xl border p-3 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                <div className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("업데이트", "Updated")}</div>
+                <div style={{ color: "var(--th-text-primary)" }}>{formatIso(selectedBacklogIssue.updatedAt, locale)}</div>
+              </div>
+            </div>
+
+            {selectedBacklogIssue.body ? (
+              <div
+                className="rounded-2xl border p-4 bg-white/5 text-sm"
+                style={{ borderColor: "rgba(148,163,184,0.18)", color: "var(--th-text-primary)" }}
+              >
+                <MarkdownContent content={selectedBacklogIssue.body} />
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-muted)" }}>
+                {tr("이슈 본문이 없습니다.", "No issue body.")}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <a
+                href={selectedBacklogIssue.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl px-4 py-2 text-sm text-center hover:underline"
+                style={{ color: "#93c5fd" }}
+              >
+                {tr("GitHub에서 보기", "View on GitHub")}
+              </a>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <button
+                  onClick={() => {
+                    setSelectedBacklogIssue(null);
+                    void handleCloseIssue(selectedBacklogIssue);
+                  }}
+                  disabled={closingIssueNumber === selectedBacklogIssue.number}
+                  className="rounded-xl px-4 py-2 text-sm border disabled:opacity-50"
+                  style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-muted)" }}
+                >
+                  {closingIssueNumber === selectedBacklogIssue.number ? tr("닫는 중", "Closing") : tr("이슈 닫기", "Close issue")}
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedBacklogIssue(null);
+                    setAssignIssue(selectedBacklogIssue);
+                    const repoSource = repoSources.find((s) => s.repo === selectedRepo);
+                    setAssignAssigneeId(repoSource?.default_agent_id ?? "");
+                  }}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white"
+                  style={{ backgroundColor: "#2563eb" }}
+                >
+                  {tr("할당", "Assign")}
                 </button>
               </div>
             </div>
