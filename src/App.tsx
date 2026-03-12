@@ -20,6 +20,7 @@ const DashboardPageView = lazy(() => import("./components/DashboardPageView"));
 const AgentManagerView = lazy(() => import("./components/AgentManagerView"));
 const MeetingMinutesView = lazy(() => import("./components/MeetingMinutesView"));
 const SkillCatalogView = lazy(() => import("./components/SkillCatalogView"));
+const KanbanTab = lazy(() => import("./components/agent-manager/KanbanTab"));
 const SettingsView = lazy(() => import("./components/SettingsView"));
 import OfficeSelectorBar from "./components/OfficeSelectorBar";
 const OfficeManagerModal = lazy(() => import("./components/OfficeManagerModal"));
@@ -32,16 +33,15 @@ import {
   LayoutDashboard,
   Users,
   FileText,
-  BookOpen,
   Wifi,
   WifiOff,
   Settings,
-  MessageCircle,
+  KanbanSquare,
 } from "lucide-react";
 const ChatView = lazy(() => import("./components/ChatView"));
 const CommandPalette = lazy(() => import("./components/CommandPalette"));
 
-type ViewMode = "office" | "dashboard" | "agents" | "meetings" | "chat" | "skills" | "settings";
+type ViewMode = "office" | "dashboard" | "agents" | "meetings" | "chat" | "skills" | "kanban" | "settings";
 
 function hasUnresolvedMeetingIssues(meeting: RoundTableMeeting): boolean {
   const totalIssues = meeting.proposed_issues?.length ?? 0;
@@ -392,6 +392,7 @@ export default function App() {
     office: "Loading Office...",
     dashboard: "Loading Dashboard...",
     agents: "Loading Agents...",
+    kanban: "Loading Kanban...",
     meetings: "Loading Meetings...",
     chat: "Loading Chat...",
     skills: "Loading Skills...",
@@ -401,10 +402,9 @@ export default function App() {
   const navItems: Array<{ id: ViewMode; icon: React.ReactNode; label: string; badge?: number; badgeColor?: string }> = [
     { id: "office", icon: <Building2 size={20} />, label: "오피스" },
     { id: "agents", icon: <Users size={20} />, label: "직원" },
+    { id: "kanban", icon: <KanbanSquare size={20} />, label: "칸반" },
     { id: "dashboard", icon: <LayoutDashboard size={20} />, label: "대시보드" },
-    { id: "chat", icon: <MessageCircle size={20} />, label: "채팅" },
     { id: "meetings", icon: <FileText size={20} />, label: "회의", badge: newMeetingsCount || undefined, badgeColor: "bg-amber-500" },
-    { id: "skills", icon: <BookOpen size={20} />, label: "스킬" },
     { id: "settings", icon: <Settings size={20} />, label: "설정" },
   ];
 
@@ -439,7 +439,7 @@ export default function App() {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Office selector bar — hide on chat/settings views */}
-        {offices.length > 0 && view !== "chat" && view !== "settings" && (
+        {offices.length > 0 && view !== "chat" && view !== "settings" && view !== "kanban" && (
           <OfficeSelectorBar
             offices={offices}
             selectedOfficeId={selectedOfficeId}
@@ -466,7 +466,9 @@ export default function App() {
                 subAgents={subAgents}
                 notifications={notifications}
                 auditLogs={auditLogs}
-                activeMeeting={roundTableMeetings.find((m) => m.status === "in_progress") ?? roundTableMeetings[0] ?? null}
+                activeMeeting={roundTableMeetings.find((m) => m.status === "in_progress") ?? null}
+                kanbanCards={kanbanCards}
+                onNavigateToKanban={() => setView("kanban")}
                 onSelectAgent={(agent) => setOfficeInfoAgent(agent)}
                 onSelectDepartment={() => { setView("agents"); }}
                 customDeptThemes={settings.roomThemes}
@@ -477,7 +479,6 @@ export default function App() {
                 stats={stats}
                 agents={agents}
                 settings={settings}
-                onNavigateToOffice={() => setView("office")}
                 onSelectAgent={(agent) => setOfficeInfoAgent(agent)}
               />
             )}
@@ -485,31 +486,11 @@ export default function App() {
               <AgentManagerView
                 agents={agents}
                 departments={departments}
-                kanbanAgents={allAgents}
-                kanbanDepartments={allDepartments}
-                kanbanCards={kanbanCards}
-                taskDispatches={taskDispatches}
                 language={settings.language}
                 officeId={selectedOfficeId}
                 onAgentsChange={() => { refreshAgents(); refreshAllAgents(); refreshOffices(); }}
                 onDepartmentsChange={() => { refreshDepartments(); refreshAllDepartments(); refreshOffices(); }}
-                onAssignKanbanIssue={async (payload) => {
-                  const assigned = await api.assignKanbanIssue(payload);
-                  upsertKanbanCard(assigned);
-                }}
                 sessions={visibleDispatchedSessions}
-                onUpdateKanbanCard={async (id, patch) => {
-                  const updated = await api.updateKanbanCard(id, patch);
-                  upsertKanbanCard(updated);
-                }}
-                onRetryKanbanCard={async (id, payload) => {
-                  const updated = await api.retryKanbanCard(id, payload);
-                  upsertKanbanCard(updated);
-                }}
-                onDeleteKanbanCard={async (id) => {
-                  await api.deleteKanbanCard(id);
-                  setKanbanCards((prev) => prev.filter((card) => card.id !== id));
-                }}
                 onAssign={async (id, patch) => {
                   const updated = await api.assignDispatchedSession(id, patch);
                   setSessions((prev) =>
@@ -517,6 +498,34 @@ export default function App() {
                   );
                 }}
               />
+            )}
+            {view === "kanban" && (
+              <div className="h-full overflow-auto p-4 sm:p-6 pb-40">
+                <KanbanTab
+                  tr={(ko: string, en: string) => settings.language === "ko" ? ko : en}
+                  locale={settings.language}
+                  cards={kanbanCards}
+                  dispatches={taskDispatches}
+                  agents={allAgents}
+                  departments={allDepartments}
+                  onAssignIssue={async (payload) => {
+                    const assigned = await api.assignKanbanIssue(payload);
+                    upsertKanbanCard(assigned);
+                  }}
+                  onUpdateCard={async (id, patch) => {
+                    const updated = await api.updateKanbanCard(id, patch);
+                    upsertKanbanCard(updated);
+                  }}
+                  onRetryCard={async (id, payload) => {
+                    const updated = await api.retryKanbanCard(id, payload);
+                    upsertKanbanCard(updated);
+                  }}
+                  onDeleteCard={async (id) => {
+                    await api.deleteKanbanCard(id);
+                    setKanbanCards((prev) => prev.filter((card) => card.id !== id));
+                  }}
+                />
+              </div>
             )}
             {view === "meetings" && (
               <MeetingMinutesView

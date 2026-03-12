@@ -60,7 +60,7 @@ export default function NotificationCenter({ notifications, onDismiss }: Notific
 
       {open && (
         <div
-          className="absolute left-12 top-0 w-80 max-h-96 overflow-auto rounded-xl border border-gray-700 bg-gray-900 shadow-2xl z-50"
+          className="absolute left-12 bottom-0 w-80 max-h-96 overflow-auto rounded-xl border border-gray-700 bg-gray-900 shadow-2xl z-50"
           style={{ minHeight: 100 }}
         >
           <div className="sticky top-0 bg-gray-900 border-b border-gray-700 px-3 py-2 flex items-center justify-between">

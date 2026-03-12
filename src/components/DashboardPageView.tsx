@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, DashboardStats, CompanySettings } from "../types";
 import { getSkillRanking, type SkillRankingResponse } from "../api";
 import TooltipLabel from "./common/TooltipLabel";
 import { localeName } from "../i18n";
 import { useNow, type TFunction, DEPT_COLORS } from "./dashboard/model";
+
+const SkillCatalogView = lazy(() => import("./SkillCatalogView"));
 import {
   DashboardHeroHeader,
   DashboardHudStats,
@@ -33,7 +35,6 @@ interface DashboardPageViewProps {
   stats: DashboardStats | null;
   agents: Agent[];
   settings: CompanySettings;
-  onNavigateToOffice?: () => void;
   onSelectAgent?: (agent: Agent) => void;
 }
 
@@ -41,7 +42,6 @@ export default function DashboardPageView({
   stats,
   agents,
   settings,
-  onNavigateToOffice,
   onSelectAgent,
 }: DashboardPageViewProps) {
   const language = settings.language;
@@ -173,15 +173,6 @@ export default function DashboardPageView({
         briefing={briefing}
         reviewQueue={stats.kanban.review_queue}
         numberFormatter={numberFormatter}
-        primaryCtaEyebrow={t({ ko: "오피스 뷰", en: "OFFICE VIEW", ja: "オフィスビュー", zh: "办公室视图" })}
-        primaryCtaDescription={t({
-          ko: "Pixi.js 오피스에서 에이전트들의 실시간 활동을 확인하세요",
-          en: "See real-time agent activity in the Pixi.js office",
-          ja: "Pixi.jsオフィスでエージェントのリアルタイム活動を確認",
-          zh: "在 Pixi.js 办公室查看代理的实时活动",
-        })}
-        primaryCtaLabel={t({ ko: "오피스 입장", en: "Enter Office", ja: "オフィスへ", zh: "进入办公室" })}
-        onPrimaryCtaClick={onNavigateToOffice ?? (() => {})}
         t={t}
       />
 
@@ -335,6 +326,10 @@ export default function DashboardPageView({
           </section>
 
           <SkillTrendWidget t={t} />
+
+          <Suspense fallback={<div className="py-8 text-center text-sm" style={{ color: "var(--th-text-muted)" }}>Loading catalog...</div>}>
+            <SkillCatalogView embedded />
+          </Suspense>
         </>
       )}
 

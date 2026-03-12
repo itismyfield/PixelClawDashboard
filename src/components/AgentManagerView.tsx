@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, type DragEvent } from "react";
-import type { Agent, Department, DispatchedSession, KanbanCard, TaskDispatch } from "../types";
+import type { Agent, Department, DispatchedSession } from "../types";
 import type { UiLanguage } from "../i18n";
 import { localeName } from "../i18n";
 import * as api from "../api";
@@ -12,58 +12,28 @@ import DepartmentsTab from "./agent-manager/DepartmentsTab";
 import AgentFormModal from "./agent-manager/AgentFormModal";
 import AgentInfoCard from "./agent-manager/AgentInfoCard";
 import DepartmentFormModal from "./agent-manager/DepartmentFormModal";
-import KanbanTab from "./agent-manager/KanbanTab";
 import { SessionPanel } from "./session-panel/SessionPanel";
 
 interface AgentManagerViewProps {
   agents: Agent[];
   departments: Department[];
-  kanbanAgents: Agent[];
-  kanbanDepartments: Department[];
-  kanbanCards: KanbanCard[];
-  taskDispatches: TaskDispatch[];
   language: UiLanguage;
   officeId?: string | null;
   onAgentsChange: () => void;
   onDepartmentsChange: () => void;
-  onAssignKanbanIssue: (payload: {
-    github_repo: string;
-    github_issue_number: number;
-    github_issue_url?: string | null;
-    title: string;
-    description?: string | null;
-    assignee_agent_id: string;
-  }) => Promise<void>;
-  onUpdateKanbanCard: (
-    id: string,
-    patch: Partial<KanbanCard> & { before_card_id?: string | null },
-  ) => Promise<void>;
-  onRetryKanbanCard: (
-    id: string,
-    payload?: { assignee_agent_id?: string | null; request_now?: boolean },
-  ) => Promise<void>;
-  onDeleteKanbanCard: (id: string) => Promise<void>;
   sessions?: DispatchedSession[];
   onAssign?: (id: string, patch: Partial<DispatchedSession>) => Promise<void>;
 }
 
-type Tab = "agents" | "departments" | "kanban" | "dispatch";
+type Tab = "agents" | "departments" | "dispatch";
 
 export default function AgentManagerView({
   agents,
   departments,
-  kanbanAgents,
-  kanbanDepartments,
-  kanbanCards,
-  taskDispatches,
   language,
   officeId,
   onAgentsChange,
   onDepartmentsChange,
-  onAssignKanbanIssue,
-  onUpdateKanbanCard,
-  onRetryKanbanCard,
-  onDeleteKanbanCard,
   sessions,
   onAssign,
 }: AgentManagerViewProps) {
@@ -321,15 +291,6 @@ export default function AgentManagerView({
         >
           {tr("부서", "Departments")} ({departments.length})
         </button>
-        <button
-          onClick={() => setTab("kanban")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "kanban" ? "text-blue-400 border-b-2 border-blue-400" : ""
-          }`}
-          style={tab !== "kanban" ? { color: "var(--th-text-muted)" } : undefined}
-        >
-          {tr("칸반", "Kanban")} ({kanbanCards.length})
-        </button>
         {sessions && onAssign && (
           <button
             onClick={() => setTab("dispatch")}
@@ -350,19 +311,6 @@ export default function AgentManagerView({
           departments={departments}
           agents={agents}
           onAssign={onAssign}
-        />
-      ) : tab === "kanban" ? (
-        <KanbanTab
-          tr={tr}
-          locale={locale}
-          cards={kanbanCards}
-          dispatches={taskDispatches}
-          agents={kanbanAgents}
-          departments={kanbanDepartments}
-          onAssignIssue={onAssignKanbanIssue}
-          onUpdateCard={onUpdateKanbanCard}
-          onRetryCard={onRetryKanbanCard}
-          onDeleteCard={onDeleteKanbanCard}
         />
       ) : tab === "agents" ? (
         <div className="space-y-4">

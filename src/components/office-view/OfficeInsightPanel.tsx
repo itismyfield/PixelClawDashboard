@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
 import type { Notification } from "../NotificationCenter";
-import type { Agent, AuditLogEntry } from "../../types";
+import type { Agent, AuditLogEntry, KanbanCard } from "../../types";
 import { getAgentWarnings } from "../../agent-insights";
 
 interface OfficeInsightPanelProps {
   agents: Agent[];
   notifications: Notification[];
   auditLogs: AuditLogEntry[];
+  kanbanCards?: KanbanCard[];
+  onNavigateToKanban?: () => void;
   isKo: boolean;
   onSelectAgent?: (agent: Agent) => void;
   docked?: boolean;
@@ -27,6 +29,8 @@ export default function OfficeInsightPanel({
   agents,
   notifications,
   auditLogs,
+  kanbanCards,
+  onNavigateToKanban,
   isKo,
   onSelectAgent,
   docked = false,
@@ -34,9 +38,9 @@ export default function OfficeInsightPanel({
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [showWarnings, setShowWarnings] = useState(false);
   const workingCount = agents.filter((agent) => agent.status === "working").length;
-  const remoteCcCount = agents.filter(
-    (agent) => agent.activity_source === "remotecc",
-  ).length;
+  const activeCards = kanbanCards ?? [];
+  const inProgressCount = activeCards.filter((c) => c.status === "in_progress").length;
+  const reviewCount = activeCards.filter((c) => c.status === "review").length;
   const warningCount = agents.filter((agent) => getAgentWarnings(agent).length > 0).length;
   const warningAgents = agents
     .map((agent) => ({ agent, warnings: getAgentWarnings(agent) }))
@@ -76,8 +80,8 @@ export default function OfficeInsightPanel({
             </button>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            <StatChip label={isKo ? "작업중" : "Working"} value={String(workingCount)} color="#34d399" />
-            <StatChip label="RemoteCC" value={String(remoteCcCount)} color="#a78bfa" />
+            <StatChip label={isKo ? "진행중" : "Active"} value={String(inProgressCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "검토" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
             <StatChip
               label={isKo ? "경고" : "Alerts"}
               value={String(warningCount)}
@@ -165,8 +169,8 @@ export default function OfficeInsightPanel({
             {isKo ? "상황판" : "Situation"}
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            <StatChip label={isKo ? "작업중" : "Working"} value={String(workingCount)} color="#34d399" />
-            <StatChip label="RemoteCC" value={String(remoteCcCount)} color="#a78bfa" />
+            <StatChip label={isKo ? "진행중" : "Active"} value={String(inProgressCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "검토" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
             <StatChip
               label={isKo ? "경고" : "Alerts"}
               value={String(warningCount)}

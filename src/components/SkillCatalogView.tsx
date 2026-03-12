@@ -3,7 +3,7 @@ import type { SkillCatalogEntry } from "../types";
 import { getSkillCatalog } from "../api/client";
 import { BookOpen, Search } from "lucide-react";
 
-export default function SkillCatalogView() {
+export default function SkillCatalogView({ embedded = false }: { embedded?: boolean }) {
   const [catalog, setCatalog] = useState<SkillCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -36,7 +36,7 @@ export default function SkillCatalogView() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ color: "var(--th-text-muted)" }}>
+      <div className={embedded ? "py-8 text-center" : "flex items-center justify-center h-full"} style={{ color: "var(--th-text-muted)" }}>
         <div className="text-center">
           <BookOpen size={40} className="mx-auto mb-4 opacity-30" />
           <div>Loading skills...</div>
@@ -45,14 +45,11 @@ export default function SkillCatalogView() {
     );
   }
 
-  return (
-    <div
-      className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full pb-40"
-      style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
-    >
+  const content = (
+    <>
       <div className="flex items-center gap-3 mb-4">
-        <BookOpen className="text-blue-400" size={24} />
-        <h1 className="text-xl font-bold" style={{ color: "var(--th-text-heading)" }}>
+        <BookOpen className="text-blue-400" size={embedded ? 20 : 24} />
+        <h1 className={embedded ? "text-base font-semibold" : "text-xl font-bold"} style={{ color: "var(--th-text-heading)" }}>
           스킬 카탈로그
         </h1>
         <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa" }}>
@@ -113,6 +110,17 @@ export default function SkillCatalogView() {
           </div>
         ))}
       </div>
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div
+      className="p-4 sm:p-6 max-w-5xl mx-auto overflow-auto h-full pb-40"
+      style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
+    >
+      {content}
     </div>
   );
 }

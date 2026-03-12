@@ -26,10 +26,6 @@ interface DashboardHeroHeaderProps {
   briefing: string;
   reviewQueue: number;
   numberFormatter: Intl.NumberFormat;
-  primaryCtaEyebrow: string;
-  primaryCtaDescription: string;
-  primaryCtaLabel: string;
-  onPrimaryCtaClick: () => void;
   t: TFunction;
 }
 
@@ -40,10 +36,6 @@ export function DashboardHeroHeader({
   briefing,
   reviewQueue,
   numberFormatter,
-  primaryCtaEyebrow,
-  primaryCtaDescription,
-  primaryCtaLabel,
-  onPrimaryCtaClick,
   t,
 }: DashboardHeroHeaderProps) {
   return (
@@ -91,30 +83,6 @@ export function DashboardHeroHeader({
         </div>
       </div>
 
-      <div className="relative mt-4 rounded-xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/20 via-blue-500/15 to-emerald-500/20 p-4 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200/85">{primaryCtaEyebrow}</p>
-            <p className="mt-1 text-xs sm:text-sm" style={{ color: "var(--th-text-primary)" }}>
-              {primaryCtaDescription}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onPrimaryCtaClick}
-            className="animate-cta-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl border-0 bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-black tracking-tight text-white shadow-[0_4px_20px_rgba(34,211,238,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:from-cyan-400 hover:to-blue-400 hover:shadow-[0_8px_30px_rgba(34,211,238,0.5)] active:translate-y-0 sm:w-auto sm:min-w-[200px]"
-          >
-            <span aria-hidden="true">🚀</span>
-            <span>{primaryCtaLabel}</span>
-            <span
-              className="text-xs text-white/80 transition-transform duration-200 group-hover:translate-x-0.5"
-              aria-hidden="true"
-            >
-              →
-            </span>
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

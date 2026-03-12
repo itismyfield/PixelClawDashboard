@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Application, Container, Graphics, Text, Texture } from "pixi.js";
-import type { Agent, AuditLogEntry, Department, RoundTableMeeting, Task, SubAgent } from "../types";
+import type { Agent, AuditLogEntry, Department, KanbanCard, RoundTableMeeting, Task, SubAgent } from "../types";
 import type { ThemeMode } from "../ThemeContext";
 import type { UiLanguage } from "../i18n";
 import { buildSpriteMap } from "./AgentAvatar";
@@ -34,6 +34,8 @@ interface OfficeViewProps {
   notifications?: Notification[];
   auditLogs?: AuditLogEntry[];
   activeMeeting?: RoundTableMeeting | null;
+  kanbanCards?: KanbanCard[];
+  onNavigateToKanban?: () => void;
   onSelectAgent?: (agent: Agent) => void;
   onSelectDepartment?: (dept: Department) => void;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
@@ -44,6 +46,46 @@ const EMPTY_SUB_AGENTS: SubAgent[] = [];
 const EMPTY_NOTIFICATIONS: Notification[] = [];
 const EMPTY_AUDIT_LOGS: AuditLogEntry[] = [];
 
+function inferDisplayNameLocal(roleId: string): string {
+  if (roleId.startsWith("ch-")) return roleId.slice(3).toUpperCase();
+  if (roleId.endsWith("-agent")) return roleId.replace(/-agent$/, "");
+  return roleId;
+}
+
+function matchParticipantToAgentId(name: string, agents: Agent[]): string | null {
+  const lower = name.toLowerCase();
+  const abbrev = lower.replace(/\s*\(.*$/, "").trim();
+  for (const agent of agents) {
+    if (agent.openclaw_id) {
+      const dn = inferDisplayNameLocal(agent.openclaw_id).toLowerCase();
+      if (dn === lower || dn === abbrev) return agent.id;
+    }
+    const n = agent.name.toLowerCase();
+    if (n === lower || n === abbrev) return agent.id;
+    const nk = agent.name_ko?.toLowerCase();
+    if (nk && (nk === lower || nk === abbrev)) return agent.id;
+    const al = agent.alias?.toLowerCase();
+    if (al && (al === lower || al === abbrev)) return agent.id;
+  }
+  return null;
+}
+
+function computeMeetingPresence(
+  meeting: RoundTableMeeting | null | undefined,
+  agents: Agent[],
+): Array<{ agent_id: string; until: number }> | undefined {
+  if (!meeting || meeting.status !== "in_progress") return undefined;
+  const names = meeting.participant_names ?? [];
+  if (names.length === 0) return undefined;
+  const until = Date.now() + 60 * 60 * 1000; // 1hr future (refreshed every render)
+  const result: Array<{ agent_id: string; until: number }> = [];
+  for (const name of names) {
+    const agentId = matchParticipantToAgentId(name, agents);
+    if (agentId) result.push({ agent_id: agentId, until });
+  }
+  return result.length > 0 ? result : undefined;
+}
+
 export default function OfficeView({
   agents,
   departments,
@@ -53,6 +95,8 @@ export default function OfficeView({
   notifications = EMPTY_NOTIFICATIONS,
   auditLogs = EMPTY_AUDIT_LOGS,
   activeMeeting = null,
+  kanbanCards,
+  onNavigateToKanban,
   onSelectAgent,
   onSelectDepartment,
   customDeptThemes,
@@ -103,6 +147,8 @@ export default function OfficeView({
   const activeMeetingTaskIdRef = useRef<string | null>(null);
   const meetingMinutesOpenRef = useRef<((taskId: string) => void) | undefined>(undefined);
 
+  const meetingPresence = computeMeetingPresence(activeMeeting, agents);
+
   const dataRef = useRef<DataSnapshot>({
     departments,
     agents,
@@ -110,8 +156,9 @@ export default function OfficeView({
     subAgents,
     customDeptThemes,
     activeMeeting,
+    meetingPresence,
   });
-  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes, activeMeeting };
+  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes, activeMeeting, meetingPresence };
 
   const cbRef = useRef<CallbackSnapshot>({
     onSelectAgent: onSelectAgent ?? (() => {}),
@@ -264,6 +311,8 @@ export default function OfficeView({
             agents={agents}
             notifications={notifications}
             auditLogs={auditLogs}
+            kanbanCards={kanbanCards}
+            onNavigateToKanban={onNavigateToKanban}
             isKo={language === "ko"}
             onSelectAgent={onSelectAgent}
           />
@@ -275,6 +324,8 @@ export default function OfficeView({
           agents={agents}
           notifications={notifications}
           auditLogs={auditLogs}
+          kanbanCards={kanbanCards}
+          onNavigateToKanban={onNavigateToKanban}
           isKo={language === "ko"}
           onSelectAgent={onSelectAgent}
           docked

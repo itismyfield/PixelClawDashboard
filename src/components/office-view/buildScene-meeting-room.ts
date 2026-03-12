@@ -183,8 +183,8 @@ export function buildMeetingRoom({
   }
   room.addChild(tableG);
 
-  // Draw chairs and optionally seat participants
-  const participantNames = activeMeeting?.participant_names ?? [];
+  // Draw chairs and optionally seat participants (only during active meeting)
+  const participantNames = isActive ? (activeMeeting?.participant_names ?? []) : [];
   const matchedAgents: Array<Agent | null> = participantNames.map((name) =>
     matchParticipantToAgent(name, agents),
   );
@@ -297,7 +297,7 @@ export function buildMeetingRoom({
   }
 
   // Agenda text when meeting is active
-  if (activeMeeting) {
+  if (activeMeeting && isActive) {
     const agendaText = activeMeeting.agenda.length > 40
       ? `${activeMeeting.agenda.slice(0, 40)}...`
       : activeMeeting.agenda;

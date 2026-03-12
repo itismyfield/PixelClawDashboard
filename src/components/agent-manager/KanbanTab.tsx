@@ -35,6 +35,31 @@ const COLUMN_DEFS: Array<{
 const TERMINAL_STATUSES = new Set<KanbanCardStatus>(["done", "failed", "cancelled"]);
 const PRIORITY_OPTIONS: KanbanCardPriority[] = ["low", "medium", "high", "urgent"];
 
+/** Quick-transition targets per status. Order = button order (primary first). */
+const STATUS_TRANSITIONS: Record<KanbanCardStatus, KanbanCardStatus[]> = {
+  backlog: ["ready"],
+  ready: ["requested", "backlog"],
+  requested: ["in_progress", "cancelled"],
+  in_progress: ["review", "blocked"],
+  review: ["done", "in_progress"],
+  blocked: ["in_progress", "cancelled"],
+  done: ["backlog"],
+  failed: ["backlog"],
+  cancelled: ["backlog"],
+};
+
+const TRANSITION_STYLE: Record<string, { bg: string; text: string }> = {
+  ready: { bg: "rgba(14,165,233,0.18)", text: "#38bdf8" },
+  requested: { bg: "rgba(139,92,246,0.18)", text: "#a78bfa" },
+  in_progress: { bg: "rgba(245,158,11,0.18)", text: "#fbbf24" },
+  review: { bg: "rgba(20,184,166,0.18)", text: "#2dd4bf" },
+  done: { bg: "rgba(34,197,94,0.22)", text: "#4ade80" },
+  blocked: { bg: "rgba(239,68,68,0.18)", text: "#f87171" },
+  backlog: { bg: "rgba(100,116,139,0.18)", text: "#94a3b8" },
+  cancelled: { bg: "rgba(107,114,128,0.18)", text: "#9ca3af" },
+  failed: { bg: "rgba(249,115,22,0.18)", text: "#fb923c" },
+};
+
 interface KanbanTabProps {
   tr: (ko: string, en: string) => string;
   locale: UiLanguage;
@@ -175,9 +200,71 @@ function formatAgeLabel(ms: number, tr: (ko: string, en: string) => string): str
   return tr(`${days}일`, `${days}d`);
 }
 
+// ---------------------------------------------------------------------------
+// PMD Issue Format Parser
+// ---------------------------------------------------------------------------
+
+interface ParsedIssueSections {
+  background: string | null;
+  content: string | null;
+  dodItems: string[];
+  dependencies: string | null;
+  risks: string | null;
+}
+
+function parseIssueSections(desc: string | null | undefined): ParsedIssueSections | null {
+  if (!desc || !desc.includes("## DoD")) return null;
+
+  const sections: Record<string, string> = {};
+  let currentKey: string | null = null;
+  let currentLines: string[] = [];
+
+  for (const line of desc.split("\n")) {
+    const heading = line.match(/^##\s+(.+)$/);
+    if (heading) {
+      if (currentKey) sections[currentKey] = currentLines.join("\n").trim();
+      currentKey = heading[1].trim();
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+  if (currentKey) sections[currentKey] = currentLines.join("\n").trim();
+
+  const dodText = sections["DoD"] ?? "";
+  const dodItems = dodText
+    .split("\n")
+    .map((line) => line.replace(/^-\s*\[[ x]\]\s*/, "").trim())
+    .filter(Boolean);
+
+  return {
+    background: sections["배경"] || null,
+    content: sections["내용"] || null,
+    dodItems,
+    dependencies: sections["의존성"] || null,
+    risks: sections["리스크"] || null,
+  };
+}
+
+/** Sync DoD items from parsed issue body into review_checklist, preserving existing done states. */
+function syncDodToChecklist(
+  dodItems: string[],
+  existingChecklist: KanbanReviewChecklistItem[],
+): KanbanReviewChecklistItem[] {
+  const existing = new Map(existingChecklist.map((item) => [item.label, item]));
+  return dodItems.map((label, i) => {
+    const match = existing.get(label);
+    return match ?? createChecklistItem(label, i);
+  });
+}
+
 function coerceEditor(card: KanbanCard | null): EditorState {
   if (!card) return EMPTY_EDITOR;
   const metadata = parseCardMetadata(card.metadata_json);
+  const parsed = parseIssueSections(card.description);
+  const checklist = parsed
+    ? syncDodToChecklist(parsed.dodItems, metadata.review_checklist ?? [])
+    : metadata.review_checklist ?? [];
   return {
     title: card.title,
     description: card.description ?? "",
@@ -186,7 +273,7 @@ function coerceEditor(card: KanbanCard | null): EditorState {
     status: card.status,
     blocked_reason: card.blocked_reason ?? "",
     review_notes: card.review_notes ?? "",
-    review_checklist: metadata.review_checklist ?? [],
+    review_checklist: checklist,
   };
 }
 
@@ -216,6 +303,7 @@ export default function KanbanTab({
   const [assignIssue, setAssignIssue] = useState<GitHubIssue | null>(null);
   const [assignAssigneeId, setAssignAssigneeId] = useState("");
   const [loadingIssues, setLoadingIssues] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [savingCard, setSavingCard] = useState(false);
   const [retryingCard, setRetryingCard] = useState(false);
   const [assigningIssue, setAssigningIssue] = useState(false);
@@ -230,6 +318,7 @@ export default function KanbanTab({
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [closingIssueNumber, setClosingIssueNumber] = useState<number | null>(null);
   const [selectedBacklogIssue, setSelectedBacklogIssue] = useState<GitHubIssue | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
@@ -261,7 +350,7 @@ export default function KanbanTab({
       if (!selectedRepo && sources[0]?.repo) {
         setSelectedRepo(sources[0].repo);
       }
-    });
+    }).finally(() => setInitialLoading(false));
   }, []);
 
   useEffect(() => {
@@ -291,10 +380,11 @@ export default function KanbanTab({
       })
       .catch((error) => {
       setIssues([]);
-      setActionError(error instanceof Error ? error.message : tr("GitHub 이슈를 불러오지 못했습니다.", "Failed to load GitHub issues."));
+      setActionError(error instanceof Error ? error.message : "Failed to load GitHub issues.");
       })
       .finally(() => setLoadingIssues(false));
-  }, [selectedRepo, tr]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRepo]);
 
   useEffect(() => {
     if (!showClosed && TERMINAL_STATUSES.has(mobileColumnStatus)) {
@@ -467,10 +557,6 @@ export default function KanbanTab({
 
   const handleSaveCard = async () => {
     if (!selectedCard) return;
-    if (editor.status === "done" && editor.review_checklist.some((item) => !item.done)) {
-      setActionError(tr("review checklist를 모두 완료해야 done으로 이동할 수 있습니다.", "Complete the review checklist before moving to done."));
-      return;
-    }
     setSavingCard(true);
     setActionError(null);
     try {
@@ -485,14 +571,13 @@ export default function KanbanTab({
           .filter((item) => item.label),
       } satisfies KanbanCardMetadata;
 
+      // Status is managed by quick-transition buttons, not by save.
+      // Only send content fields here to avoid race conditions.
       await onUpdateCard(selectedCard.id, {
         title: editor.title.trim(),
         description: editor.description.trim() || null,
         assignee_agent_id: editor.assignee_agent_id || null,
         priority: editor.priority,
-        status: editor.status,
-        blocked_reason: editor.blocked_reason.trim() || null,
-        review_notes: editor.review_notes.trim() || null,
         metadata_json: stringifyCardMetadata(metadata),
       });
     } catch (error) {
@@ -589,34 +674,47 @@ export default function KanbanTab({
           borderColor: "rgba(148,163,184,0.28)",
         }}
       >
-        <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold" style={{ color: "var(--th-text-heading)" }}>
-              {tr("Repo 기반 칸반", "Repo-backed Kanban")}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            <h2 className="text-base font-semibold shrink-0" style={{ color: "var(--th-text-heading)" }}>
+              {tr("칸반", "Kanban")}
             </h2>
-            <p className="text-sm" style={{ color: "var(--th-text-muted)" }}>
-              {tr(
-                "backlog는 GitHub issue에서 가져오고, 웹에서는 issue를 agent에게 할당해서 `ready` 카드로 올립니다.",
-                "Backlog comes from GitHub issues, and the web assigns issues into `ready` cards.",
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 text-xs">
-            <span className="px-3 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
-              {tr("표시 중", "Visible")}: {totalVisible}
+            <span className="text-xs shrink-0 px-2 py-0.5 rounded-full bg-white/8" style={{ color: "var(--th-text-muted)" }}>
+              {initialLoading ? "…" : `${openCount}${tr("건", "")}`}
             </span>
-            <span className="px-3 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
-              {tr("열린 카드", "Open")}: {openCount}
-            </span>
-            {selectedRepo && (
-              <span className="px-3 py-1 rounded-full bg-blue-500/20" style={{ color: "#bfdbfe" }}>
-                {selectedRepo}
-              </span>
+            {repoSources.length > 1 && (
+              <div className="flex gap-1 overflow-x-auto min-w-0">
+                {repoSources.map((source) => (
+                  <button
+                    key={source.id}
+                    onClick={() => setSelectedRepo(source.repo)}
+                    className="shrink-0 text-[11px] px-2 py-0.5 rounded-full border truncate max-w-[140px]"
+                    style={{
+                      borderColor: selectedRepo === source.repo ? "rgba(96,165,250,0.5)" : "rgba(148,163,184,0.22)",
+                      backgroundColor: selectedRepo === source.repo ? "rgba(59,130,246,0.18)" : "transparent",
+                      color: selectedRepo === source.repo ? "#bfdbfe" : "var(--th-text-muted)",
+                    }}
+                  >
+                    {source.repo.split("/")[1] ?? source.repo}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
+          <button
+            onClick={() => setSettingsOpen((prev) => !prev)}
+            className="shrink-0 rounded-lg px-2 py-1.5 text-xs border"
+            style={{
+              borderColor: settingsOpen ? "rgba(96,165,250,0.5)" : "rgba(148,163,184,0.22)",
+              color: settingsOpen ? "#93c5fd" : "var(--th-text-muted)",
+              backgroundColor: settingsOpen ? "rgba(59,130,246,0.12)" : "transparent",
+            }}
+          >
+            {settingsOpen ? tr("접기", "Close") : tr("설정", "Settings")}
+          </button>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_auto] min-w-0">
+        {settingsOpen && (
           <div className="space-y-3 min-w-0 overflow-hidden">
             <div className="flex flex-wrap gap-2">
               {repoSources.length === 0 && (
@@ -672,75 +770,75 @@ export default function KanbanTab({
                 {repoBusy ? tr("처리 중", "Working") : tr("Repo 추가", "Add repo")}
               </button>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2 self-start w-full lg:w-auto">
-            <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
+            <div className="flex flex-col gap-2 w-full">
+              <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={showClosed}
+                  onChange={(event) => setShowClosed(event.target.checked)}
+                />
+                {tr("닫힌 컬럼 표시", "Show closed columns")}
+              </label>
+              {selectedRepo && (() => {
+                const currentSource = repoSources.find((s) => s.repo === selectedRepo);
+                if (!currentSource) return null;
+                return (
+                  <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
+                    <span className="shrink-0">{tr("기본 담당자", "Default agent")}</span>
+                    <select
+                      value={currentSource.default_agent_id ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value || null;
+                        void api.updateKanbanRepoSource(currentSource.id, { default_agent_id: value });
+                        setRepoSources((prev) => prev.map((s) => s.id === currentSource.id ? { ...s, default_agent_id: value } : s));
+                      }}
+                      className="min-w-0 flex-1 rounded-lg px-2 py-1 text-xs bg-white/6 border"
+                      style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-primary)" }}
+                    >
+                      <option value="">{tr("없음", "None")}</option>
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>{getAgentLabel(agent.id)}</option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              })()}
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
               <input
-                type="checkbox"
-                checked={showClosed}
-                onChange={(event) => setShowClosed(event.target.checked)}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={tr("제목 / 설명 / 담당자 검색", "Search title / description / assignee")}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
+                style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
               />
-              {tr("닫힌 컬럼 표시", "Show closed columns")}
-            </label>
-            {selectedRepo && (() => {
-              const currentSource = repoSources.find((s) => s.repo === selectedRepo);
-              if (!currentSource) return null;
-              return (
-                <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm border bg-black/20" style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-secondary)" }}>
-                  <span className="shrink-0">{tr("기본 담당자", "Default agent")}</span>
-                  <select
-                    value={currentSource.default_agent_id ?? ""}
-                    onChange={(event) => {
-                      const value = event.target.value || null;
-                      void api.updateKanbanRepoSource(currentSource.id, { default_agent_id: value });
-                      setRepoSources((prev) => prev.map((s) => s.id === currentSource.id ? { ...s, default_agent_id: value } : s));
-                    }}
-                    className="min-w-0 flex-1 rounded-lg px-2 py-1 text-xs bg-white/6 border"
-                    style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-primary)" }}
-                  >
-                    <option value="">{tr("없음", "None")}</option>
-                    {agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>{getAgentLabel(agent.id)}</option>
-                    ))}
-                  </select>
-                </label>
-              );
-            })()}
+              <select
+                value={agentFilter}
+                onChange={(event) => setAgentFilter(event.target.value)}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
+                style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
+              >
+                <option value="all">{tr("전체 에이전트", "All agents")}</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>{getAgentLabel(agent.id)}</option>
+                ))}
+              </select>
+              <select
+                value={deptFilter}
+                onChange={(event) => setDeptFilter(event.target.value)}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
+                style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
+              >
+                <option value="all">{tr("전체 부서", "All departments")}</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>{localeName(locale, department)}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-0">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={tr("제목 / 설명 / 담당자 검색", "Search title / description / assignee")}
-            className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
-            style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
-          />
-          <select
-            value={agentFilter}
-            onChange={(event) => setAgentFilter(event.target.value)}
-            className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
-            style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
-          >
-            <option value="all">{tr("전체 에이전트", "All agents")}</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>{getAgentLabel(agent.id)}</option>
-            ))}
-          </select>
-          <select
-            value={deptFilter}
-            onChange={(event) => setDeptFilter(event.target.value)}
-            className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
-            style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
-          >
-            <option value="all">{tr("전체 부서", "All departments")}</option>
-            {departments.map((department) => (
-              <option key={department.id} value={department.id}>{localeName(locale, department)}</option>
-            ))}
-          </select>
-        </div>
+        )}
 
         {actionError && (
           <div className="rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "rgba(248,113,113,0.45)", color: "#fecaca", backgroundColor: "rgba(127,29,29,0.22)" }}>
@@ -811,7 +909,7 @@ export default function KanbanTab({
                       </h3>
                     </div>
                     <span className="px-2 py-0.5 rounded-full text-xs bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
-                      {backlogCount}
+                      {(initialLoading || (column.status === "backlog" && loadingIssues)) ? "…" : backlogCount}
                     </span>
                   </div>
 
@@ -888,7 +986,7 @@ export default function KanbanTab({
                       </article>
                     ))}
 
-                    {backlogCount === 0 && (
+                    {backlogCount === 0 && !initialLoading && !(column.status === "backlog" && loadingIssues) && (
                       <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-muted)" }}>
                         {column.status === "backlog"
                           ? tr("repo backlog가 비어 있습니다.", "This repo backlog is empty.")
@@ -1005,6 +1103,40 @@ export default function KanbanTab({
                               </a>
                             )}
                           </div>
+
+                          {/* Mobile-only quick transition buttons (PC uses drag & drop) */}
+                          {(STATUS_TRANSITIONS[card.status] ?? []).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 sm:hidden">
+                              {(STATUS_TRANSITIONS[card.status] ?? []).map((target) => {
+                                const style = TRANSITION_STYLE[target] ?? TRANSITION_STYLE.backlog;
+                                return (
+                                  <button
+                                    key={target}
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void (async () => {
+                                        setActionError(null);
+                                        try {
+                                          await onUpdateCard(card.id, { status: target });
+                                        } catch (error) {
+                                          setActionError(error instanceof Error ? error.message : tr("상태 전환에 실패했습니다.", "Failed to change status."));
+                                        }
+                                      })();
+                                    }}
+                                    className="rounded-lg px-2.5 py-1 text-[11px] font-medium border"
+                                    style={{
+                                      backgroundColor: style.bg,
+                                      borderColor: style.text,
+                                      color: style.text,
+                                    }}
+                                  >
+                                    → {labelForStatus(target)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </article>
                       );
                     })}
@@ -1024,7 +1156,7 @@ export default function KanbanTab({
             style={{
               backgroundColor: "rgba(2,6,23,0.96)",
               borderColor: "rgba(148,163,184,0.24)",
-              paddingBottom: "max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))",
+              paddingBottom: "max(6rem, calc(6rem + env(safe-area-inset-bottom)))",
             }}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1038,7 +1170,7 @@ export default function KanbanTab({
               </div>
               <button
                 onClick={() => setAssignIssue(null)}
-                className="rounded-xl px-3 py-2 text-sm bg-white/8"
+                className="shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-sm bg-white/8"
                 style={{ color: "var(--th-text-secondary)" }}
               >
                 {tr("닫기", "Close")}
@@ -1088,7 +1220,7 @@ export default function KanbanTab({
             style={{
               backgroundColor: "rgba(2,6,23,0.96)",
               borderColor: "rgba(148,163,184,0.24)",
-              paddingBottom: "max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))",
+              paddingBottom: "max(6rem, calc(6rem + env(safe-area-inset-bottom)))",
             }}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1112,7 +1244,7 @@ export default function KanbanTab({
               </div>
               <button
                 onClick={() => setSelectedCardId(null)}
-                className="rounded-xl px-3 py-2 text-sm bg-white/8"
+                className="shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-sm bg-white/8"
                 style={{ color: "var(--th-text-secondary)" }}
               >
                 {tr("닫기", "Close")}
@@ -1129,19 +1261,45 @@ export default function KanbanTab({
                   style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
                 />
               </label>
-              <label className="space-y-1">
-                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("상태", "Status")}</span>
-                <select
-                  value={editor.status}
-                  onChange={(event) => setEditor((prev) => ({ ...prev, status: event.target.value as KanbanCardStatus }))}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border"
-                  style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
-                >
-                  {COLUMN_DEFS.map((column) => (
-                    <option key={column.status} value={column.status}>{tr(column.labelKo, column.labelEn)}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="space-y-1">
+                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("상태 전환", "Status")}</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(STATUS_TRANSITIONS[selectedCard.status] ?? []).map((target) => {
+                    const style = TRANSITION_STYLE[target] ?? TRANSITION_STYLE.backlog;
+                    return (
+                      <button
+                        key={target}
+                        type="button"
+                        disabled={savingCard}
+                        onClick={async () => {
+                          if (target === "done" && editor.review_checklist.some((item) => !item.done)) {
+                            setActionError(tr("review checklist를 모두 완료해야 done으로 이동할 수 있습니다.", "Complete the review checklist before moving to done."));
+                            return;
+                          }
+                          setSavingCard(true);
+                          setActionError(null);
+                          try {
+                            await onUpdateCard(selectedCard.id, { status: target });
+                            setEditor((prev) => ({ ...prev, status: target }));
+                          } catch (error) {
+                            setActionError(error instanceof Error ? error.message : tr("상태 전환에 실패했습니다.", "Failed to change status."));
+                          } finally {
+                            setSavingCard(false);
+                          }
+                        }}
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-40"
+                        style={{
+                          backgroundColor: style.bg,
+                          borderColor: style.text,
+                          color: style.text,
+                        }}
+                      >
+                        → {labelForStatus(target)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1186,119 +1344,126 @@ export default function KanbanTab({
               </div>
             </div>
 
-            <label className="space-y-1 block">
-              <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("설명", "Description")}</span>
-              <textarea
-                value={editor.description}
-                onChange={(event) => setEditor((prev) => ({ ...prev, description: event.target.value }))}
-                rows={4}
-                className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border resize-y"
-                style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
-              />
-            </label>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1">
-                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("Blocked 이유", "Blocked reason")}</span>
-                <textarea
-                  value={editor.blocked_reason}
-                  onChange={(event) => setEditor((prev) => ({ ...prev, blocked_reason: event.target.value }))}
-                  rows={3}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border resize-y"
-                  style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("Review 메모", "Review notes")}</span>
-                <textarea
-                  value={editor.review_notes}
-                  onChange={(event) => setEditor((prev) => ({ ...prev, review_notes: event.target.value }))}
-                  rows={3}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border resize-y"
-                  style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
-                />
-              </label>
-            </div>
-
-            <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h4 className="font-medium" style={{ color: "var(--th-text-heading)" }}>
-                    {tr("Review checklist", "Review checklist")}
-                  </h4>
-                  <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
-                    {tr("done 전 최종 확인 항목을 관리합니다.", "Track final checks before marking done.")}
-                  </p>
-                </div>
-                <span className="text-xs px-2 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
-                  {editor.review_checklist.filter((item) => item.done).length}/{editor.review_checklist.length}
-                </span>
-              </div>
-
-              {editor.review_checklist.length === 0 ? (
-                <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.22)", color: "var(--th-text-muted)" }}>
-                  {tr("아직 checklist 항목이 없습니다.", "No checklist items yet.")}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {editor.review_checklist.map((item) => (
-                    <label
-                      key={item.id}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2"
-                      style={{ backgroundColor: "rgba(255,255,255,0.04)" }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.done}
-                        onChange={(event) => setEditor((prev) => ({
-                          ...prev,
-                          review_checklist: prev.review_checklist.map((current) => current.id === item.id ? { ...current, done: event.target.checked } : current),
-                        }))}
-                      />
-                      <span className="min-w-0 flex-1 text-sm" style={{ color: item.done ? "var(--th-text-secondary)" : "var(--th-text-primary)" }}>
-                        {item.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setEditor((prev) => ({
-                          ...prev,
-                          review_checklist: prev.review_checklist.filter((current) => current.id !== item.id),
-                        }))}
-                        className="text-xs"
-                        style={{ color: "var(--th-text-muted)" }}
+            {/* Description / Issue Sections */}
+            {(() => {
+              const parsed = parseIssueSections(editor.description);
+              if (!parsed) {
+                // Fallback: non-PMD format → show as markdown
+                return (
+                  <div className="space-y-1">
+                    <span className="text-xs" style={{ color: "var(--th-text-muted)" }}>{tr("설명", "Description")}</span>
+                    {editor.description ? (
+                      <div
+                        className="rounded-2xl border p-4 bg-white/5 text-sm"
+                        style={{ borderColor: "rgba(148,163,184,0.18)", color: "var(--th-text-primary)" }}
                       >
-                        {tr("삭제", "Remove")}
-                      </button>
-                    </label>
-                  ))}
-                </div>
-              )}
+                        <MarkdownContent content={editor.description} />
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-muted)" }}>
+                        {tr("설명이 없습니다.", "No description.")}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
 
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <input
-                  value={newChecklistItem}
-                  onChange={(event) => setNewChecklistItem(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addChecklistItem();
-                    }
-                  }}
-                  placeholder={tr("검토 항목 추가", "Add checklist item")}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border"
-                  style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
-                />
-                <button
-                  type="button"
-                  onClick={addChecklistItem}
-                  disabled={!newChecklistItem.trim()}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  style={{ backgroundColor: "#0f766e" }}
-                >
-                  {tr("항목 추가", "Add item")}
-                </button>
-              </div>
-            </div>
+              // Structured view for PMD-format issues
+              return (
+                <div className="space-y-3">
+                  {/* 배경 */}
+                  {parsed.background && (
+                    <div className="rounded-2xl border p-4 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--th-text-muted)" }}>
+                        {tr("배경", "Background")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.background} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 내용 */}
+                  {parsed.content && (
+                    <div className="rounded-2xl border p-4 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--th-text-muted)" }}>
+                        {tr("내용", "Content")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.content} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DoD Checklist */}
+                  {editor.review_checklist.length > 0 && (
+                    <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(20,184,166,0.3)" }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#2dd4bf" }}>
+                          DoD (Definition of Done)
+                        </div>
+                        <span className="text-xs px-2 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
+                          {editor.review_checklist.filter((item) => item.done).length}/{editor.review_checklist.length}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {editor.review_checklist.map((item) => (
+                          <label
+                            key={item.id}
+                            className="flex items-center gap-3 rounded-xl px-3 py-2"
+                            style={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={item.done}
+                              onChange={(event) => setEditor((prev) => ({
+                                ...prev,
+                                review_checklist: prev.review_checklist.map((current) =>
+                                  current.id === item.id ? { ...current, done: event.target.checked } : current,
+                                ),
+                              }))}
+                            />
+                            <span
+                              className="min-w-0 flex-1 text-sm"
+                              style={{
+                                color: item.done ? "var(--th-text-secondary)" : "var(--th-text-primary)",
+                                textDecoration: item.done ? "line-through" : "none",
+                              }}
+                            >
+                              {item.label}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 의존성 */}
+                  {parsed.dependencies && (
+                    <div className="rounded-2xl border p-3 bg-white/5" style={{ borderColor: "rgba(96,165,250,0.25)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#93c5fd" }}>
+                        {tr("의존성", "Dependencies")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.dependencies} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 리스크 */}
+                  {parsed.risks && (
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "rgba(239,68,68,0.25)", backgroundColor: "rgba(127,29,29,0.12)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#fca5a5" }}>
+                        {tr("리스크", "Risks")}
+                      </div>
+                      <div className="text-sm" style={{ color: "#fecaca" }}>
+                        <MarkdownContent content={parsed.risks} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {canRetryCard(selectedCard) && (
               <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
@@ -1413,7 +1578,7 @@ export default function KanbanTab({
             style={{
               backgroundColor: "rgba(2,6,23,0.96)",
               borderColor: "rgba(148,163,184,0.24)",
-              paddingBottom: "max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))",
+              paddingBottom: "max(6rem, calc(6rem + env(safe-area-inset-bottom)))",
             }}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1468,18 +1633,84 @@ export default function KanbanTab({
               </div>
             </div>
 
-            {selectedBacklogIssue.body ? (
-              <div
-                className="rounded-2xl border p-4 bg-white/5 text-sm"
-                style={{ borderColor: "rgba(148,163,184,0.18)", color: "var(--th-text-primary)" }}
-              >
-                <MarkdownContent content={selectedBacklogIssue.body} />
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-muted)" }}>
-                {tr("이슈 본문이 없습니다.", "No issue body.")}
-              </div>
-            )}
+            {(() => {
+              const parsed = parseIssueSections(selectedBacklogIssue.body);
+              if (!parsed) {
+                // Fallback: non-PMD format
+                return selectedBacklogIssue.body ? (
+                  <div
+                    className="rounded-2xl border p-4 bg-white/5 text-sm"
+                    style={{ borderColor: "rgba(148,163,184,0.18)", color: "var(--th-text-primary)" }}
+                  >
+                    <MarkdownContent content={selectedBacklogIssue.body} />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-center" style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-muted)" }}>
+                    {tr("이슈 본문이 없습니다.", "No issue body.")}
+                  </div>
+                );
+              }
+              // Structured view for PMD-format issues
+              return (
+                <div className="space-y-3">
+                  {parsed.background && (
+                    <div className="rounded-2xl border p-4 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--th-text-muted)" }}>
+                        {tr("배경", "Background")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.background} />
+                      </div>
+                    </div>
+                  )}
+                  {parsed.content && (
+                    <div className="rounded-2xl border p-4 bg-white/5" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--th-text-muted)" }}>
+                        {tr("내용", "Content")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.content} />
+                      </div>
+                    </div>
+                  )}
+                  {parsed.dodItems.length > 0 && (
+                    <div className="rounded-2xl border p-4 bg-white/5 space-y-2" style={{ borderColor: "rgba(20,184,166,0.3)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#2dd4bf" }}>
+                        DoD (Definition of Done)
+                      </div>
+                      <div className="space-y-1.5">
+                        {parsed.dodItems.map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-sm" style={{ color: "var(--th-text-primary)" }}>
+                            <span className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>☐</span>
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {parsed.dependencies && (
+                    <div className="rounded-2xl border p-3 bg-white/5" style={{ borderColor: "rgba(96,165,250,0.25)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#93c5fd" }}>
+                        {tr("의존성", "Dependencies")}
+                      </div>
+                      <div className="text-sm" style={{ color: "var(--th-text-primary)" }}>
+                        <MarkdownContent content={parsed.dependencies} />
+                      </div>
+                    </div>
+                  )}
+                  {parsed.risks && (
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "rgba(239,68,68,0.25)", backgroundColor: "rgba(127,29,29,0.12)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#fca5a5" }}>
+                        {tr("리스크", "Risks")}
+                      </div>
+                      <div className="text-sm" style={{ color: "#fecaca" }}>
+                        <MarkdownContent content={parsed.risks} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <a
