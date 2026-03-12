@@ -115,7 +115,11 @@ router.post("/api/kanban-cards/assign-issue", (req, res) => {
            owner_agent_id = COALESCE(owner_agent_id, ?),
            requester_agent_id = COALESCE(requester_agent_id, ?),
            github_issue_url = COALESCE(?, github_issue_url),
-           status = CASE WHEN status = 'backlog' THEN 'ready' ELSE status END,
+           status = CASE WHEN status IN ('backlog','done','failed','cancelled') THEN 'ready' ELSE status END,
+           started_at = CASE WHEN status IN ('done','failed','cancelled') THEN NULL ELSE started_at END,
+           requested_at = CASE WHEN status IN ('done','failed','cancelled') THEN NULL ELSE requested_at END,
+           completed_at = CASE WHEN status IN ('done','failed','cancelled') THEN NULL ELSE completed_at END,
+           latest_dispatch_id = CASE WHEN status IN ('done','failed','cancelled') THEN NULL ELSE latest_dispatch_id END,
            updated_at = ?
        WHERE id = ?`,
     ).run(title, description, assigneeId, assigneeId, assigneeId, issueUrl, now, existing.id);

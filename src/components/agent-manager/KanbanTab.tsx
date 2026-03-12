@@ -450,10 +450,12 @@ export default function KanbanTab({
     return grouped;
   }, [filteredCards]);
 
+  // Include ALL cards (including terminal) to prevent done/failed issues
+  // from reappearing in the backlog when the done column is hidden.
   const activeIssueNumbers = useMemo(() => {
     const set = new Set<number>();
     for (const card of repoCards) {
-      if (!TERMINAL_STATUSES.has(card.status) && card.github_issue_number) {
+      if (card.github_issue_number) {
         set.add(card.github_issue_number);
       }
     }
