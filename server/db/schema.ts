@@ -223,6 +223,18 @@ export function initSchema(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_rt_entries_meeting ON round_table_entries (meeting_id, seq);
 
+    CREATE TABLE IF NOT EXISTS issue_triage_log (
+      github_repo TEXT NOT NULL,
+      github_issue_number INTEGER NOT NULL,
+      github_issue_title TEXT NOT NULL DEFAULT '',
+      assigned_agent_id TEXT NOT NULL DEFAULT '',
+      confidence TEXT NOT NULL DEFAULT 'medium'
+        CHECK(confidence IN ('high','medium','low')),
+      reason TEXT NOT NULL DEFAULT '',
+      triaged_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      PRIMARY KEY (github_repo, github_issue_number)
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       actor TEXT NOT NULL DEFAULT 'dashboard-session',
@@ -358,6 +370,9 @@ function migrate(db: DatabaseSync): void {
     "CREATE INDEX IF NOT EXISTS idx_kanban_cards_repo_issue ON kanban_cards (github_repo, github_issue_number, status, updated_at DESC)",
   );
 
+  if (!dsCols.some((c) => c.name === "active_dispatch_id")) {
+    db.exec("ALTER TABLE dispatched_sessions ADD COLUMN active_dispatch_id TEXT DEFAULT NULL");
+  }
   if (!dsCols.some((c) => c.name === "provider")) {
     db.exec("ALTER TABLE dispatched_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'");
   }

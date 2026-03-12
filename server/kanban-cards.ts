@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -448,6 +449,15 @@ export function createDispatchForKanbanCard(db: DatabaseSync, cardId: string): K
     },
   };
 
+  // Insert dispatch row BEFORE updating kanban card to satisfy FK constraint
+  const chainDepth = parentDispatchId
+    ? ((db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1").get(parentDispatchId) as { chain_depth: number } | undefined)?.chain_depth ?? 0) + 1
+    : 0;
+  db.prepare(
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+     VALUES (?, ?, ?, 'generic', 'pending', ?, NULL, ?, ?, ?, NULL)`,
+  ).run(dispatchId, requesterAgentId, card.assignee_agent_id, card.title, parentDispatchId, chainDepth, now);
+
   fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
 
   db.prepare(
@@ -861,4 +871,84 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
   }
 
   return { timedOutRequested, stalledInProgress };
+}
+
+// ── GitHub issue state sync ──
+
+const ACTIVE_CARD_STATUSES = ["requested", "in_progress", "review", "blocked"] as const;
+
+interface GhIssueState {
+  number: number;
+  state: string;
+}
+
+function ghIssueState(repo: string, issueNumber: number): string | null {
+  try {
+    const raw = execFileSync("gh", [
+      "issue", "view", String(issueNumber),
+      "--repo", repo,
+      "--json", "state",
+    ], { timeout: 10000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const parsed = JSON.parse(raw) as GhIssueState;
+    return parsed.state?.toUpperCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check active kanban cards linked to GitHub issues.
+ * If the GitHub issue is closed, transition the card to "done".
+ * If the issue was reopened while card is done/cancelled, transition back to "in_progress".
+ */
+export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
+  const activeCards = db.prepare(
+    `SELECT *
+     FROM kanban_cards
+     WHERE github_repo IS NOT NULL
+       AND github_issue_number IS NOT NULL
+       AND status IN ('requested', 'in_progress', 'review', 'blocked')`,
+  ).all() as unknown as KanbanCardBaseRow[];
+
+  const changed: KanbanCardRow[] = [];
+
+  for (const card of activeCards) {
+    if (!card.github_repo || !card.github_issue_number) continue;
+
+    const state = ghIssueState(card.github_repo, card.github_issue_number);
+    if (!state) continue;
+
+    if (state === "CLOSED") {
+      const now = Date.now();
+
+      // Close linked dispatch if still active
+      if (card.latest_dispatch_id) {
+        db.prepare(
+          `UPDATE task_dispatches
+           SET status = 'completed',
+               result_summary = COALESCE(result_summary, 'GitHub issue closed externally'),
+               completed_at = COALESCE(completed_at, ?)
+           WHERE id = ?
+             AND status IN ('pending', 'dispatched', 'in_progress')`,
+        ).run(now, card.latest_dispatch_id);
+        const updated = getTaskDispatchById(db, card.latest_dispatch_id);
+        if (updated) broadcast("task_dispatch_updated", updated);
+      }
+
+      db.prepare(
+        `UPDATE kanban_cards
+         SET status = 'done',
+             completed_at = COALESCE(completed_at, ?),
+             updated_at = ?
+         WHERE id = ?`,
+      ).run(now, now, card.id);
+
+      const updatedCard = emitKanbanCard(db, card.id, "kanban_card_updated");
+      if (updatedCard) changed.push(updatedCard);
+
+      console.log(`[PCD] github-sync: ${card.github_repo}#${card.github_issue_number} closed → card ${card.id} done`);
+    }
+  }
+
+  return changed;
 }

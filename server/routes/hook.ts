@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
+import { emitKanbanCard } from "../kanban-cards.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
 import { recordSkillUsageEvent } from "../skill-sync.js";
@@ -72,6 +73,52 @@ function emitLinkedAgentStatus(agentId: string): void {
   });
 }
 
+/**
+ * Dispatch-aware kanban promotion.
+ * Only promotes when the session explicitly carries a dispatch_id matching a kanban card.
+ *
+ * working:          card requested  → in_progress
+ * completed (idle): card in_progress → review  (agent finished work, then session ended)
+ * disconnect:       card stays in_progress      (abnormal termination — not auto-promoted)
+ */
+function promoteKanbanForDispatch(dispatchId: string, signal: "working" | "completed"): void {
+  const db = getDb();
+
+  const card = db.prepare(
+    `SELECT id, status FROM kanban_cards WHERE latest_dispatch_id = ? LIMIT 1`,
+  ).get(dispatchId) as { id: string; status: string } | undefined;
+  if (!card) return;
+
+  const now = Date.now();
+
+  if (signal === "working" && card.status === "requested") {
+    db.prepare(
+      `UPDATE kanban_cards SET status = 'in_progress', started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?`,
+    ).run(now, now, card.id);
+    db.prepare(
+      `UPDATE task_dispatches SET status = 'in_progress' WHERE id = ? AND status IN ('pending', 'dispatched')`,
+    ).run(dispatchId);
+    emitKanbanCard(db, card.id, "kanban_card_updated");
+    console.log(`[PCD] kanban dispatch-promote: ${card.id} → in_progress (dispatch ${dispatchId})`);
+  } else if (signal === "completed" && card.status === "in_progress") {
+    // Only promote if no other working sessions reference this dispatch
+    const otherWorking = db.prepare(
+      `SELECT COUNT(*) as cnt FROM dispatched_sessions
+       WHERE active_dispatch_id = ? AND status = 'working'`,
+    ).get(dispatchId) as { cnt: number };
+    if (otherWorking.cnt > 0) return;
+
+    db.prepare(
+      `UPDATE kanban_cards SET status = 'review', updated_at = ? WHERE id = ?`,
+    ).run(now, card.id);
+    db.prepare(
+      `UPDATE task_dispatches SET status = 'completed', result_summary = COALESCE(result_summary, 'Session completed'), completed_at = COALESCE(completed_at, ?) WHERE id = ? AND status IN ('pending', 'dispatched', 'in_progress')`,
+    ).run(now, dispatchId);
+    emitKanbanCard(db, card.id, "kanban_card_updated");
+    console.log(`[PCD] kanban dispatch-promote: ${card.id} → review (dispatch ${dispatchId} completed)`);
+  }
+}
+
 // Sync agent list into PCD (upsert missing agents from role-map)
 router.post("/api/hook/sync-agents", (_req, res) => {
   const created = syncAgentsOnce();
@@ -96,10 +143,11 @@ router.post("/api/hook/reset-status", (_req, res) => {
 // Dispatched session: register / heartbeat
 router.post("/api/hook/session", (req, res) => {
   const db = getDb();
-  const { session_key, name, model, status, session_info, tokens, cwd } = req.body;
+  const { session_key, name, model, status, session_info, tokens, cwd, dispatch_id } = req.body;
   if (!session_key)
     return res.status(400).json({ error: "session_key required" });
   const provider = inferRemoteCcProvider(session_key, name ?? null, req.body.provider ?? null);
+  const activeDispatchId = typeof dispatch_id === "string" && dispatch_id.trim() ? dispatch_id.trim() : null;
 
   // Convert tokens → XP (1000 tokens = 1 XP, matching agent XP formula)
   const xpDelta = typeof tokens === "number" && tokens > 0 ? Math.floor(tokens / 1000) : 0;
@@ -147,6 +195,10 @@ router.post("/api/hook/session", (req, res) => {
       sets.push("provider = ?");
       vals.push(provider);
     }
+    if (activeDispatchId && existing.active_dispatch_id !== activeDispatchId) {
+      sets.push("active_dispatch_id = ?");
+      vals.push(activeDispatchId);
+    }
     if (xpDelta > 0 && !linkedAgentId) {
       sets.push("stats_xp = stats_xp + ?");
       vals.push(xpDelta);
@@ -179,7 +231,19 @@ router.post("/api/hook/session", (req, res) => {
     }
 
     broadcast("dispatched_session_update", updated);
-    if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
+    if (linkedAgentId) {
+      emitLinkedAgentStatus(linkedAgentId);
+    }
+    // Dispatch-aware kanban promotion: only when dispatch_id is present
+    const effectiveDispatchId = activeDispatchId ?? (existing.active_dispatch_id as string | null);
+    if (effectiveDispatchId) {
+      if (status === "working" && existing.status !== "working") {
+        promoteKanbanForDispatch(effectiveDispatchId, "working");
+      } else if (status === "idle" && existing.status === "working") {
+        // Agent finished work normally (working → idle) → promote to review
+        promoteKanbanForDispatch(effectiveDispatchId, "completed");
+      }
+    }
     return res.json(updated);
   }
 
@@ -187,8 +251,8 @@ router.post("/api/hook/session", (req, res) => {
   const id = crypto.randomUUID();
   const linkedAgentId = resolveLinkedAgentId(session_key, name ?? null);
   db.prepare(
-    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, cwd, linked_agent_id, stats_xp, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dispatched_sessions (id, session_key, name, provider, model, status, session_info, cwd, linked_agent_id, active_dispatch_id, stats_xp, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     session_key,
@@ -199,6 +263,7 @@ router.post("/api/hook/session", (req, res) => {
     session_info ?? null,
     cwd ?? null,
     linkedAgentId,
+    activeDispatchId,
     0,
     Date.now(),
   );
@@ -213,7 +278,13 @@ router.post("/api/hook/session", (req, res) => {
     .prepare("SELECT * FROM dispatched_sessions WHERE id = ?")
     .get(id) as Record<string, unknown>;
   broadcast("dispatched_session_new", session);
-  if (linkedAgentId) emitLinkedAgentStatus(linkedAgentId);
+  if (linkedAgentId) {
+    emitLinkedAgentStatus(linkedAgentId);
+  }
+  // Dispatch-aware kanban promotion for new session
+  if (activeDispatchId && (status ?? "working") === "working") {
+    promoteKanbanForDispatch(activeDispatchId, "working");
+  }
   res.status(201).json(session);
 });
 
@@ -232,6 +303,8 @@ router.delete("/api/hook/session/:sessionKey", (req, res) => {
   if (row.linked_agent_id) {
     emitLinkedAgentStatus(String(row.linked_agent_id));
   }
+  // Abnormal disconnect: kanban card stays in_progress (not auto-promoted to review).
+  // Only normal completion (working → idle heartbeat) promotes to review.
   res.json({ ok: true });
 });
 

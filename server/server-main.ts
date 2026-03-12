@@ -31,6 +31,7 @@ import roundTableRoutes from "./routes/round-table.js";
 import { startDispatchWatcher, stopDispatchWatcher } from "./dispatch-watcher.js";
 import kanbanCardRoutes from "./routes/kanban-cards.js";
 import kanbanRepoRoutes from "./routes/kanban-repos.js";
+import { startIssueTriage, stopIssueTriage } from "./issue-triage.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -106,29 +107,22 @@ server.listen(PORT, HOST, () => {
   startSkillSync();
   startDispatchedSync();
   startDispatchWatcher();
+  startIssueTriage();
 });
 
 // Graceful shutdown
-process.on("SIGTERM", () => {
+function gracefulShutdown() {
   console.log("[PCD] shutting down...");
   stopXpSync();
   stopAgentSync();
   stopSkillSync();
   stopDispatchedSync();
   stopDispatchWatcher();
+  stopIssueTriage();
   server.close();
   closeDb();
   process.exit(0);
-});
+}
 
-process.on("SIGINT", () => {
-  console.log("[PCD] shutting down...");
-  stopXpSync();
-  stopAgentSync();
-  stopSkillSync();
-  stopDispatchedSync();
-  stopDispatchWatcher();
-  server.close();
-  closeDb();
-  process.exit(0);
-});
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);

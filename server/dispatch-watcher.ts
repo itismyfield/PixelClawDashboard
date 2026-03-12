@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db/runtime.js";
-import { enforceKanbanTimeouts, syncKanbanCardWithDispatch } from "./kanban-cards.js";
+import { enforceKanbanTimeouts, syncGitHubIssueStates, syncKanbanCardWithDispatch } from "./kanban-cards.js";
 import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
 import { sendToAgentChannel } from "./discord-announce.js";
@@ -170,11 +170,11 @@ function processHandoffFile(filePath: string): void {
 
   const db = getDb();
 
-  // Check if already processed
+  // Check if already processed (dispatched/completed/failed/cancelled = skip)
   const existing = db
-    .prepare("SELECT id FROM task_dispatches WHERE id = ?")
-    .get(handoff.dispatch_id) as { id: string } | undefined;
-  if (existing) {
+    .prepare("SELECT id, status FROM task_dispatches WHERE id = ?")
+    .get(handoff.dispatch_id) as { id: string; status: string } | undefined;
+  if (existing && existing.status !== "pending") {
     archiveFile(filePath);
     return;
   }
@@ -204,14 +204,20 @@ function processHandoffFile(filePath: string): void {
     sendCeoAlert(
       `Dispatch chain depth ${chainDepth} reached limit for "${handoff.title}" (from: ${handoff.from}). Auto-cancelled.`,
     );
-    db.prepare(
-      `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
-       VALUES (?, ?, ?, ?, 'cancelled', ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      handoff.dispatch_id, handoff.from, toAgent, handoff.type,
-      handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
-      chainDepth, Date.now(), Date.now(),
-    );
+    if (existing) {
+      db.prepare(
+        "UPDATE task_dispatches SET status = 'cancelled', context_file = ?, dispatched_at = ? WHERE id = ?",
+      ).run(archivedPath, Date.now(), handoff.dispatch_id);
+    } else {
+      db.prepare(
+        `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+         VALUES (?, ?, ?, ?, 'cancelled', ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        handoff.dispatch_id, handoff.from, toAgent, handoff.type,
+        handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
+        chainDepth, Date.now(), Date.now(),
+      );
+    }
     emitDispatchCreated(handoff.dispatch_id);
     return;
   }
@@ -219,15 +225,23 @@ function processHandoffFile(filePath: string): void {
   const now = Date.now();
   const archivedPath = archiveFile(filePath);
 
-  // Insert into DB
-  db.prepare(
-    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
-     VALUES (?, ?, ?, ?, 'dispatched', ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    handoff.dispatch_id, handoff.from, toAgent, handoff.type,
-    handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
-    chainDepth, now, now,
-  );
+  // Insert or update dispatch row
+  if (existing) {
+    db.prepare(
+      `UPDATE task_dispatches
+       SET status = 'dispatched', context_file = ?, dispatched_at = ?
+       WHERE id = ?`,
+    ).run(archivedPath, now, handoff.dispatch_id);
+  } else {
+    db.prepare(
+      `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+       VALUES (?, ?, ?, ?, 'dispatched', ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      handoff.dispatch_id, handoff.from, toAgent, handoff.type,
+      handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
+      chainDepth, now, now,
+    );
+  }
 
   // Deliver message to target agent (fire-and-forget, non-blocking)
   const msg = `DISPATCH:${handoff.dispatch_id} - ${handoff.title}`;
@@ -417,12 +431,117 @@ function cleanupStaleDispatches(): void {
     );
     console.log(`[PCD-dispatch] Blocked ${stalledInProgress.length} stale in-progress kanban card(s)`);
   }
+
+  // Sync GitHub issue states → auto-close cards whose issues were closed externally
+  try {
+    const ghClosed = syncGitHubIssueStates(db);
+    if (ghClosed.length > 0) {
+      console.log(`[PCD-dispatch] GitHub sync: ${ghClosed.length} card(s) closed via issue state`);
+    }
+  } catch (error) {
+    console.error("[PCD-dispatch] GitHub issue sync error:", error);
+  }
+}
+
+// ── Recover pending dispatches that were archived but never completed ──
+// This handles the race condition where the process is killed between
+// archiving the handoff file and updating the DB / sending the message.
+
+function recoverPendingDispatches(): void {
+  const db = getDb();
+  const pending = db
+    .prepare(
+      `SELECT id, to_agent_id, title
+       FROM task_dispatches
+       WHERE status = 'pending' AND dispatched_at IS NULL`,
+    )
+    .all() as Array<{ id: string; to_agent_id: string | null; title: string }>;
+
+  if (pending.length === 0) return;
+
+  for (const row of pending) {
+    // Look for archived handoff file matching this dispatch id
+    let archivedPath: string | null = null;
+    try {
+      const archiveEntries = fs.readdirSync(PCD_HANDOFF_ARCHIVE_DIR);
+      const match = archiveEntries.find((name) => name.includes(row.id));
+      if (match) {
+        archivedPath = path.join(PCD_HANDOFF_ARCHIVE_DIR, match);
+      }
+    } catch {
+      // archive dir may not exist yet
+    }
+
+    // Also check if the handoff file is still in the handoff dir (not yet picked up)
+    // — if so, pollOnce() will handle it normally, skip recovery
+    try {
+      const handoffEntries = fs.readdirSync(PCD_HANDOFF_DIR);
+      const stillPending = handoffEntries.find(
+        (name) => name.endsWith(".json") && name.includes(row.id),
+      );
+      if (stillPending) continue;
+    } catch {
+      // ignore
+    }
+
+    if (!archivedPath) {
+      // No handoff file found anywhere — mark as failed
+      console.log(`[PCD-dispatch] Recovery: no handoff file for pending dispatch ${row.id}, marking failed`);
+      db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
+        .run(Date.now(), row.id);
+      emitDispatchUpdated(row.id);
+      continue;
+    }
+
+    // Read the archived handoff to get target agent
+    let toAgent = row.to_agent_id;
+    if (!toAgent) {
+      try {
+        const raw = fs.readFileSync(archivedPath, "utf-8");
+        const handoff = JSON.parse(raw) as HandoffFile;
+        toAgent = handoff.to || resolveAgent(handoff.type, handoff.from);
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    if (!toAgent) {
+      console.log(`[PCD-dispatch] Recovery: no target agent for dispatch ${row.id}, marking failed`);
+      db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
+        .run(Date.now(), row.id);
+      emitDispatchUpdated(row.id);
+      continue;
+    }
+
+    // Update DB to dispatched
+    const now = Date.now();
+    db.prepare(
+      `UPDATE task_dispatches SET status = 'dispatched', context_file = ?, dispatched_at = ? WHERE id = ?`,
+    ).run(archivedPath, now, row.id);
+
+    // Re-send the dispatch message
+    const msg = `DISPATCH:${row.id} - ${row.title}`;
+    sendAgentMessage(toAgent, msg).then((delivered) => {
+      if (!delivered) {
+        db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(row.id);
+        sendCeoAlert(
+          `Recovery: failed to deliver dispatch "${row.title}" to ${toAgent} after ${MAX_RETRIES} retries.`,
+        );
+        emitDispatchUpdated(row.id);
+      }
+    });
+
+    emitDispatchUpdated(row.id);
+    console.log(`[PCD-dispatch] Recovered pending dispatch: ${row.id} → ${toAgent} ("${row.title}")`);
+  }
 }
 
 // ── Public API ──
 
 export function startDispatchWatcher(): void {
   ensureDirs();
+  // Recover any dispatches left in pending state from a previous crash
+  recoverPendingDispatches();
   // Process any existing files on startup
   pollOnce();
   pollTimer = setInterval(pollOnce, POLL_MS);
