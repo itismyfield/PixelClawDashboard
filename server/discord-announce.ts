@@ -203,7 +203,7 @@ export async function sendDiscordTarget(target: string, text: string, bot: BotTy
 }
 
 interface AgentChannels {
-  openclaw_id: string | null;
+  role_id: string | null;
   discord_channel_id: string | null;
   discord_channel_id_alt: string | null;
   discord_channel_id_codex: string | null;
@@ -223,7 +223,7 @@ function collectAgentTargets(agentLookup: string, agent?: AgentChannels): string
 
   const roleIds = new Set<string>();
   if (agentLookup.trim()) roleIds.add(agentLookup.trim());
-  if (agent?.openclaw_id?.trim()) roleIds.add(agent.openclaw_id.trim());
+  if (agent?.role_id?.trim()) roleIds.add(agent.role_id.trim());
 
   for (const binding of listRoleBindings()) {
     if (!binding.channelId || !roleIds.has(binding.roleId)) continue;
@@ -255,9 +255,9 @@ export async function sendToAgentChannel(
   const db = getDb();
   const agent = db
     .prepare(
-      `SELECT openclaw_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+      `SELECT role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
        FROM agents
-       WHERE id = ? OR openclaw_id = ? OR name = ? OR name_ko = ? OR alias = ?`,
+       WHERE id = ? OR role_id = ? OR name = ? OR name_ko = ? OR alias = ?`,
     )
     .get(agentId, agentId, agentId, agentId, agentId) as AgentChannels | undefined;
 

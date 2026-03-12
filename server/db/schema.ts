@@ -29,7 +29,7 @@ export function initSchema(db: DatabaseSync): void {
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
-      openclaw_id TEXT UNIQUE,
+      role_id TEXT UNIQUE,
       name TEXT NOT NULL DEFAULT '',
       name_ko TEXT NOT NULL DEFAULT '',
       name_ja TEXT NOT NULL DEFAULT '',
@@ -84,7 +84,7 @@ export function initSchema(db: DatabaseSync): void {
       event_key TEXT PRIMARY KEY,
       skill_name TEXT NOT NULL,
       session_key TEXT DEFAULT NULL,
-      agent_openclaw_id TEXT DEFAULT NULL,
+      agent_role_id TEXT DEFAULT NULL,
       agent_name TEXT DEFAULT NULL,
       used_at INTEGER NOT NULL
     );
@@ -98,7 +98,7 @@ export function initSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_skill_usage_name_time
       ON skill_usage_events (skill_name, used_at DESC);
     CREATE INDEX IF NOT EXISTS idx_skill_usage_agent_time
-      ON skill_usage_events (agent_openclaw_id, used_at DESC);
+      ON skill_usage_events (agent_role_id, used_at DESC);
 
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -386,6 +386,16 @@ function migrate(db: DatabaseSync): void {
   const repoSrcCols = db.prepare("PRAGMA table_info(kanban_repo_sources)").all() as Array<{ name: string }>;
   if (!repoSrcCols.some((c) => c.name === "default_agent_id")) {
     db.exec("ALTER TABLE kanban_repo_sources ADD COLUMN default_agent_id TEXT DEFAULT NULL");
+  }
+
+  // Rename openclaw_id → role_id (legacy column name)
+  const agentCols4 = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
+  if (agentCols4.some((c) => c.name === "openclaw_id") && !agentCols4.some((c) => c.name === "role_id")) {
+    db.exec("ALTER TABLE agents RENAME COLUMN openclaw_id TO role_id");
+  }
+  const skillEvtCols = db.prepare("PRAGMA table_info(skill_usage_events)").all() as Array<{ name: string }>;
+  if (skillEvtCols.some((c) => c.name === "agent_openclaw_id") && !skillEvtCols.some((c) => c.name === "agent_role_id")) {
+    db.exec("ALTER TABLE skill_usage_events RENAME COLUMN agent_openclaw_id TO agent_role_id");
   }
 
   // Merge legacy dispatched XP into linked agents (one-time idempotent behavior via zeroing)

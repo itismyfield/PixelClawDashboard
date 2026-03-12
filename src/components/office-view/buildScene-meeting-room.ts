@@ -52,9 +52,9 @@ function matchParticipantToAgent(
   const abbrev = lower.replace(/\s*\(.*$/, "").trim();
 
   for (const agent of agents) {
-    // Match by openclaw_id display name
-    if (agent.openclaw_id) {
-      const displayName = inferDisplayNameLocal(agent.openclaw_id).toLowerCase();
+    // Match by role_id display name
+    if (agent.role_id) {
+      const displayName = inferDisplayNameLocal(agent.role_id).toLowerCase();
       if (displayName === lower || displayName === abbrev) return agent;
     }
     // Match by agent name fields

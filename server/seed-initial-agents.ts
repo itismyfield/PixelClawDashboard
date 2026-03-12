@@ -37,8 +37,8 @@ async function main() {
 
   const db = getDb();
 
-  // Legacy source-id -> current openclaw_id mapping
-  const openclawMapping: Record<string, string> = {
+  // Legacy source-id -> current role_id mapping
+  const roleIdMapping: Record<string, string> = {
     "e58c1719-aed8-4219-b692-307ac46b08bd": "project-scheduler",
     "2a55915f-3d6f-405d-b52e-886c8424eb2e": "family-routine",
     "7e38d26a-e644-4409-acf2-ff989b1a6285": "family-counsel",
@@ -78,12 +78,12 @@ async function main() {
   // Insert agents
   console.log(`Seeding ${agents.length} agents...`);
   const insertAgentStmt = db.prepare(
-    `INSERT OR REPLACE INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
+    `INSERT OR REPLACE INTO agents (id, role_id, name, name_ko, name_ja, name_zh,
       department_id, avatar_emoji, sprite_number, personality, status,
       stats_tasks_done, stats_xp, workflow_pack_key)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  const updateAgentByOpenclawIdStmt = db.prepare(
+  const updateAgentByRoleIdStmt = db.prepare(
     `UPDATE agents
        SET name = ?,
            name_ko = ?,
@@ -97,11 +97,11 @@ async function main() {
            stats_tasks_done = ?,
            stats_xp = ?,
            workflow_pack_key = ?
-     WHERE openclaw_id = ?`,
+     WHERE role_id = ?`,
   );
   for (const a of agents) {
     const sourceAgentId = a.id as string;
-    const openclawId = openclawMapping[sourceAgentId] || null;
+    const roleId = roleIdMapping[sourceAgentId] || null;
     const values = [
       (a.name as string) || "",
       (a.name_ko as string) || "",
@@ -117,8 +117,8 @@ async function main() {
       (a.workflow_pack_key as string) || null,
     ] as const;
 
-    if (openclawId) {
-      const updated = updateAgentByOpenclawIdStmt.run(...values, openclawId);
+    if (roleId) {
+      const updated = updateAgentByRoleIdStmt.run(...values, roleId);
       if (updated.changes > 0) {
         continue;
       }
@@ -126,7 +126,7 @@ async function main() {
 
     insertAgentStmt.run(
       sourceAgentId,
-      openclawId,
+      roleId,
       ...values,
     );
   }

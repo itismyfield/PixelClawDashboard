@@ -233,12 +233,12 @@ router.get("/api/activity-heatmap", (req, res) => {
 
   const rows = db
     .prepare(
-      `SELECT agent_openclaw_id, used_at FROM skill_usage_events
+      `SELECT agent_role_id, used_at FROM skill_usage_events
        WHERE used_at >= ? AND used_at < ?
        ORDER BY used_at`,
     )
     .all(dayStart.getTime(), dayEnd.getTime()) as Array<{
-    agent_openclaw_id: string | null;
+    agent_role_id: string | null;
     used_at: number;
   }>;
 
@@ -248,7 +248,7 @@ router.get("/api/activity-heatmap", (req, res) => {
   }
   for (const r of rows) {
     const h = new Date(r.used_at).getHours();
-    const aid = r.agent_openclaw_id || "unknown";
+    const aid = r.agent_role_id || "unknown";
     hours[h].agents[aid] = (hours[h].agents[aid] || 0) + 1;
   }
 

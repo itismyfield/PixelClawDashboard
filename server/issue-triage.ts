@@ -29,7 +29,7 @@ const TRIAGE_COMMENT_TAG = "<!-- pcd-auto-triage -->";
 interface TriageRule {
   /** 키워드 (소문자) — 이슈 제목+본문+라벨에서 매칭 */
   keywords: string[];
-  /** 매칭 시 할당할 에이전트 openclaw_id */
+  /** 매칭 시 할당할 에이전트 role_id */
   agentId: string;
   /** 사람이 알아볼 수 있는 분류 이유 */
   reason: string;
@@ -219,12 +219,12 @@ interface TriageResult {
   reason: string;
 }
 
-function resolveAgentName(openclawId: string): string {
+function resolveAgentName(roleId: string): string {
   const db = getDb();
   const row = db
-    .prepare("SELECT name_ko, alias, name FROM agents WHERE openclaw_id = ?")
-    .get(openclawId) as { name_ko: string; alias: string | null; name: string } | undefined;
-  return row?.alias || row?.name_ko || row?.name || openclawId;
+    .prepare("SELECT name_ko, alias, name FROM agents WHERE role_id = ?")
+    .get(roleId) as { name_ko: string; alias: string | null; name: string } | undefined;
+  return row?.alias || row?.name_ko || row?.name || roleId;
 }
 
 async function triageOnce(): Promise<void> {

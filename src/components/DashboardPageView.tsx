@@ -306,7 +306,7 @@ export default function DashboardPageView({
                   </div>
                   <ul className="space-y-1.5">
                     {skillRanking.byAgent.slice(0, 10).map((row, idx) => (
-                      <li key={`${row.agent_openclaw_id}-${row.skill_name}-${idx}`} className="text-sm flex items-center justify-between gap-3">
+                      <li key={`${row.agent_role_id}-${row.skill_name}-${idx}`} className="text-sm flex items-center justify-between gap-3">
                         <div className="truncate min-w-0 flex-1" style={{ color: "var(--th-text)" }}>
                           <span className="inline-block w-6" style={{ color: "var(--th-text-muted)" }}>
                             {idx + 1}.

@@ -5,20 +5,20 @@ interface SkillUsageEventInput {
   eventKey: string;
   skillName: string;
   sessionKey?: string | null;
-  agentOpenclawId?: string | null;
+  agentRoleId?: string | null;
   agentName?: string | null;
   usedAt?: number;
 }
 
-function updateDailySkillCalls(agentOpenclawId: string | null | undefined, usedAt: number): void {
-  if (!agentOpenclawId) return;
+function updateDailySkillCalls(agentRoleId: string | null | undefined, usedAt: number): void {
+  if (!agentRoleId) return;
   const db = getDb();
   const day = new Date(usedAt).toISOString().slice(0, 10);
   db.prepare(
     `INSERT INTO daily_activity (agent_id, date, skill_calls)
      VALUES (?, ?, 1)
      ON CONFLICT(agent_id, date) DO UPDATE SET skill_calls = skill_calls + 1`,
-  ).run(agentOpenclawId, day);
+  ).run(agentRoleId, day);
 }
 
 export function recordSkillUsageEvent(input: SkillUsageEventInput): boolean {
@@ -26,7 +26,7 @@ export function recordSkillUsageEvent(input: SkillUsageEventInput): boolean {
   const hasEvent = db.prepare("SELECT 1 FROM skill_usage_events WHERE event_key = ? LIMIT 1");
   const insertEvent = db.prepare(
     `INSERT INTO skill_usage_events (
-      event_key, skill_name, session_key, agent_openclaw_id, agent_name, used_at
+      event_key, skill_name, session_key, agent_role_id, agent_name, used_at
     ) VALUES (?, ?, ?, ?, ?, ?)`,
   );
 
@@ -40,11 +40,11 @@ export function recordSkillUsageEvent(input: SkillUsageEventInput): boolean {
     eventKey,
     skillName,
     input.sessionKey ?? null,
-    input.agentOpenclawId ?? null,
+    input.agentRoleId ?? null,
     input.agentName ?? null,
     usedAt,
   );
-  updateDailySkillCalls(input.agentOpenclawId, usedAt);
+  updateDailySkillCalls(input.agentRoleId, usedAt);
   broadcast("skill_usage_update", { inserted: 1 });
   return true;
 }

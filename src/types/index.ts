@@ -50,7 +50,7 @@ export interface Agent {
   department?: Department;
   acts_as_planning_leader?: number | null;
   cli_provider?: CliProvider;
-  openclaw_id?: string | null;
+  role_id?: string | null;
   session_info?: string | null;
   activity_source?: ActivitySource;
   remotecc_working_count?: number;

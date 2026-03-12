@@ -115,18 +115,18 @@ router.get("/api/skills/ranking", (req, res) => {
 
   const byAgentRows = db
     .prepare(
-      `SELECT COALESCE(agent_openclaw_id, 'dispatched') AS agent_openclaw_id,
+      `SELECT COALESCE(agent_role_id, 'dispatched') AS agent_role_id,
               COALESCE(agent_name, 'Dispatched') AS agent_name,
               skill_name,
               COUNT(*) AS calls,
               MAX(used_at) AS last_used_at
        FROM skill_usage_events
        ${where}
-       GROUP BY COALESCE(agent_openclaw_id, 'dispatched'), COALESCE(agent_name, 'Dispatched'), skill_name
+       GROUP BY COALESCE(agent_role_id, 'dispatched'), COALESCE(agent_name, 'Dispatched'), skill_name
        ORDER BY calls DESC, last_used_at DESC`,
     )
     .all(...(since > 0 ? [since] : [])) as Array<{
-      agent_openclaw_id: string;
+      agent_role_id: string;
       agent_name: string;
       skill_name: string;
       calls: number;

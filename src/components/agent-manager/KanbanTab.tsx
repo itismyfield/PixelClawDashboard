@@ -324,19 +324,19 @@ export default function KanbanTab({
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const dispatchMap = useMemo(() => new Map(dispatches.map((dispatch) => [dispatch.id, dispatch])), [dispatches]);
 
-  /** Resolve agent from `agent:*` GitHub labels by matching openclaw_id. */
+  /** Resolve agent from `agent:*` GitHub labels by matching role_id. */
   const resolveAgentFromLabels = useMemo(() => {
-    const openclawMap = new Map<string, Agent>();
+    const roleIdMap = new Map<string, Agent>();
     for (const agent of agents) {
-      if (agent.openclaw_id) {
-        openclawMap.set(agent.openclaw_id, agent);
+      if (agent.role_id) {
+        roleIdMap.set(agent.role_id, agent);
       }
     }
     return (labels: Array<{ name: string; color: string }>): Agent | null => {
       for (const label of labels) {
         if (label.name.startsWith("agent:")) {
-          const openclawId = label.name.slice("agent:".length).trim();
-          const matched = openclawMap.get(openclawId);
+          const roleId = label.name.slice("agent:".length).trim();
+          const matched = roleIdMap.get(roleId);
           if (matched) return matched;
         }
       }

@@ -473,7 +473,7 @@ export interface SkillRankingOverallRow {
 }
 
 export interface SkillRankingByAgentRow {
-  agent_openclaw_id: string;
+  agent_role_id: string;
   agent_name: string;
   skill_name: string;
   skill_desc_ko: string;

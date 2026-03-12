@@ -43,19 +43,19 @@ async function forwardToDiscord(
     );
     const agents = db
       .prepare(
-        `SELECT id, openclaw_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex
+        `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex
          FROM agents`,
       )
       .all() as Array<{
       id: string;
-      openclaw_id: string | null;
+      role_id: string | null;
       discord_channel_id: string | null;
       discord_channel_id_alt: string | null;
       discord_channel_id_codex: string | null;
     }>;
 
     for (const agent of agents) {
-      const roleId = agent.openclaw_id ?? "";
+      const roleId = agent.role_id ?? "";
       const hasDbChannel =
         Boolean(agent.discord_channel_id) ||
         Boolean(agent.discord_channel_id_alt) ||

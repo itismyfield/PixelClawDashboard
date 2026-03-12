@@ -307,8 +307,8 @@ export default function AgentInfoCard({
     },
     {
       label: tr("Role ID", "Role ID"),
-      value: agent.openclaw_id || tr("없음", "None"),
-      tone: agent.openclaw_id ? "#34d399" : "#94a3b8",
+      value: agent.role_id || tr("없음", "None"),
+      tone: agent.role_id ? "#34d399" : "#94a3b8",
     },
     {
       label: tr("Launchd 귀속", "Launchd Ownership"),
@@ -995,12 +995,12 @@ export default function AgentInfoCard({
           })()}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {agent.openclaw_id && (
+              {agent.role_id && (
                 <span
                   className="text-[10px] font-mono px-1.5 py-0.5 rounded"
                   style={{ background: "var(--th-bg-surface)", color: "var(--th-text-muted)" }}
                 >
-                  {agent.openclaw_id}
+                  {agent.role_id}
                 </span>
               )}
               <span className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>

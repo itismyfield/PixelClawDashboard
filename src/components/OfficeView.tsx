@@ -56,8 +56,8 @@ function matchParticipantToAgentId(name: string, agents: Agent[]): string | null
   const lower = name.toLowerCase();
   const abbrev = lower.replace(/\s*\(.*$/, "").trim();
   for (const agent of agents) {
-    if (agent.openclaw_id) {
-      const dn = inferDisplayNameLocal(agent.openclaw_id).toLowerCase();
+    if (agent.role_id) {
+      const dn = inferDisplayNameLocal(agent.role_id).toLowerCase();
       if (dn === lower || dn === abbrev) return agent.id;
     }
     const n = agent.name.toLowerCase();

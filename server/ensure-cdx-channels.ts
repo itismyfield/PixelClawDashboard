@@ -20,7 +20,7 @@ interface DiscordChannel {
 interface AgentRow {
   id: string;
   name: string;
-  openclaw_id: string;
+  role_id: string;
   discord_channel_id: string | null;
 }
 
@@ -167,10 +167,10 @@ function saveRoleMap(roleMapPath: string, roleMap: RoleMapJson): void {
   fs.writeFileSync(roleMapPath, `${JSON.stringify(roleMap, null, 2)}\n`);
 }
 
-function buildBinding(openclawId: string): RoleBinding {
+function buildBinding(roleId: string): RoleBinding {
   return {
-    roleId: openclawId,
-    promptFile: path.join(os.homedir(), ".remotecc", "role-context", `${openclawId}.prompt.md`),
+    roleId,
+    promptFile: path.join(os.homedir(), ".remotecc", "role-context", `${roleId}.prompt.md`),
   };
 }
 
@@ -185,9 +185,9 @@ function loadAgents(dbPath: string): AgentRow[] {
   const db = new DatabaseSync(dbPath);
   return db
     .prepare(
-      `SELECT id, name, openclaw_id, discord_channel_id
+      `SELECT id, name, role_id, discord_channel_id
        FROM agents
-       WHERE openclaw_id LIKE 'ch-%'
+       WHERE role_id LIKE 'ch-%'
          AND discord_channel_id IS NOT NULL
        ORDER BY name`,
     )
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
   const created: Array<{ source: string; target: string; id: string; roleId: string }> = [];
   const reused: Array<{ source: string; target: string; id: string; roleId: string }> = [];
   const skipped: Array<{ agent: string; reason: string }> = [];
-  const updatedAgents: Array<{ agentId: string; openclawId: string; codexChannelId: string }> = [];
+  const updatedAgents: Array<{ agentId: string; roleId: string; codexChannelId: string }> = [];
   const updatedCategoryAccess: string[] = [];
   const grantedCategoryIds = new Set<string>();
   const updatedBotSettings: Array<{ channelId: string; path: string; clearedRemote: boolean }> = [];
@@ -272,7 +272,7 @@ async function main(): Promise<void> {
   for (const agent of candidates) {
     const ccChannel = agent.discord_channel_id ? channelById.get(agent.discord_channel_id) : undefined;
     if (!ccChannel) {
-      skipped.push({ agent: agent.openclaw_id, reason: "primary channel missing in guild" });
+      skipped.push({ agent: agent.role_id, reason: "primary channel missing in guild" });
       continue;
     }
 
@@ -319,14 +319,14 @@ async function main(): Promise<void> {
         source: ccChannel.name,
         target: cdxName,
         id: cdxChannel.id,
-        roleId: agent.openclaw_id,
+        roleId: agent.role_id,
       });
     } else {
       reused.push({
         source: ccChannel.name,
         target: cdxName,
         id: cdxChannel.id,
-        roleId: agent.openclaw_id,
+        roleId: agent.role_id,
       });
     }
 
@@ -339,7 +339,7 @@ async function main(): Promise<void> {
       await ensureCodexBotAccess(token, cdxChannel.id, codexBotId);
     }
 
-    const binding = buildBinding(agent.openclaw_id);
+    const binding = buildBinding(agent.role_id);
     roleMap.byChannelName[ccChannel.name] = binding;
     roleMap.byChannelId[ccChannel.id] = binding;
     delete roleMap.byChannelName[legacyDxName];
@@ -352,7 +352,7 @@ async function main(): Promise<void> {
       ).run(cdxChannel.id, agent.id);
       updatedAgents.push({
         agentId: agent.id,
-        openclawId: agent.openclaw_id,
+        roleId: agent.role_id,
         codexChannelId: cdxChannel.id,
       });
     }

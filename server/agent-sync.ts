@@ -83,9 +83,9 @@ export function syncAgentsOnce(): number {
     db.prepare("SELECT 1 FROM offices WHERE id = 'main' LIMIT 1").get(),
   );
 
-  const findByOc = db.prepare("SELECT id FROM agents WHERE openclaw_id = ?");
+  const findByOc = db.prepare("SELECT id FROM agents WHERE role_id = ?");
   const insertAgent = db.prepare(
-    `INSERT INTO agents (id, openclaw_id, name, name_ko, role, avatar_emoji, status)
+    `INSERT INTO agents (id, role_id, name, name_ko, role, avatar_emoji, status)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const linkOffice = db.prepare(

@@ -136,12 +136,12 @@ router.post("/api/agents", (req, res) => {
   const id = crypto.randomUUID();
   const b = req.body;
   db.prepare(
-    `INSERT INTO agents (id, openclaw_id, name, name_ko, name_ja, name_zh,
+    `INSERT INTO agents (id, role_id, name, name_ko, name_ja, name_zh,
       department_id, avatar_emoji, sprite_number, personality, cli_provider, status, alias, discord_channel_id_codex)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
-    b.openclaw_id ?? null,
+    b.role_id ?? null,
     b.name ?? "",
     b.name_ko ?? "",
     b.name_ja ?? "",
@@ -170,7 +170,7 @@ router.post("/api/agents", (req, res) => {
     entityType: "agent",
     entityId: id,
     summary: `Agent created: ${String(b.name_ko || b.name || id)}`,
-    metadata: { openclaw_id: b.openclaw_id ?? null },
+    metadata: { role_id: b.role_id ?? null },
   });
   broadcast("agent_created", agent);
   res.status(201).json(agent);
@@ -196,7 +196,7 @@ router.patch("/api/agents/:id", (req, res) => {
     "session_info",
     "stats_tasks_done",
     "stats_xp",
-    "openclaw_id",
+    "role_id",
     "alias",
     "cli_provider",
     "discord_channel_id",
@@ -281,10 +281,10 @@ router.get("/api/agents/:id/cron", (req, res) => {
     .get(req.params.id) as Record<string, unknown> | undefined;
   if (!agent) return res.status(404).json({ error: "not_found" });
 
-  const openclawId = agent.openclaw_id as string | null;
-  if (!openclawId) return res.json({ jobs: [] });
+  const roleId = agent.role_id as string | null;
+  if (!roleId) return res.json({ jobs: [] });
   const jobs = listLaunchdJobs()
-    .filter((job) => job.agentId === openclawId)
+    .filter((job) => job.agentId === roleId)
     .map((job) => ({
       id: job.id,
       name: job.name,
@@ -346,12 +346,12 @@ router.get("/api/discord-bindings", async (_req, res) => {
 
     const agentRows = db
       .prepare(
-        `SELECT id, openclaw_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex
+        `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex
          FROM agents`,
       )
       .all() as Array<{
       id: string;
-      openclaw_id: string | null;
+      role_id: string | null;
       discord_channel_id: string | null;
       discord_channel_id_alt: string | null;
       discord_channel_id_codex: string | null;
@@ -359,7 +359,7 @@ router.get("/api/discord-bindings", async (_req, res) => {
 
     const dbIdByRoleId = new Map<string, string>();
     for (const row of agentRows) {
-      if (row.openclaw_id) dbIdByRoleId.set(row.openclaw_id, row.id);
+      if (row.role_id) dbIdByRoleId.set(row.role_id, row.id);
     }
 
     for (const binding of listRoleBindings()) {

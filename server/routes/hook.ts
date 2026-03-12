@@ -19,7 +19,7 @@ function resolveLinkedAgentId(sessionKey: string, name?: string | null): string 
 
   const db = getDb();
   const row = db
-    .prepare("SELECT id FROM agents WHERE openclaw_id = ? LIMIT 1")
+    .prepare("SELECT id FROM agents WHERE role_id = ? LIMIT 1")
     .get(roleId) as { id: string } | undefined;
 
   return row?.id ?? null;
@@ -314,7 +314,7 @@ router.post("/api/hook/skill-usage", (req, res) => {
     event_key,
     skill_name,
     session_key,
-    agent_openclaw_id,
+    agent_role_id,
     agent_id,
     agent_name,
     used_at,
@@ -324,26 +324,26 @@ router.post("/api/hook/skill-usage", (req, res) => {
     return res.status(400).json({ error: "skill_name required" });
   }
 
-  let resolvedAgentOpenclawId: string | null = typeof agent_openclaw_id === "string"
-    ? agent_openclaw_id
+  let resolvedAgentRoleId: string | null = typeof agent_role_id === "string"
+    ? agent_role_id
     : null;
 
-  if (!resolvedAgentOpenclawId && typeof agent_id === "string") {
+  if (!resolvedAgentRoleId && typeof agent_id === "string") {
     const row = db
-      .prepare("SELECT openclaw_id, name FROM agents WHERE id = ? LIMIT 1")
-      .get(agent_id) as { openclaw_id: string | null; name: string | null } | undefined;
-    resolvedAgentOpenclawId = row?.openclaw_id ?? null;
+      .prepare("SELECT role_id, name FROM agents WHERE id = ? LIMIT 1")
+      .get(agent_id) as { role_id: string | null; name: string | null } | undefined;
+    resolvedAgentRoleId = row?.role_id ?? null;
   }
 
   const eventKey = typeof event_key === "string" && event_key.trim()
     ? event_key.trim()
-    : `${session_key ?? agent_id ?? resolvedAgentOpenclawId ?? "manual"}:${skill_name}:${used_at ?? Date.now()}`;
+    : `${session_key ?? agent_id ?? resolvedAgentRoleId ?? "manual"}:${skill_name}:${used_at ?? Date.now()}`;
 
   const inserted = recordSkillUsageEvent({
     eventKey,
     skillName: skill_name,
     sessionKey: typeof session_key === "string" ? session_key : null,
-    agentOpenclawId: resolvedAgentOpenclawId,
+    agentRoleId: resolvedAgentRoleId,
     agentName: typeof agent_name === "string" ? agent_name : null,
     usedAt: typeof used_at === "number" ? used_at : Date.now(),
   });
