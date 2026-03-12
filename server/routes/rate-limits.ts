@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -103,31 +104,40 @@ function loadCodexAccessToken(): string | null {
   }
 }
 
-async function pollCodexUsage(): Promise<void> {
-  const token = loadCodexAccessToken();
-  if (!token) return;
+const CODEX_FETCH_SCRIPT = `
+import json, os, urllib.request, sys
+auth = json.load(open(os.path.expanduser("~/.codex/auth.json")))
+token = auth.get("tokens", {}).get("access_token", "")
+if not token:
+    sys.exit(1)
+req = urllib.request.Request(
+    "https://chatgpt.com/backend-api/codex/usage",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    },
+)
+with urllib.request.urlopen(req, timeout=15) as resp:
+    sys.stdout.write(resp.read().decode())
+`;
 
-  try {
-    const resp = await fetch("https://chatgpt.com/backend-api/codex/usage", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)",
-        Accept: "application/json",
-        Origin: "https://chatgpt.com",
-        Referer: "https://chatgpt.com/",
-      },
-      signal: AbortSignal.timeout(10_000),
+async function pollCodexUsage(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    execFile("python3", ["-c", CODEX_FETCH_SCRIPT], { timeout: 20_000 }, (err, stdout) => {
+      if (err) {
+        console.error("[rate-limits] Codex usage poll error:", err.message);
+        return resolve();
+      }
+      try {
+        const data = JSON.parse(stdout) as CodexUsageResponse;
+        codexCache = { data, timestamp: Date.now() };
+      } catch (e) {
+        console.error("[rate-limits] Codex usage parse error:", e);
+      }
+      resolve();
     });
-    if (!resp.ok) {
-      console.error(`[rate-limits] Codex usage fetch failed: ${resp.status}`);
-      return;
-    }
-    const data = (await resp.json()) as CodexUsageResponse;
-    codexCache = { data, timestamp: Date.now() };
-  } catch (err) {
-    console.error("[rate-limits] Codex usage poll error:", err);
-  }
+  });
 }
 
 function windowToResetIso(w: CodexWindow): string {
