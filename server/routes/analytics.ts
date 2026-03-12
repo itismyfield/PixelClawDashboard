@@ -6,10 +6,20 @@ import { IN_PROGRESS_STALE_MS, REQUEST_ACK_TIMEOUT_MS } from "../kanban-cards.js
 
 const router = Router();
 
-/* ── GitHub closed-today cache ── */
+/* ── GitHub closed-today cache (count + issue list) ── */
+
+interface ClosedIssue {
+  number: number;
+  title: string;
+  repo: string;
+  url: string;
+  closedAt: string;
+  labels: string[];
+}
 
 interface GitHubClosedTodayCache {
   count: number;
+  issues: ClosedIssue[];
   fetchedAt: number;
   dateKey: string;
 }
@@ -26,9 +36,17 @@ function getGitHubClosedToday(): number {
   if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < GH_CACHE_TTL) {
     return ghClosedCache.count;
   }
-  // return stale value while refreshing in background
   refreshGitHubClosedToday(dateKey);
   return ghClosedCache?.dateKey === dateKey ? ghClosedCache.count : 0;
+}
+
+function getGitHubClosedTodayIssues(): ClosedIssue[] {
+  const dateKey = todayDateKey();
+  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < GH_CACHE_TTL) {
+    return ghClosedCache.issues;
+  }
+  refreshGitHubClosedToday(dateKey);
+  return ghClosedCache?.dateKey === dateKey ? ghClosedCache.issues : [];
 }
 
 function refreshGitHubClosedToday(dateKey: string): void {
@@ -38,7 +56,7 @@ function refreshGitHubClosedToday(dateKey: string): void {
     .all() as Array<{ repo: string }>;
 
   if (repos.length === 0) {
-    ghClosedCache = { count: 0, fetchedAt: Date.now(), dateKey };
+    ghClosedCache = { count: 0, issues: [], fetchedAt: Date.now(), dateKey };
     return;
   }
 
@@ -46,19 +64,30 @@ function refreshGitHubClosedToday(dateKey: string): void {
   const script = `
 import json, subprocess, sys
 repos = json.loads(sys.argv[1])
-total = 0
+all_issues = []
 for repo in repos:
     try:
         result = subprocess.run(
             ["gh", "issue", "list", "-R", repo, "--state", "closed",
-             "--search", f"closed:>={sys.argv[2]}", "--json", "number", "--jq", "length"],
+             "--search", f"closed:>={sys.argv[2]}",
+             "--json", "number,title,url,closedAt,labels"],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0:
-            total += int(result.stdout.strip() or "0")
+            issues = json.loads(result.stdout or "[]")
+            for issue in issues:
+                all_issues.append({
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "repo": repo,
+                    "url": issue["url"],
+                    "closedAt": issue.get("closedAt", ""),
+                    "labels": [l["name"] for l in issue.get("labels", [])]
+                })
     except Exception:
         pass
-print(total)
+all_issues.sort(key=lambda x: x["closedAt"], reverse=True)
+print(json.dumps(all_issues))
 `;
 
   execFile("python3", ["-c", script, JSON.stringify(repoArgs), dateKey], { timeout: 30_000 }, (err, stdout) => {
@@ -66,12 +95,20 @@ print(total)
       console.error("[analytics] GitHub closed-today refresh error:", err.message);
       return;
     }
-    const count = parseInt(stdout.trim(), 10);
-    if (!isNaN(count)) {
-      ghClosedCache = { count, fetchedAt: Date.now(), dateKey };
+    try {
+      const issues = JSON.parse(stdout.trim()) as ClosedIssue[];
+      ghClosedCache = { count: issues.length, issues, fetchedAt: Date.now(), dateKey };
+    } catch {
+      console.error("[analytics] GitHub closed-today parse error");
     }
   });
 }
+
+router.get("/api/github-closed-today", (_req, res) => {
+  const issues = getGitHubClosedTodayIssues();
+  const count = getGitHubClosedToday();
+  res.json({ count, issues });
+});
 
 router.get("/api/stats", (req, res) => {
   const db = getDb();

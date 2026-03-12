@@ -38,6 +38,8 @@ export default function OfficeInsightPanel({
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [showWarnings, setShowWarnings] = useState(false);
   const [ghClosedToday, setGhClosedToday] = useState(0);
+  const [showClosedIssues, setShowClosedIssues] = useState(false);
+  const [closedIssues, setClosedIssues] = useState<ClosedIssueItem[]>([]);
   const activeCards = kanbanCards ?? [];
   const reviewCount = activeCards.filter((c) => c.status === "review").length;
   const terminalStatuses = new Set(["done", "failed", "cancelled"]);
@@ -59,6 +61,17 @@ export default function OfficeInsightPanel({
     const timer = setInterval(load, 60_000);
     return () => { mounted = false; clearInterval(timer); };
   }, []);
+
+  const handleShowClosedIssues = async () => {
+    if (showClosedIssues) { setShowClosedIssues(false); return; }
+    try {
+      const res = await fetch("/api/github-closed-today", { credentials: "include" });
+      if (!res.ok) return;
+      const json = await res.json() as { issues: ClosedIssueItem[] };
+      setClosedIssues(json.issues);
+      setShowClosedIssues(true);
+    } catch { /* ignore */ }
+  };
   const warningCount = agents.filter((agent) => getAgentWarnings(agent).length > 0).length;
   const warningAgents = agents
     .map((agent) => ({ agent, warnings: getAgentWarnings(agent) }))
@@ -111,11 +124,15 @@ export default function OfficeInsightPanel({
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
             <StatChip label={isKo ? "검토필요" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
-            <StatChip label={isKo ? "오늘 진행" : "Done Today"} value={String(ghClosedToday)} color="#34d399" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "오늘 완료" : "Closed"} value={String(ghClosedToday)} color="#34d399" interactive onClick={handleShowClosedIssues} />
             <StatChip label={isKo ? "열린이슈" : "Open"} value={String(openIssueCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
           </div>
 
           <MiniRateLimitBar isKo={isKo} />
+
+          {showClosedIssues ? (
+            <ClosedIssueList issues={closedIssues} isKo={isKo} onClose={() => setShowClosedIssues(false)} />
+          ) : null}
 
           {showWarnings && warningCount > 0 ? (
             <WarningList
@@ -209,9 +226,12 @@ export default function OfficeInsightPanel({
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
             <StatChip label={isKo ? "검토필요" : "Review"} value={String(reviewCount)} color="#14b8a6" interactive onClick={onNavigateToKanban} />
-            <StatChip label={isKo ? "오늘 진행" : "Done Today"} value={String(ghClosedToday)} color="#34d399" interactive onClick={onNavigateToKanban} />
+            <StatChip label={isKo ? "오늘 완료" : "Closed"} value={String(ghClosedToday)} color="#34d399" interactive onClick={handleShowClosedIssues} />
             <StatChip label={isKo ? "열린이슈" : "Open"} value={String(openIssueCount)} color="#f59e0b" interactive onClick={onNavigateToKanban} />
           </div>
+          {showClosedIssues ? (
+            <ClosedIssueList issues={closedIssues} isKo={isKo} onClose={() => setShowClosedIssues(false)} />
+          ) : null}
           {showWarnings && warningCount > 0 ? (
             <WarningList
               items={warningAgents}
@@ -427,6 +447,71 @@ function EventRow({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Closed Issue types ── */
+
+interface ClosedIssueItem {
+  number: number;
+  title: string;
+  repo: string;
+  url: string;
+  closedAt: string;
+  labels: string[];
+}
+
+function ClosedIssueList({ issues, isKo, onClose }: { issues: ClosedIssueItem[]; isKo: boolean; onClose: () => void }) {
+  const repoShort = (repo: string) => repo.split("/").pop() || repo;
+  return (
+    <div
+      className="mt-3 rounded-xl border p-2"
+      style={{ background: "var(--th-bg-surface)", borderColor: "var(--th-card-border)" }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--th-text-muted)" }}>
+          {isKo ? `오늘 완료 (${issues.length})` : `Closed today (${issues.length})`}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[10px] px-1 rounded"
+          style={{ color: "var(--th-text-muted)" }}
+        >
+          ✕
+        </button>
+      </div>
+      {issues.length === 0 ? (
+        <div className="mt-2 text-xs" style={{ color: "var(--th-text-muted)" }}>
+          {isKo ? "오늘 완료된 이슈가 없습니다" : "No issues closed today"}
+        </div>
+      ) : (
+        <div className="mt-2 max-h-[30vh] space-y-1.5 overflow-y-auto pr-1">
+          {issues.map((issue) => (
+            <a
+              key={`${issue.repo}-${issue.number}`}
+              href={issue.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg px-2 py-1.5"
+              style={{ background: "rgba(148,163,184,0.08)" }}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-bold shrink-0 rounded px-1 py-0.5" style={{ color: "#34d399", background: "rgba(52,211,153,0.1)" }}>
+                  {repoShort(issue.repo)}
+                </span>
+                <span className="text-[9px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+                  #{issue.number}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "var(--th-text)" }}>
+                {issue.title}
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
