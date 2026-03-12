@@ -570,64 +570,58 @@ interface ActivityEvent {
 export function ActivityFeedWidget({ agents, t }: ActivityFeedWidgetProps) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
 
-  // Listen to WebSocket events and build a feed
+  // Listen to WebSocket events via CustomEvent dispatched by useDashboardSocket
   useEffect(() => {
     let eventId = 0;
-    const handler = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (!data.type || data.type === "connected") return;
+    const handler = (e: Event) => {
+      const data = (e as CustomEvent).detail as { type: string; payload: unknown };
+      if (!data.type || data.type === "connected") return;
 
-        let description = "";
-        let agentName = "";
-        let agentEmoji = "🔔";
+      let description = "";
+      let agentName = "";
+      let agentEmoji = "🔔";
 
-        const payload = data.payload as Record<string, unknown>;
+      const payload = data.payload as Record<string, unknown>;
 
-        switch (data.type) {
-          case "agent_status": {
-            const a = payload as { name?: string; name_ko?: string; avatar_emoji?: string; status?: string; alias?: string };
-            agentName = a.alias as string || a.name_ko as string || a.name as string || "Agent";
-            agentEmoji = a.avatar_emoji as string || "🤖";
-            description = `상태 → ${a.status}`;
-            break;
-          }
-          case "agent_created": {
-            const a = payload as { name_ko?: string; name?: string; avatar_emoji?: string };
-            agentName = a.name_ko as string || a.name as string || "New Agent";
-            agentEmoji = a.avatar_emoji as string || "🆕";
-            description = "새 에이전트 입사";
-            break;
-          }
-          case "new_message": {
-            const m = payload as { sender_name_ko?: string; sender_name?: string; sender_avatar?: string; content?: string; sender_type?: string };
-            agentName = m.sender_type === "ceo" ? "CEO" : (m.sender_name_ko as string || m.sender_name as string || "Agent");
-            agentEmoji = m.sender_type === "ceo" ? "👑" : (m.sender_avatar as string || "💬");
-            description = String(m.content || "").slice(0, 50);
-            break;
-          }
-          default: {
-            agentName = "System";
-            agentEmoji = "📡";
-            description = data.type.replace(/_/g, " ");
-          }
+      switch (data.type) {
+        case "agent_status": {
+          const a = payload as { name?: string; name_ko?: string; avatar_emoji?: string; status?: string; alias?: string };
+          agentName = a.alias as string || a.name_ko as string || a.name as string || "Agent";
+          agentEmoji = a.avatar_emoji as string || "🤖";
+          description = `상태 → ${a.status}`;
+          break;
         }
-
-        if (description) {
-          setEvents((prev) => [
-            { id: `evt-${++eventId}`, type: data.type, agent_name: agentName, agent_emoji: agentEmoji, description, time: Date.now() },
-            ...prev,
-          ].slice(0, 30));
+        case "agent_created": {
+          const a = payload as { name_ko?: string; name?: string; avatar_emoji?: string };
+          agentName = a.name_ko as string || a.name as string || "New Agent";
+          agentEmoji = a.avatar_emoji as string || "🆕";
+          description = "새 에이전트 입사";
+          break;
         }
-      } catch { /* ignore */ }
+        case "new_message": {
+          const m = payload as { sender_name_ko?: string; sender_name?: string; sender_avatar?: string; content?: string; sender_type?: string };
+          agentName = m.sender_type === "ceo" ? "CEO" : (m.sender_name_ko as string || m.sender_name as string || "Agent");
+          agentEmoji = m.sender_type === "ceo" ? "👑" : (m.sender_avatar as string || "💬");
+          description = String(m.content || "").slice(0, 50);
+          break;
+        }
+        default: {
+          agentName = "System";
+          agentEmoji = "📡";
+          description = data.type.replace(/_/g, " ");
+        }
+      }
+
+      if (description) {
+        setEvents((prev) => [
+          { id: `evt-${++eventId}`, type: data.type, agent_name: agentName, agent_emoji: agentEmoji, description, time: Date.now() },
+          ...prev,
+        ].slice(0, 30));
+      }
     };
 
-    // Attach to all WebSocket instances by monitoring the global
-    const ws = (window as unknown as Record<string, unknown>).__pcd_ws as WebSocket | undefined;
-    if (ws) {
-      ws.addEventListener("message", handler);
-      return () => ws.removeEventListener("message", handler);
-    }
+    window.addEventListener("pcd-ws-event", handler);
+    return () => window.removeEventListener("pcd-ws-event", handler);
   }, []);
 
   return (

@@ -30,6 +30,7 @@ export function useDashboardSocket(onEvent: (event: WSEvent) => void) {
         try {
           const event = JSON.parse(ev.data) as WSEvent;
           onEventRef.current(event);
+          window.dispatchEvent(new CustomEvent("pcd-ws-event", { detail: event }));
         } catch {
           // ignore malformed ws payload
         }
