@@ -112,7 +112,10 @@ async function pollCodexUsage(): Promise<void> {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
-        "User-Agent": "codex-cli/0.114.0",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)",
+        Accept: "application/json",
+        Origin: "https://chatgpt.com",
+        Referer: "https://chatgpt.com/",
       },
       signal: AbortSignal.timeout(10_000),
     });
