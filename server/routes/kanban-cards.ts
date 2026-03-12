@@ -15,6 +15,7 @@ import {
   listKanbanCards,
   retryKanbanCard,
   rewardKanbanCompletion,
+  closeGitHubIssueOnDone,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 
@@ -546,6 +547,7 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
 
     if (finalCard.status === "done") {
       finalCard = rewardKanbanCompletion(db, finalCard.id) ?? finalCard;
+      closeGitHubIssueOnDone(finalCard);
     }
 
     res.json(finalCard);

@@ -536,6 +536,45 @@ export function rewardKanbanCompletion(db: DatabaseSync, cardId: string): Kanban
   return emitKanbanCard(db, cardId, "kanban_card_updated");
 }
 
+/**
+ * Close the linked GitHub issue when a kanban card transitions to "done".
+ * Runs async (fire-and-forget) — errors are logged but don't block the response.
+ */
+export function closeGitHubIssueOnDone(card: {
+  github_repo?: string | null;
+  github_issue_number?: number | null;
+  title: string;
+  id: string;
+}): void {
+  const repo = card.github_repo;
+  const issueNum = card.github_issue_number;
+  if (!repo || !issueNum) return;
+
+  const comment = `✅ Closed automatically by PCD kanban — card "${card.title}" marked done.`;
+
+  // Fire-and-forget: comment then close
+  try {
+    execFileSync("gh", ["issue", "comment", String(issueNum), "--repo", repo, "--body", comment], {
+      timeout: 15_000,
+      stdio: "pipe",
+    });
+  } catch (e) {
+    console.error(`[kanban] gh issue comment failed for ${repo}#${issueNum}:`, (e as Error).message);
+  }
+
+  try {
+    execFileSync("gh", ["issue", "close", String(issueNum), "--repo", repo], {
+      timeout: 15_000,
+      stdio: "pipe",
+    });
+    console.log(`[kanban] closed GitHub issue ${repo}#${issueNum}`);
+  } catch (e) {
+    // gh issue close exits 0 even for already-closed issues,
+    // so this catch handles only real errors (network, auth, etc.)
+    console.error(`[kanban] gh issue close failed for ${repo}#${issueNum}:`, (e as Error).message);
+  }
+}
+
 export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string): KanbanCardRow | undefined {
   const dispatch = getTaskDispatchById(db, dispatchId);
   if (!dispatch) {
