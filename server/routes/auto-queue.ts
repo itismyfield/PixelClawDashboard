@@ -107,4 +107,46 @@ router.patch("/api/auto-queue/runs/:id", (req, res) => {
   res.json({ ok: true, id: req.params.id, status });
 });
 
+// Reorder pending queue entries
+router.patch("/api/auto-queue/reorder", (req, res) => {
+  const db = getDb();
+  const orderedIds = req.body?.orderedIds as string[] | undefined;
+  const agentId = typeof req.body?.agentId === "string" ? req.body.agentId : null;
+
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    res.status(400).json({ error: "invalid_input", message: "orderedIds must be a non-empty array" });
+    return;
+  }
+
+  // Verify all entries exist and are pending
+  for (const id of orderedIds) {
+    const entry = db.prepare(
+      `SELECT id, status, agent_id FROM dispatch_queue WHERE id = ? LIMIT 1`,
+    ).get(id) as { id: string; status: string; agent_id: string } | undefined;
+
+    if (!entry) {
+      res.status(404).json({ error: "entry_not_found", message: `Entry ${id} not found` });
+      return;
+    }
+    if (entry.status !== "pending") {
+      res.status(400).json({ error: "entry_not_pending", message: `Entry ${id} is '${entry.status}', only pending entries can be reordered` });
+      return;
+    }
+    if (agentId && entry.agent_id !== agentId) {
+      res.status(400).json({ error: "agent_mismatch", message: `Entry ${id} belongs to a different agent` });
+      return;
+    }
+  }
+
+  // Update priority_rank to match new order (1-based)
+  const stmt = db.prepare(
+    `UPDATE dispatch_queue SET priority_rank = ? WHERE id = ?`,
+  );
+  for (let i = 0; i < orderedIds.length; i++) {
+    stmt.run(i + 1, orderedIds[i]);
+  }
+
+  res.json({ ok: true, reordered: orderedIds.length });
+});
+
 export default router;

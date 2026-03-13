@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../../api";
 import type { AutoQueueStatus, DispatchQueueEntry as DispatchQueueEntryType, AutoQueueRun } from "../../api";
 import type { Agent, UiLanguage } from "../../types";
@@ -30,28 +30,64 @@ const ENTRY_STATUS_STYLE: Record<string, { bg: string; text: string; label: stri
   skipped: { bg: "rgba(107,114,128,0.18)", text: "#9ca3af", label: "건너뜀", labelEn: "Skipped" },
 };
 
+// ── Draggable Entry Row ──
+
 function EntryRow({
   entry,
   idx,
   tr,
   locale,
   onSkip,
+  isDragging,
+  isDropTarget,
+  dragHandlers,
 }: {
   entry: DispatchQueueEntryType;
   idx: number;
   tr: (ko: string, en: string) => string;
   locale: UiLanguage;
   onSkip: (id: string) => void;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
+  dragHandlers?: {
+    draggable: boolean;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+    onDragEnd: () => void;
+  };
 }) {
   const sty = ENTRY_STATUS_STYLE[entry.status] ?? ENTRY_STATUS_STYLE.pending;
+  const isPending = entry.status === "pending";
+
   return (
     <div
-      className="flex items-center gap-2 rounded-xl px-3 py-2 border"
+      className="flex items-center gap-2 rounded-xl px-3 py-2 border transition-all"
       style={{
-        borderColor: entry.status === "dispatched" ? "rgba(245,158,11,0.3)" : "rgba(148,163,184,0.15)",
-        backgroundColor: entry.status === "dispatched" ? "rgba(245,158,11,0.06)" : "rgba(2,6,23,0.5)",
+        borderColor: isDropTarget
+          ? "rgba(139,92,246,0.6)"
+          : entry.status === "dispatched"
+            ? "rgba(245,158,11,0.3)"
+            : "rgba(148,163,184,0.15)",
+        backgroundColor: isDragging
+          ? "rgba(139,92,246,0.12)"
+          : isDropTarget
+            ? "rgba(139,92,246,0.08)"
+            : entry.status === "dispatched"
+              ? "rgba(245,158,11,0.06)"
+              : "rgba(2,6,23,0.5)",
+        opacity: isDragging ? 0.5 : 1,
+        cursor: isPending && dragHandlers?.draggable ? "grab" : undefined,
       }}
+      {...(dragHandlers ?? {})}
     >
+      {/* Drag handle for pending items */}
+      {isPending && dragHandlers?.draggable && (
+        <span className="text-[10px] shrink-0 select-none" style={{ color: "var(--th-text-muted)", cursor: "grab" }}>
+          ⠿
+        </span>
+      )}
       <span className="text-[10px] font-mono shrink-0 w-5 text-center" style={{ color: "var(--th-text-muted)" }}>
         {idx + 1}
       </span>
@@ -74,7 +110,7 @@ function EntryRow({
       >
         {tr(sty.label, sty.labelEn)}
       </span>
-      {entry.status === "pending" && (
+      {isPending && (
         <button
           onClick={() => onSkip(entry.id)}
           className="text-[10px] px-1.5 py-0.5 rounded border shrink-0"
@@ -91,6 +127,90 @@ function EntryRow({
     </div>
   );
 }
+
+// ── Drag & drop hook for a list of entries ──
+
+function useDragReorder(
+  entries: DispatchQueueEntryType[],
+  onReorder: (orderedIds: string[], agentId?: string | null) => Promise<void>,
+  agentId?: string | null,
+) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
+
+  const pendingEntries = entries.filter((e) => e.status === "pending");
+
+  const makeDragHandlers = (entry: DispatchQueueEntryType) => {
+    if (entry.status !== "pending") return undefined;
+
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", entry.id);
+        dragIdRef.current = entry.id;
+        setDragId(entry.id);
+      },
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (entry.status === "pending" && entry.id !== dragIdRef.current) {
+          setDropTargetId(entry.id);
+        }
+      },
+      onDragLeave: (e: React.DragEvent) => {
+        // Only clear if leaving this element entirely
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const { clientX, clientY } = e;
+        if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+          setDropTargetId((prev) => (prev === entry.id ? null : prev));
+        }
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        const fromId = e.dataTransfer.getData("text/plain");
+        const toId = entry.id;
+        if (!fromId || fromId === toId || entry.status !== "pending") {
+          setDragId(null);
+          setDropTargetId(null);
+          dragIdRef.current = null;
+          return;
+        }
+
+        // Compute new order
+        const ids = pendingEntries.map((pe) => pe.id);
+        const fromIdx = ids.indexOf(fromId);
+        const toIdx = ids.indexOf(toId);
+        if (fromIdx === -1 || toIdx === -1) {
+          setDragId(null);
+          setDropTargetId(null);
+          dragIdRef.current = null;
+          return;
+        }
+
+        // Move fromIdx to toIdx
+        ids.splice(fromIdx, 1);
+        ids.splice(toIdx, 0, fromId);
+
+        setDragId(null);
+        setDropTargetId(null);
+        dragIdRef.current = null;
+
+        void onReorder(ids, agentId);
+      },
+      onDragEnd: () => {
+        setDragId(null);
+        setDropTargetId(null);
+        dragIdRef.current = null;
+      },
+    };
+  };
+
+  return { dragId, dropTargetId, makeDragHandlers };
+}
+
+// ── Main Panel ──
 
 export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Props) {
   const [status, setStatus] = useState<AutoQueueStatus | null>(null);
@@ -166,6 +286,15 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
     }
   };
 
+  const handleReorder = async (orderedIds: string[], agentId?: string | null) => {
+    try {
+      await api.reorderAutoQueueEntries(orderedIds, agentId);
+      await fetchStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tr("순서 변경 실패", "Reorder failed"));
+    }
+  };
+
   const run = status?.run ?? null;
   const entries = status?.entries ?? [];
   const agentStats: Record<string, { pending: number; dispatched: number; done: number; skipped: number }> = status?.agents ?? {};
@@ -183,15 +312,17 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
     entriesByAgent.set(entry.agent_id, list);
   }
 
-  // All-queue view: merge all entries sorted by global rank (priority_rank across agents)
+  // All-queue view: merge all entries sorted by status then rank
   const allEntriesSorted = [...entries].sort((a, b) => {
-    // Active first, then pending, then done/skipped
     const statusOrder: Record<string, number> = { dispatched: 0, pending: 1, done: 2, skipped: 3 };
     const sa = statusOrder[a.status] ?? 1;
     const sb = statusOrder[b.status] ?? 1;
     if (sa !== sb) return sa - sb;
     return a.priority_rank - b.priority_rank;
   });
+
+  // Drag & drop for "all" view (pending only, no agent scope)
+  const allDrag = useDragReorder(allEntriesSorted, handleReorder);
 
   return (
     <section
@@ -367,12 +498,11 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
             </div>
           )}
 
-          {/* ── All view: merged list sorted by status then rank ── */}
+          {/* ── All view: merged list with drag & drop ── */}
           {viewMode === "all" && (
             <div className="space-y-1">
               {allEntriesSorted.map((entry, idx) => (
                 <div key={entry.id} className="flex items-center gap-1">
-                  {/* Agent badge */}
                   <span
                     className="text-[9px] px-1.5 py-0.5 rounded shrink-0 max-w-[60px] truncate"
                     style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "#a78bfa" }}
@@ -380,47 +510,34 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
                     {getAgentLabel(entry.agent_id)}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <EntryRow entry={entry} idx={idx} tr={tr} locale={locale} onSkip={handleSkip} />
+                    <EntryRow
+                      entry={entry}
+                      idx={idx}
+                      tr={tr}
+                      locale={locale}
+                      onSkip={handleSkip}
+                      isDragging={allDrag.dragId === entry.id}
+                      isDropTarget={allDrag.dropTargetId === entry.id}
+                      dragHandlers={allDrag.makeDragHandlers(entry)}
+                    />
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* ── Agent view: grouped by agent ── */}
+          {/* ── Agent view: grouped by agent with per-agent drag & drop ── */}
           {viewMode === "agent" && Array.from(entriesByAgent.entries()).map(([agentId, agentEntries]) => (
-            <div key={agentId} className="space-y-1">
-              <div className="flex items-center gap-2 px-1">
-                <div className="text-[11px] font-medium" style={{ color: "var(--th-text-muted)" }}>
-                  {getAgentLabel(agentId)}
-                </div>
-                <div className="flex-1 h-px" style={{ backgroundColor: "rgba(148,163,184,0.15)" }} />
-                <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
-                  {agentEntries.filter((e) => e.status === "done").length}/{agentEntries.length}
-                </div>
-              </div>
-              {/* Per-agent progress bar */}
-              {agentEntries.length > 1 && (
-                <div className="flex gap-0.5 h-1 rounded-full overflow-hidden bg-white/5 mx-1">
-                  {(() => {
-                    const ad = agentEntries.filter((e) => e.status === "done").length;
-                    const aa = agentEntries.filter((e) => e.status === "dispatched").length;
-                    const as_ = agentEntries.filter((e) => e.status === "skipped").length;
-                    const at = agentEntries.length;
-                    return (
-                      <>
-                        {ad > 0 && <div className="rounded-full" style={{ width: `${(ad / at) * 100}%`, backgroundColor: "#4ade80" }} />}
-                        {aa > 0 && <div className="rounded-full" style={{ width: `${(aa / at) * 100}%`, backgroundColor: "#fbbf24" }} />}
-                        {as_ > 0 && <div className="rounded-full" style={{ width: `${(as_ / at) * 100}%`, backgroundColor: "#6b7280" }} />}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-              {agentEntries.map((entry, idx) => (
-                <EntryRow key={entry.id} entry={entry} idx={idx} tr={tr} locale={locale} onSkip={handleSkip} />
-              ))}
-            </div>
+            <AgentSubQueue
+              key={agentId}
+              agentId={agentId}
+              agentEntries={agentEntries}
+              getAgentLabel={getAgentLabel}
+              tr={tr}
+              locale={locale}
+              onSkip={handleSkip}
+              onReorder={handleReorder}
+            />
           ))}
 
           {/* Run metadata */}
@@ -449,5 +566,72 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
         </div>
       )}
     </section>
+  );
+}
+
+// ── Agent sub-queue with its own drag & drop scope ──
+
+function AgentSubQueue({
+  agentId,
+  agentEntries,
+  getAgentLabel,
+  tr,
+  locale,
+  onSkip,
+  onReorder,
+}: {
+  agentId: string;
+  agentEntries: DispatchQueueEntryType[];
+  getAgentLabel: (id: string) => string;
+  tr: (ko: string, en: string) => string;
+  locale: UiLanguage;
+  onSkip: (id: string) => void;
+  onReorder: (orderedIds: string[], agentId?: string | null) => Promise<void>;
+}) {
+  const drag = useDragReorder(agentEntries, onReorder, agentId);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 px-1">
+        <div className="text-[11px] font-medium" style={{ color: "var(--th-text-muted)" }}>
+          {getAgentLabel(agentId)}
+        </div>
+        <div className="flex-1 h-px" style={{ backgroundColor: "rgba(148,163,184,0.15)" }} />
+        <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+          {agentEntries.filter((e) => e.status === "done").length}/{agentEntries.length}
+        </div>
+      </div>
+      {/* Per-agent progress bar */}
+      {agentEntries.length > 1 && (
+        <div className="flex gap-0.5 h-1 rounded-full overflow-hidden bg-white/5 mx-1">
+          {(() => {
+            const ad = agentEntries.filter((e) => e.status === "done").length;
+            const aa = agentEntries.filter((e) => e.status === "dispatched").length;
+            const as_ = agentEntries.filter((e) => e.status === "skipped").length;
+            const at = agentEntries.length;
+            return (
+              <>
+                {ad > 0 && <div className="rounded-full" style={{ width: `${(ad / at) * 100}%`, backgroundColor: "#4ade80" }} />}
+                {aa > 0 && <div className="rounded-full" style={{ width: `${(aa / at) * 100}%`, backgroundColor: "#fbbf24" }} />}
+                {as_ > 0 && <div className="rounded-full" style={{ width: `${(as_ / at) * 100}%`, backgroundColor: "#6b7280" }} />}
+              </>
+            );
+          })()}
+        </div>
+      )}
+      {agentEntries.map((entry, idx) => (
+        <EntryRow
+          key={entry.id}
+          entry={entry}
+          idx={idx}
+          tr={tr}
+          locale={locale}
+          onSkip={onSkip}
+          isDragging={drag.dragId === entry.id}
+          isDropTarget={drag.dropTargetId === entry.id}
+          dragHandlers={drag.makeDragHandlers(entry)}
+        />
+      ))}
+    </div>
   );
 }

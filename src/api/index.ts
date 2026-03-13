@@ -67,6 +67,7 @@ export {
   getCardPipelineStatus,
   getRuntimeConfig,
   saveRuntimeConfig,
+  reorderAutoQueueEntries,
 } from "./client";
 
 export type {

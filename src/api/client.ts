@@ -852,3 +852,13 @@ export async function updateAutoQueueRun(
     body: JSON.stringify({ status }),
   });
 }
+
+export async function reorderAutoQueueEntries(
+  orderedIds: string[],
+  agentId?: string | null,
+): Promise<{ ok: boolean }> {
+  return request("/api/auto-queue/reorder", {
+    method: "PATCH",
+    body: JSON.stringify({ orderedIds, agentId: agentId ?? undefined }),
+  });
+}
