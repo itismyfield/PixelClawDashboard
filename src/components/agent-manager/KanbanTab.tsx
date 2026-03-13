@@ -41,8 +41,8 @@ const PRIORITY_OPTIONS: KanbanCardPriority[] = ["low", "medium", "high", "urgent
 
 /** Quick-transition targets per status. Order = button order (primary first). */
 const STATUS_TRANSITIONS: Record<KanbanCardStatus, KanbanCardStatus[]> = {
-  backlog: ["ready"],
-  ready: ["requested", "backlog"],
+  backlog: ["ready", "cancelled"],
+  ready: ["requested", "backlog", "cancelled"],
   requested: ["in_progress", "cancelled"],
   in_progress: ["review", "blocked"],
   review: ["done", "in_progress"],
@@ -1374,6 +1374,13 @@ export default function KanbanTab({
                                     type="button"
                                     onClick={(event) => {
                                       event.stopPropagation();
+                                      if (target === "cancelled") {
+                                        const hasIssue = card.github_issue_number;
+                                        const msg = hasIssue
+                                          ? tr(`카드를 취소하고 GitHub 이슈 #${card.github_issue_number}을 닫을까요?`, `Cancel card and close GitHub issue #${card.github_issue_number}?`)
+                                          : tr("카드를 취소할까요?", "Cancel this card?");
+                                        if (!window.confirm(msg)) return;
+                                      }
                                       void (async () => {
                                         setActionError(null);
                                         try {
@@ -1545,6 +1552,13 @@ export default function KanbanTab({
                           if (target === "done" && editor.review_checklist.some((item) => !item.done)) {
                             setActionError(tr("review checklist를 모두 완료해야 done으로 이동할 수 있습니다.", "Complete the review checklist before moving to done."));
                             return;
+                          }
+                          if (target === "cancelled") {
+                            const hasIssue = selectedCard.github_issue_number;
+                            const msg = hasIssue
+                              ? tr(`이 카드를 취소하고 GitHub 이슈 #${selectedCard.github_issue_number}을 닫을까요?`, `Cancel this card and close GitHub issue #${selectedCard.github_issue_number}?`)
+                              : tr("이 카드를 취소할까요?", "Cancel this card?");
+                            if (!window.confirm(msg)) return;
                           }
                           setSavingCard(true);
                           setActionError(null);
