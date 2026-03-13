@@ -205,13 +205,19 @@ with urllib.request.urlopen(req, timeout=15) as resp:
     sys.stdout.write(resp.read().decode())
 `;
 
+let codexErrorLogged = false;
+
 async function pollCodexUsage(): Promise<void> {
   return new Promise<void>((resolve) => {
     execFile("python3", ["-c", CODEX_FETCH_SCRIPT], { timeout: 20_000 }, (err, stdout) => {
       if (err) {
-        console.error("[rate-limits] Codex usage poll error:", err.message);
+        if (!codexErrorLogged) {
+          console.warn("[rate-limits] Codex rate limit polling disabled (no credentials)");
+          codexErrorLogged = true;
+        }
         return resolve();
       }
+      codexErrorLogged = false;
       try {
         const data = JSON.parse(stdout) as CodexUsageResponse;
         codexCache = { data, timestamp: Date.now() };

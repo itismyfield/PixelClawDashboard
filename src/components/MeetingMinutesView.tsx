@@ -71,7 +71,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
   const [showStartForm, setShowStartForm] = useState(false);
   const [agenda, setAgenda] = useState("");
   const [channelId, setChannelId] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
-  const [primaryProvider, setPrimaryProvider] = useState<"claude" | "codex">("claude");
+  const [primaryProvider, setPrimaryProvider] = useState<string>("claude");
   const [showChannelEdit, setShowChannelEdit] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -437,12 +437,13 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
             </label>
             <select
               value={primaryProvider}
-              onChange={(e) => setPrimaryProvider(e.target.value as "claude" | "codex")}
+              onChange={(e) => setPrimaryProvider(e.target.value)}
               className="px-3 py-1.5 rounded-lg text-xs"
               style={inputStyle}
             >
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
+              {(["claude", "codex", "gemini", "opencode", "copilot"] as const).map((p) => (
+                <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+              ))}
             </select>
             <span className="text-[11px]" style={{ color: "var(--th-text-muted)" }}>
               반대 모델이 자동 교차검증

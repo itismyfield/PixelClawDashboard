@@ -11,6 +11,24 @@ const PROVIDER_META: Record<string, { label: string; bg: string; color: string; 
     color: "#7dd3fc",
     border: "rgba(56,189,248,0.24)",
   },
+  gemini: {
+    label: "Gemini",
+    bg: "rgba(59,130,246,0.12)",
+    color: "#60a5fa",
+    border: "rgba(59,130,246,0.25)",
+  },
+  opencode: {
+    label: "OpenCode",
+    bg: "rgba(168,85,247,0.12)",
+    color: "#c084fc",
+    border: "rgba(168,85,247,0.25)",
+  },
+  copilot: {
+    label: "Copilot",
+    bg: "rgba(16,185,129,0.12)",
+    color: "#6ee7b7",
+    border: "rgba(16,185,129,0.25)",
+  },
 };
 
 function getProviderMeta(provider: string | null) {

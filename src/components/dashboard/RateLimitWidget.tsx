@@ -40,6 +40,12 @@ const PROVIDER_PALETTES: Record<string, ProviderPalette> = {
     warning: { bar: "#fbbf24", text: "#fcd34d", glow: "rgba(251,191,36,0.4)" },
     danger: { bar: "#f87171", text: "#fca5a5", glow: "rgba(248,113,113,0.5)" },
   },
+  Gemini: {
+    accent: "#3b82f6",
+    normal: { bar: "#3b82f6", text: "#60a5fa", glow: "rgba(59,130,246,0.3)" },
+    warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
+    danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
+  },
 };
 
 const DEFAULT_PALETTE: ProviderPalette = PROVIDER_PALETTES.Codex;
@@ -103,7 +109,7 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                   className="text-[10px] sm:text-xs font-bold uppercase tracking-wider"
                   style={{ color: accent }}
                 >
-                  {provider.provider === "Claude" ? "🤖" : "⚡"}{" "}
+                  {({ Claude: "🤖", Codex: "⚡", Gemini: "🔮" } as Record<string, string>)[provider.provider] ?? "•"}{" "}
                   {provider.provider}
                 </span>
                 {provider.stale ? (

@@ -808,7 +808,7 @@ export async function discardAllRoundTableIssues(
 export async function startRoundTableMeeting(
   agenda: string,
   channelId: string,
-  primaryProvider?: "claude" | "codex",
+  primaryProvider?: string,
 ): Promise<{ ok: boolean }> {
   return request("/api/round-table-meetings/start", {
     method: "POST",
