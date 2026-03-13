@@ -20,6 +20,15 @@ export const KANBAN_CARD_STATUSES = [
   "cancelled",
 ] as const;
 
+export const KANBAN_REVIEW_STATUSES = [
+  "awaiting_dod",
+  "reviewing",
+  "improve_rework",
+  "dilemma_pending",
+  "decided",
+] as const;
+export type KanbanReviewStatus = (typeof KANBAN_REVIEW_STATUSES)[number];
+
 export const KANBAN_CARD_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 import { getRuntimeConfig } from "./runtime-config.js";
 
@@ -89,6 +98,7 @@ interface KanbanCardBaseRow {
   requested_at: number | null;
   completed_at: number | null;
   pipeline_stage_id: string | null;
+  review_status: KanbanReviewStatus | null;
 }
 
 interface TaskDispatchRow {
@@ -1170,4 +1180,472 @@ export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
   }
 
   return changed;
+}
+
+// ── Counter-model review system ──
+
+export interface ReviewVerdictItem {
+  id: string;
+  category: "pass" | "improve" | "dilemma";
+  summary: string;
+  detail?: string;
+  suggestion?: string;
+  pros?: string;
+  cons?: string;
+}
+
+export interface ReviewVerdict {
+  overall: "pass" | "improve" | "dilemma" | "mixed";
+  items: ReviewVerdictItem[];
+}
+
+interface KanbanReviewRow {
+  id: string;
+  card_id: string;
+  round: number;
+  original_dispatch_id: string | null;
+  original_agent_id: string | null;
+  original_provider: string | null;
+  review_dispatch_id: string | null;
+  reviewer_agent_id: string | null;
+  reviewer_provider: string | null;
+  verdict: string;
+  items_json: string | null;
+  github_comment_id: string | null;
+  created_at: number;
+  completed_at: number | null;
+}
+
+export function listKanbanReviews(db: DatabaseSync, cardId: string): KanbanReviewRow[] {
+  return db.prepare(
+    "SELECT * FROM kanban_reviews WHERE card_id = ? ORDER BY round ASC",
+  ).all(cardId) as unknown as KanbanReviewRow[];
+}
+
+/**
+ * Determine which provider handled the original dispatch.
+ * Uses dispatched_sessions history (most recent session with matching dispatch_id).
+ */
+function getOriginalProviderForDispatch(db: DatabaseSync, dispatchId: string): string | null {
+  const row = db.prepare(
+    `SELECT provider FROM dispatched_sessions
+     WHERE active_dispatch_id = ?
+     ORDER BY last_seen_at DESC LIMIT 1`,
+  ).get(dispatchId) as { provider: string } | undefined;
+  return row?.provider ?? null;
+}
+
+interface AgentChannelInfo {
+  id: string;
+  role_id: string | null;
+  discord_channel_id: string | null;
+  discord_channel_id_alt: string | null;
+  discord_channel_id_codex: string | null;
+  discord_prefer_alt: number;
+}
+
+/**
+ * Get the counter model's channel for review dispatch.
+ * claude → codex channel, codex → primary claude channel.
+ * Returns null if no counter channel exists (fallback to manual review).
+ */
+function getCounterChannel(agent: AgentChannelInfo, originalProvider: string): { channelId: string; provider: string } | null {
+  if (originalProvider === "codex") {
+    // Counter = claude channel
+    const ch = agent.discord_prefer_alt ? agent.discord_channel_id_alt : agent.discord_channel_id;
+    return ch ? { channelId: ch, provider: "claude" } : null;
+  }
+  // Default: original was claude → counter = codex
+  const ch = agent.discord_channel_id_codex;
+  return ch ? { channelId: ch, provider: "codex" } : null;
+}
+
+/**
+ * Trigger counter-model review when a card enters review with all DoD complete.
+ * Creates a review dispatch to the counter model's channel.
+ * Returns true if review was triggered, false if manual review fallback.
+ */
+export function triggerCounterModelReview(db: DatabaseSync, cardId: string): boolean {
+  const card = getRawKanbanCardById(db, cardId);
+  if (!card || card.status !== "review") return false;
+
+  // Check DoD — all must be done
+  const metadata = parseKanbanCardMetadata(card.metadata_json);
+  if (!metadata.review_checklist || metadata.review_checklist.some((item) => !item.done)) {
+    // DoD not all done — set review_status = awaiting_dod
+    db.prepare("UPDATE kanban_cards SET review_status = 'awaiting_dod', updated_at = ? WHERE id = ?")
+      .run(Date.now(), cardId);
+    emitKanbanCard(db, cardId, "kanban_card_updated");
+    return false;
+  }
+
+  // Get original dispatch info
+  const dispatchId = card.latest_dispatch_id;
+  if (!dispatchId) return false;
+
+  const originalProvider = getOriginalProviderForDispatch(db, dispatchId) ?? "claude";
+
+  // Get agent channel info
+  const agent = db.prepare(
+    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+     FROM agents WHERE id = ? LIMIT 1`,
+  ).get(card.assignee_agent_id) as AgentChannelInfo | undefined;
+  if (!agent) return false;
+
+  const counter = getCounterChannel(agent, originalProvider);
+  if (!counter) {
+    // No counter channel — manual review fallback
+    console.log(`[kanban-review] No counter channel for agent ${card.assignee_agent_id}, manual review`);
+    return false;
+  }
+
+  // Check round limit
+  const { maxReviewRounds } = getRuntimeConfig();
+  const existingReviews = db.prepare(
+    "SELECT COUNT(*) as cnt FROM kanban_reviews WHERE card_id = ?",
+  ).get(cardId) as { cnt: number };
+  const round = existingReviews.cnt + 1;
+
+  if (round > maxReviewRounds) {
+    // Max rounds reached — force dilemma
+    db.prepare("UPDATE kanban_cards SET review_status = 'dilemma_pending', updated_at = ? WHERE id = ?")
+      .run(Date.now(), cardId);
+    emitKanbanCard(db, cardId, "kanban_card_updated");
+    console.log(`[kanban-review] Max review rounds (${maxReviewRounds}) reached for card ${cardId}, forcing dilemma`);
+    return false;
+  }
+
+  // Build review handoff
+  ensurePcdRuntimeDirs();
+  const reviewDispatchId = crypto.randomUUID();
+  const now = Date.now();
+
+  // Collect changed files from git diff if possible
+  let changedFiles: string[] = [];
+  try {
+    const raw = execFileSync("git", ["diff", "--name-only", "HEAD~1"], {
+      timeout: 10_000,
+      encoding: "utf-8",
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    changedFiles = raw ? raw.split("\n").filter(Boolean) : [];
+  } catch { /* ignore */ }
+
+  const dodItems = metadata.review_checklist.map((item) => ({
+    text: item.label,
+    checked: item.done,
+  }));
+
+  const reviewInstructions = [
+    `당신은 코드 리뷰어입니다. 아래 DoD 항목에 대해 구현이 올바른지 검토하세요.`,
+    ``,
+    `## 리뷰 대상`,
+    `- 이슈: ${card.github_issue_url ?? card.title}`,
+    `- 원본 모델: ${originalProvider}`,
+    `- 라운드: ${round}/${maxReviewRounds}`,
+    ``,
+    `## DoD 항목`,
+    ...dodItems.map((item, i) => `${i + 1}. ${item.text}`),
+    ``,
+    `## 변경 파일`,
+    ...(changedFiles.length > 0 ? changedFiles.map((f) => `- ${f}`) : ["- (없음)"]),
+    ``,
+    `## 리뷰 지침`,
+    `각 DoD 항목에 대해 다음 중 하나로 판정하세요:`,
+    `- **pass**: 구현이 올바르고 요구사항을 충족`,
+    `- **improve**: 구현에 개선이 필요 (구체적 제안 포함)`,
+    `- **dilemma**: 판단이 어려움, 장단점을 명시하여 사람이 결정하도록`,
+    ``,
+    `결과를 .result.json으로 반환하세요:`,
+    `{ "dispatch_id": "${reviewDispatchId}", "from": "${agent.id}", "to": "${card.requester_agent_id ?? card.assignee_agent_id}", "status": "pass",`,
+    `  "summary": "리뷰 완료", "review_verdict": { "overall": "pass|improve|dilemma|mixed",`,
+    `  "items": [{ "id": "item-1", "category": "pass|improve|dilemma", "summary": "...", "detail": "...", "suggestion": "..." }] } }`,
+  ].join("\n");
+
+  const handoff = {
+    dispatch_id: reviewDispatchId,
+    from: card.requester_agent_id ?? card.assignee_agent_id,
+    to: card.assignee_agent_id,
+    type: "review",
+    title: `[Review R${round}] ${card.title}`,
+    parent_dispatch_id: dispatchId,
+    delivery_channel_id: counter.channelId,
+    context: {
+      summary: `Counter-model review round ${round} for: ${card.title}`,
+      changed_files: changedFiles,
+      repo_path: process.cwd(),
+    },
+    review_context: {
+      original_dispatch_id: dispatchId,
+      original_agent_id: card.assignee_agent_id,
+      original_provider: originalProvider,
+      review_round: round,
+      max_rounds: maxReviewRounds,
+      dod_items: dodItems,
+    },
+    instructions: reviewInstructions,
+  };
+
+  // Insert dispatch row
+  const chainDepth = (() => {
+    if (!dispatchId) return 0;
+    const parent = db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1")
+      .get(dispatchId) as { chain_depth: number } | undefined;
+    return (parent?.chain_depth ?? 0) + 1;
+  })();
+
+  db.prepare(
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+     VALUES (?, ?, ?, 'review', 'pending', ?, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    reviewDispatchId,
+    card.requester_agent_id ?? card.assignee_agent_id,
+    card.assignee_agent_id,
+    handoff.title,
+    dispatchId,
+    chainDepth,
+    now,
+  );
+
+  // Insert review row
+  const reviewId = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO kanban_reviews (id, card_id, round, original_dispatch_id, original_agent_id, original_provider, review_dispatch_id, reviewer_agent_id, reviewer_provider, verdict, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(
+    reviewId,
+    cardId,
+    round,
+    dispatchId,
+    card.assignee_agent_id,
+    originalProvider,
+    reviewDispatchId,
+    card.assignee_agent_id,
+    counter.provider,
+    now,
+  );
+
+  // Write handoff file
+  const fileName = `${now}-${reviewDispatchId}.json`;
+  const filePath = path.join(PCD_HANDOFF_DIR, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
+
+  // Update card review_status
+  db.prepare("UPDATE kanban_cards SET review_status = 'reviewing', updated_at = ? WHERE id = ?")
+    .run(now, cardId);
+  emitKanbanCard(db, cardId, "kanban_card_updated");
+
+  console.log(`[kanban-review] Triggered counter-model review: card=${cardId}, round=${round}, ${originalProvider}→${counter.provider}`);
+  return true;
+}
+
+/**
+ * Process the verdict from a counter-model review.
+ * Called when a review result file is processed by the dispatch watcher.
+ */
+export function processReviewVerdict(
+  db: DatabaseSync,
+  reviewDispatchId: string,
+  verdict: ReviewVerdict,
+): void {
+  const review = db.prepare(
+    "SELECT * FROM kanban_reviews WHERE review_dispatch_id = ? LIMIT 1",
+  ).get(reviewDispatchId) as KanbanReviewRow | undefined;
+  if (!review) {
+    console.error(`[kanban-review] No review found for dispatch ${reviewDispatchId}`);
+    return;
+  }
+
+  const card = getRawKanbanCardById(db, review.card_id);
+  if (!card) return;
+
+  const now = Date.now();
+
+  // Update review row
+  db.prepare(
+    `UPDATE kanban_reviews SET verdict = ?, items_json = ?, completed_at = ? WHERE id = ?`,
+  ).run(verdict.overall, JSON.stringify(verdict.items), now, review.id);
+
+  // Post GitHub comment with review results
+  if (card.github_repo && card.github_issue_number) {
+    postReviewCommentOnGitHub(card, review.round, verdict);
+  }
+
+  switch (verdict.overall) {
+    case "pass": {
+      // Auto-done: mark card as done
+      db.prepare(
+        `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
+      ).run(now, now, card.id);
+      // Complete the original dispatch
+      if (card.latest_dispatch_id) {
+        db.prepare(
+          `UPDATE task_dispatches SET status = 'completed', result_summary = 'Review passed', completed_at = ? WHERE id = ? AND status IN ('pending','dispatched','in_progress','completed')`,
+        ).run(now, card.latest_dispatch_id);
+      }
+      emitKanbanCard(db, card.id, "kanban_card_updated");
+      // Reward + close issue
+      rewardKanbanCompletion(db, card.id);
+      closeGitHubIssueOnDone(card);
+      console.log(`[kanban-review] Card ${card.id} passed review → done`);
+      break;
+    }
+    case "improve": {
+      // Re-dispatch to original model for rework
+      db.prepare(
+        `UPDATE kanban_cards SET review_status = 'improve_rework', updated_at = ? WHERE id = ?`,
+      ).run(now, card.id);
+      emitKanbanCard(db, card.id, "kanban_card_updated");
+      // Create rework dispatch
+      createReworkDispatch(db, card, review, verdict);
+      console.log(`[kanban-review] Card ${card.id} needs improvement → rework dispatched`);
+      break;
+    }
+    case "dilemma": {
+      // Flag for human decision
+      db.prepare(
+        `UPDATE kanban_cards SET review_status = 'dilemma_pending', updated_at = ? WHERE id = ?`,
+      ).run(now, card.id);
+      emitKanbanCard(db, card.id, "kanban_card_updated");
+      console.log(`[kanban-review] Card ${card.id} has dilemma items → awaiting human decision`);
+      break;
+    }
+    case "mixed": {
+      // Has both improve and dilemma items
+      // Auto-dispatch improve items, flag dilemma items
+      db.prepare(
+        `UPDATE kanban_cards SET review_status = 'improve_rework', updated_at = ? WHERE id = ?`,
+      ).run(now, card.id);
+      emitKanbanCard(db, card.id, "kanban_card_updated");
+      // Create rework for improve items only
+      const improveVerdict: ReviewVerdict = {
+        overall: "improve",
+        items: verdict.items.filter((i) => i.category === "improve"),
+      };
+      createReworkDispatch(db, card, review, improveVerdict);
+      console.log(`[kanban-review] Card ${card.id} mixed verdict → rework for improve items, dilemma items flagged`);
+      break;
+    }
+  }
+}
+
+/**
+ * Create a rework dispatch back to the original model.
+ */
+function createReworkDispatch(
+  db: DatabaseSync,
+  card: KanbanCardBaseRow,
+  review: KanbanReviewRow,
+  verdict: ReviewVerdict,
+): void {
+  ensurePcdRuntimeDirs();
+  const reworkDispatchId = crypto.randomUUID();
+  const now = Date.now();
+
+  const improvements = verdict.items
+    .filter((i) => i.category === "improve")
+    .map((i, idx) => `${idx + 1}. ${i.summary}${i.suggestion ? `\n   제안: ${i.suggestion}` : ""}`)
+    .join("\n");
+
+  const reworkInstructions = [
+    `이전 구현에 대한 카운터 모델 리뷰에서 개선 사항이 발견되었습니다.`,
+    `리뷰 라운드: ${review.round}`,
+    ``,
+    `## 개선 필요 항목`,
+    improvements,
+    ``,
+    `위 항목들을 수정한 뒤, 작업 완료 시 DoD를 다시 체크해 주세요.`,
+  ].join("\n");
+
+  const handoff = {
+    dispatch_id: reworkDispatchId,
+    from: card.requester_agent_id ?? card.assignee_agent_id,
+    to: card.assignee_agent_id,
+    type: "generic",
+    title: `[Rework R${review.round}] ${card.title}`,
+    parent_dispatch_id: review.review_dispatch_id,
+    context: {
+      summary: `Rework after review round ${review.round}: ${card.title}`,
+      repo_path: process.cwd(),
+    },
+    instructions: reworkInstructions,
+  };
+
+  const chainDepth = (() => {
+    if (!review.review_dispatch_id) return 0;
+    const parent = db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1")
+      .get(review.review_dispatch_id) as { chain_depth: number } | undefined;
+    return (parent?.chain_depth ?? 0) + 1;
+  })();
+
+  db.prepare(
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+     VALUES (?, ?, ?, 'generic', 'pending', ?, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    reworkDispatchId,
+    card.requester_agent_id ?? card.assignee_agent_id,
+    card.assignee_agent_id,
+    handoff.title,
+    review.review_dispatch_id,
+    chainDepth,
+    now,
+  );
+
+  // Update card to in_progress with rework dispatch
+  db.prepare(
+    `UPDATE kanban_cards SET status = 'in_progress', latest_dispatch_id = ?, started_at = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
+  ).run(reworkDispatchId, now, now, card.id);
+
+  const fileName = `${now}-${reworkDispatchId}.json`;
+  const filePath = path.join(PCD_HANDOFF_DIR, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
+
+  emitKanbanCard(db, card.id, "kanban_card_updated");
+}
+
+/**
+ * Post a structured review comment on the GitHub issue.
+ */
+function postReviewCommentOnGitHub(
+  card: KanbanCardBaseRow,
+  round: number,
+  verdict: ReviewVerdict,
+): void {
+  if (!card.github_repo || !card.github_issue_number) return;
+
+  const emoji = verdict.overall === "pass" ? "✅" : verdict.overall === "improve" ? "🔧" : verdict.overall === "dilemma" ? "🤔" : "⚠️";
+  const lines = [
+    `${emoji} **카운터 모델 리뷰 (R${round})** — ${verdict.overall.toUpperCase()}`,
+    ``,
+  ];
+
+  for (const item of verdict.items) {
+    const cat = item.category === "pass" ? "✅" : item.category === "improve" ? "🔧" : "🤔";
+    lines.push(`${cat} **${item.summary}**`);
+    if (item.detail) lines.push(`  ${item.detail}`);
+    if (item.suggestion) lines.push(`  💡 ${item.suggestion}`);
+    if (item.pros) lines.push(`  👍 ${item.pros}`);
+    if (item.cons) lines.push(`  👎 ${item.cons}`);
+    lines.push("");
+  }
+
+  const body = lines.join("\n");
+  try {
+    const result = execFileSync("gh", [
+      "issue", "comment", String(card.github_issue_number),
+      "--repo", card.github_repo, "--body", body,
+    ], { timeout: 15_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    // Try to extract comment ID for tracking
+    const urlMatch = result.match(/\/comments\/(\d+)/);
+    if (urlMatch) {
+      const db = getDb();
+      db.prepare(
+        "UPDATE kanban_reviews SET github_comment_id = ? WHERE card_id = ? AND round = ?",
+      ).run(urlMatch[1], card.id, round);
+    }
+    console.log(`[kanban-review] Posted review comment on ${card.github_repo}#${card.github_issue_number}`);
+  } catch (e) {
+    console.error(`[kanban-review] gh issue comment failed:`, (e as Error).message);
+  }
 }

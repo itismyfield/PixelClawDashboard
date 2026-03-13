@@ -25,6 +25,9 @@ export interface RuntimeConfig {
   ceoWarnDepth: number;
   maxRetries: number;
 
+  // Review
+  maxReviewRounds: number;
+
   // Rate Limit Thresholds (percent)
   rateLimitWarningPct: number;
   rateLimitDangerPct: number;
@@ -48,6 +51,8 @@ export const RUNTIME_CONFIG_DEFAULTS: RuntimeConfig = {
   maxChainDepth: 5,
   ceoWarnDepth: 3,
   maxRetries: 3,
+
+  maxReviewRounds: 2,
 
   rateLimitWarningPct: 80,
   rateLimitDangerPct: 90,

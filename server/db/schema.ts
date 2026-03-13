@@ -297,6 +297,26 @@ export function initSchema(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_pipeline_history_card ON pipeline_history (card_id, started_at DESC);
 
+    CREATE TABLE IF NOT EXISTS kanban_reviews (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      round INTEGER NOT NULL DEFAULT 1,
+      original_dispatch_id TEXT,
+      original_agent_id TEXT,
+      original_provider TEXT,
+      review_dispatch_id TEXT,
+      reviewer_agent_id TEXT,
+      reviewer_provider TEXT,
+      verdict TEXT NOT NULL DEFAULT 'pending'
+        CHECK(verdict IN ('pending','pass','improve','dilemma','mixed','decided')),
+      items_json TEXT DEFAULT NULL,
+      github_comment_id TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      completed_at INTEGER DEFAULT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_reviews_card ON kanban_reviews (card_id, round DESC);
+    CREATE INDEX IF NOT EXISTS idx_kanban_reviews_dispatch ON kanban_reviews (review_dispatch_id);
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       actor TEXT NOT NULL DEFAULT 'dashboard-session',
@@ -456,6 +476,12 @@ function migrate(db: DatabaseSync): void {
   const repoSrcCols = db.prepare("PRAGMA table_info(kanban_repo_sources)").all() as Array<{ name: string }>;
   if (!repoSrcCols.some((c) => c.name === "default_agent_id")) {
     db.exec("ALTER TABLE kanban_repo_sources ADD COLUMN default_agent_id TEXT DEFAULT NULL");
+  }
+
+  // Add review_status column to kanban_cards if missing
+  const kanbanCols3 = db.prepare("PRAGMA table_info(kanban_cards)").all() as Array<{ name: string }>;
+  if (!kanbanCols3.some((c) => c.name === "review_status")) {
+    db.exec("ALTER TABLE kanban_cards ADD COLUMN review_status TEXT DEFAULT NULL");
   }
 
   // Rename openclaw_id → role_id (legacy column name)

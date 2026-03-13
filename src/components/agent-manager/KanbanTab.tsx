@@ -1301,6 +1301,20 @@ export default function KanbanTab({
                             </div>
                           )}
 
+                          {card.status === "review" && card.review_status && (
+                            <div className="mt-2 rounded-md px-2.5 py-2 text-xs" style={{
+                              backgroundColor: card.review_status === "dilemma_pending" ? "rgba(234,179,8,0.12)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.12)" : "rgba(20,184,166,0.12)",
+                              border: `1px solid ${card.review_status === "dilemma_pending" ? "rgba(234,179,8,0.3)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)"}`,
+                              color: card.review_status === "dilemma_pending" ? "#fde047" : card.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
+                            }}>
+                              {card.review_status === "reviewing" && tr("카운터 모델 리뷰 중", "Counter-model reviewing")}
+                              {card.review_status === "awaiting_dod" && tr("DoD 완료 대기", "Awaiting DoD completion")}
+                              {card.review_status === "improve_rework" && tr("개선 재작업 중", "Improvement rework")}
+                              {card.review_status === "dilemma_pending" && tr("판단 대기 (딜레마)", "Dilemma pending")}
+                              {card.review_status === "decided" && tr("결정됨", "Decided")}
+                            </div>
+                          )}
+
                           <div className="mt-3 space-y-1.5 text-xs" style={{ color: "var(--th-text-muted)" }}>
                             <div>{tr("담당자", "Assignee")}: {getAgentLabel(card.assignee_agent_id)}</div>
                             {latestDispatch && <div>{tr("디스패치", "Dispatch")}: {latestDispatch.status}</div>}
@@ -1580,6 +1594,29 @@ export default function KanbanTab({
                 </div>
                 <div className="text-sm" style={{ color: "#fca5a5" }}>
                   {selectedCard.blocked_reason}
+                </div>
+              </div>
+            )}
+
+            {/* Review status */}
+            {selectedCard.status === "review" && selectedCard.review_status && (
+              <div className="rounded-2xl border p-4" style={{
+                backgroundColor: selectedCard.review_status === "dilemma_pending" ? "rgba(234,179,8,0.08)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.08)" : "rgba(20,184,166,0.08)",
+                borderColor: selectedCard.review_status === "dilemma_pending" ? "rgba(234,179,8,0.3)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)",
+              }}>
+                <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{
+                  color: selectedCard.review_status === "dilemma_pending" ? "#eab308" : selectedCard.review_status === "improve_rework" ? "#f97316" : "#14b8a6",
+                }}>
+                  {tr("카운터 모델 리뷰", "Counter-Model Review")}
+                </div>
+                <div className="text-sm" style={{
+                  color: selectedCard.review_status === "dilemma_pending" ? "#fde047" : selectedCard.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
+                }}>
+                  {selectedCard.review_status === "reviewing" && tr("카운터 모델이 코드를 리뷰하고 있습니다...", "Counter model is reviewing...")}
+                  {selectedCard.review_status === "awaiting_dod" && tr("DoD 항목이 모두 완료되면 자동 리뷰가 시작됩니다.", "Auto review starts when all DoD items are complete.")}
+                  {selectedCard.review_status === "improve_rework" && tr("개선 사항이 발견되어 원본 모델에 재작업을 요청했습니다.", "Improvements needed — rework dispatched to original model.")}
+                  {selectedCard.review_status === "dilemma_pending" && tr("판단이 어려운 항목이 있습니다. 수동으로 결정해 주세요.", "Dilemma items found — manual decision needed.")}
+                  {selectedCard.review_status === "decided" && tr("리뷰 결정이 완료되었습니다.", "Review decision completed.")}
                 </div>
               </div>
             )}

@@ -433,6 +433,7 @@ export interface KanbanCard {
   github_issue_url: string | null;
   metadata_json: string | null;
   pipeline_stage_id: string | null;
+  review_status: string | null;
   created_at: number;
   updated_at: number;
   started_at: number | null;

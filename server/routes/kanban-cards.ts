@@ -18,6 +18,8 @@ import {
   closeGitHubIssueOnDone,
   updateGitHubChecklistOnReview,
   mirrorGitHubDodToChecklist,
+  triggerCounterModelReview,
+  listKanbanReviews,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 import { onCardTerminal } from "../auto-queue.js";
@@ -562,6 +564,12 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
     }
     if (finalCard.status === "review" && existing.status !== "review") {
       updateGitHubChecklistOnReview(finalCard);
+      // Trigger counter-model review if DoD all done and counter channel exists
+      try {
+        triggerCounterModelReview(db, finalCard.id);
+      } catch (e) {
+        console.error("[kanban] counter-model review trigger failed:", (e as Error).message);
+      }
     }
     if ((finalCard.status === "done" || finalCard.status === "cancelled") && existing.status !== finalCard.status) {
       closeGitHubIssueOnDone(finalCard);
@@ -615,6 +623,18 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "kanban_card_update_failed" });
   }
+});
+
+// Get review history for a card
+router.get("/api/kanban-cards/:id/reviews", (req, res) => {
+  const db = getDb();
+  const existing = getRawKanbanCardById(db, req.params.id);
+  if (!existing) {
+    res.status(404).json({ error: "kanban_card_not_found" });
+    return;
+  }
+  const reviews = listKanbanReviews(db, req.params.id);
+  res.json({ reviews });
 });
 
 router.delete("/api/kanban-cards/:id", (req, res) => {

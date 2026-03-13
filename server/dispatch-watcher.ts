@@ -2,10 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db/runtime.js";
-import { enforceKanbanTimeouts, syncGitHubIssueStates, syncKanbanCardWithDispatch } from "./kanban-cards.js";
+import { enforceKanbanTimeouts, syncGitHubIssueStates, syncKanbanCardWithDispatch, processReviewVerdict } from "./kanban-cards.js";
+import type { ReviewVerdict } from "./kanban-cards.js";
 import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
-import { sendToAgentChannel } from "./discord-announce.js";
+import { sendDiscordMessage, sendToAgentChannel } from "./discord-announce.js";
 import { PCD_HANDOFF_ARCHIVE_DIR, PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
 import { getRuntimeConfig } from "./runtime-config.js";
 
@@ -48,6 +49,17 @@ interface HandoffFile {
     truncated: boolean;
     fallback_reason: string | null;
   };
+  /** Force delivery to a specific Discord channel (bypasses agent channel resolution) */
+  delivery_channel_id?: string | null;
+  /** Review-specific context (present when type = "review") */
+  review_context?: {
+    original_dispatch_id: string;
+    original_agent_id: string;
+    original_provider: string;
+    review_round: number;
+    max_rounds: number;
+    dod_items: Array<{ text: string; checked: boolean }>;
+  };
 }
 
 interface ResultFile {
@@ -62,6 +74,8 @@ interface ResultFile {
     detail: string;
     to?: string | null;
   } | null;
+  /** Review verdict (present when the dispatch was type = "review") */
+  review_verdict?: ReviewVerdict;
 }
 
 // ── Helpers ──
@@ -258,7 +272,10 @@ function processHandoffFile(filePath: string): void {
 
   // Deliver message to target agent (fire-and-forget, non-blocking)
   const msg = `DISPATCH:${handoff.dispatch_id} - ${handoff.title}`;
-  sendAgentMessage(toAgent, msg).then((delivered) => {
+  const deliveryPromise = handoff.delivery_channel_id
+    ? sendToAgentChannel(toAgent, msg, handoff.delivery_channel_id)
+    : sendAgentMessage(toAgent, msg);
+  deliveryPromise.then((delivered) => {
     if (!delivered) {
       db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(
         handoff.dispatch_id,
@@ -320,6 +337,7 @@ function processResultFile(filePath: string): void {
       to_agent_id: string;
       chain_depth: number;
       status: string;
+      dispatch_type: string;
     } | undefined;
 
   if (!dispatch) {
@@ -336,6 +354,15 @@ function processResultFile(filePath: string): void {
   db.prepare(
     `UPDATE task_dispatches SET status = ?, result_file = ?, result_summary = ?, completed_at = ? WHERE id = ?`,
   ).run(dispatchStatus, archivedPath, result.summary, now, result.dispatch_id);
+
+  // Handle review verdict if present
+  if (result.review_verdict && dispatch.dispatch_type === "review") {
+    try {
+      processReviewVerdict(db, result.dispatch_id, result.review_verdict);
+    } catch (err) {
+      console.error(`[PCD-dispatch] Review verdict processing failed for ${result.dispatch_id}:`, err);
+    }
+  }
 
   // Handle follow_up_request → create new handoff file (auto-chain)
   if (result.follow_up_request) {

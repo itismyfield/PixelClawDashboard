@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
-import { emitKanbanCard, commentBlockedOnGitHub, updateGitHubChecklistOnReview } from "../kanban-cards.js";
+import { emitKanbanCard, commentBlockedOnGitHub, updateGitHubChecklistOnReview, triggerCounterModelReview } from "../kanban-cards.js";
 import { sendDiscordMessage } from "../discord-announce.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
@@ -154,6 +154,12 @@ function promoteKanbanForDispatch(
     console.log(`[PCD] kanban dispatch-promote: ${card.id} → review (dispatch ${dispatchId} completed)`);
     // Update GitHub issue DoD checklist + add review-pending comment
     updateGitHubChecklistOnReview(card);
+    // Trigger counter-model review if DoD all done and counter channel exists
+    try {
+      triggerCounterModelReview(getDb(), card.id);
+    } catch (e) {
+      console.error(`[PCD] counter-model review trigger failed for card ${card.id}:`, (e as Error).message);
+    }
   }
 }
 
