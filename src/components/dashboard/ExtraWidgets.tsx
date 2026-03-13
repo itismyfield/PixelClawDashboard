@@ -148,7 +148,51 @@ interface KanbanOpsWidgetProps {
   t: TFunction;
 }
 
+type OpsCategory = "review" | "acceptance" | "stalled" | "blocked_failed";
+
 export function KanbanOpsWidget({ kanban, t }: KanbanOpsWidgetProps) {
+  const [expanded, setExpanded] = useState<OpsCategory | null>(null);
+  const [cards, setCards] = useState<api.KanbanCard[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const categoryFilter: Record<OpsCategory, (c: api.KanbanCard) => boolean> = useMemo(() => ({
+    review: (c) => c.status === "review",
+    acceptance: (c) => c.status === "requested",
+    stalled: (c) => c.status === "in_progress",
+    blocked_failed: (c) => c.status === "blocked" || c.status === "failed",
+  }), []);
+
+  const handleToggle = async (cat: OpsCategory) => {
+    if (expanded === cat) { setExpanded(null); return; }
+    setExpanded(cat);
+    setLoading(true);
+    try {
+      const all = await api.getKanbanCards();
+      setCards(all.filter(categoryFilter[cat]));
+    } catch { setCards([]); }
+    setLoading(false);
+  };
+
+  const handleAction = async (cardId: string, action: "retry" | "ready" | "done") => {
+    try {
+      if (action === "retry") await api.retryKanbanCard(cardId);
+      else if (action === "ready") await api.updateKanbanCard(cardId, { status: "ready" } as never);
+      else if (action === "done") await api.updateKanbanCard(cardId, { status: "done" } as never);
+      // Refresh
+      if (expanded) {
+        const all = await api.getKanbanCards();
+        setCards(all.filter(categoryFilter[expanded]));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const categories: Array<{ key: OpsCategory; label: string; value: number; color: string }> = [
+    { key: "review", label: t({ ko: "검토 대기", en: "Review", ja: "レビュー待ち", zh: "待审查" }), value: kanban.review_queue, color: "#14b8a6" },
+    { key: "acceptance", label: t({ ko: "수락 지연", en: "Ack delay", ja: "受諾遅延", zh: "接收延迟" }), value: kanban.waiting_acceptance, color: "#8b5cf6" },
+    { key: "stalled", label: t({ ko: "진행 정체", en: "Stalled", ja: "停滞", zh: "停滞" }), value: kanban.stale_in_progress, color: "#f59e0b" },
+    { key: "blocked_failed", label: t({ ko: "막힘/실패", en: "Blocked/Failed", ja: "詰まり/失敗", zh: "阻塞/失败" }), value: kanban.blocked + kanban.failed, color: "#ef4444" },
+  ];
+
   return (
     <div
       className="rounded-2xl border p-4"
@@ -172,18 +216,38 @@ export function KanbanOpsWidget({ kanban, t }: KanbanOpsWidgetProps) {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        {[
-          { label: t({ ko: "검토 대기", en: "Review", ja: "レビュー待ち", zh: "待审查" }), value: kanban.review_queue, color: "#14b8a6" },
-          { label: t({ ko: "수락 지연", en: "Ack delay", ja: "受諾遅延", zh: "接收延迟" }), value: kanban.waiting_acceptance, color: "#8b5cf6" },
-          { label: t({ ko: "진행 정체", en: "Stalled", ja: "停滞", zh: "停滞" }), value: kanban.stale_in_progress, color: "#f59e0b" },
-          { label: t({ ko: "막힘/실패", en: "Blocked/Failed", ja: "詰まり/失敗", zh: "阻塞/失败" }), value: kanban.blocked + kanban.failed, color: "#ef4444" },
-        ].map((item) => (
-          <div key={item.label} className="rounded-xl px-3 py-2" style={{ background: "var(--th-bg-surface)" }}>
+        {categories.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => item.value > 0 && handleToggle(item.key)}
+            className="rounded-xl px-3 py-2 text-left transition-all"
+            style={{
+              background: expanded === item.key ? `color-mix(in srgb, ${item.color} 12%, var(--th-bg-surface))` : "var(--th-bg-surface)",
+              outline: expanded === item.key ? `1px solid color-mix(in srgb, ${item.color} 40%, transparent)` : "none",
+              cursor: item.value > 0 ? "pointer" : "default",
+            }}
+          >
             <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>{item.label}</div>
             <div className="text-xl font-black" style={{ color: item.color }}>{item.value}</div>
-          </div>
+          </button>
         ))}
       </div>
+
+      {/* Expanded card list */}
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {loading ? (
+            <div className="text-xs text-center py-2" style={{ color: "var(--th-text-muted)" }}>...</div>
+          ) : cards.length === 0 ? (
+            <div className="text-xs text-center py-2" style={{ color: "var(--th-text-muted)" }}>
+              {t({ ko: "카드 없음", en: "No cards", ja: "カードなし", zh: "无卡片" })}
+            </div>
+          ) : cards.map((card) => (
+            <OpsCardRow key={card.id} card={card} t={t} onAction={handleAction} />
+          ))}
+        </div>
+      )}
 
       {kanban.top_repos.length > 0 && (
         <div className="mt-4 space-y-1.5">
@@ -211,6 +275,97 @@ export function KanbanOpsWidget({ kanban, t }: KanbanOpsWidgetProps) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function OpsCardRow({ card, t, onAction }: {
+  card: api.KanbanCard;
+  t: TFunction;
+  onAction: (id: string, action: "retry" | "ready" | "done") => void;
+}) {
+  const repo = card.github_repo?.replace(/^[^/]+\//, "") ?? "";
+  const statusColor = card.status === "failed" ? "#ef4444"
+    : card.status === "blocked" ? "#f59e0b"
+    : card.status === "review" ? "#14b8a6"
+    : "#8b5cf6";
+
+  return (
+    <div
+      className="rounded-xl px-3 py-2 flex flex-col gap-1.5"
+      style={{ background: "var(--th-bg-surface)", border: "1px solid var(--th-border)" }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase shrink-0"
+              style={{ color: statusColor, background: `color-mix(in srgb, ${statusColor} 15%, transparent)` }}
+            >
+              {card.status}
+            </span>
+            {repo && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0" style={{ color: "var(--th-text-muted)", background: "rgba(255,255,255,0.06)" }}>
+                {repo}
+              </span>
+            )}
+          </div>
+          <div className="text-sm font-medium mt-0.5 truncate" style={{ color: "var(--th-text)" }}>
+            {card.title}
+          </div>
+          {card.blocked_reason && (
+            <div className="text-[10px] mt-0.5" style={{ color: "#fca5a5" }}>
+              {card.blocked_reason}
+            </div>
+          )}
+          {card.latest_dispatch_result_summary && card.status === "failed" && (
+            <div className="text-[10px] mt-0.5" style={{ color: "#fca5a5" }}>
+              {card.latest_dispatch_result_summary}
+            </div>
+          )}
+        </div>
+        {card.github_issue_url && (
+          <a
+            href={card.github_issue_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] shrink-0 hover:underline"
+            style={{ color: "#93c5fd" }}
+          >
+            #{card.github_issue_number}
+          </a>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {(card.status === "failed" || card.status === "blocked") && (
+          <>
+            <button
+              type="button"
+              onClick={() => onAction(card.id, "retry")}
+              className="text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors hover:brightness-110"
+              style={{ color: "#67e8f9", background: "rgba(103,232,249,0.12)", border: "1px solid rgba(103,232,249,0.2)" }}
+            >
+              {t({ ko: "재시도", en: "Retry", ja: "再試行", zh: "重试" })}
+            </button>
+            <button
+              type="button"
+              onClick={() => onAction(card.id, "ready")}
+              className="text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors hover:brightness-110"
+              style={{ color: "#a5b4fc", background: "rgba(165,180,252,0.12)", border: "1px solid rgba(165,180,252,0.2)" }}
+            >
+              {t({ ko: "Ready로", en: "To Ready", ja: "Readyへ", zh: "重置Ready" })}
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => onAction(card.id, "done")}
+          className="text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors hover:brightness-110"
+          style={{ color: "#86efac", background: "rgba(134,239,172,0.12)", border: "1px solid rgba(134,239,172,0.2)" }}
+        >
+          {t({ ko: "Done", en: "Done", ja: "Done", zh: "完成" })}
+        </button>
+      </div>
     </div>
   );
 }

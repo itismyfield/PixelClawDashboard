@@ -917,7 +917,7 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
 
 // ── GitHub issue state sync ──
 
-const ACTIVE_CARD_STATUSES = ["ready", "requested", "in_progress", "review", "blocked"] as const;
+const ACTIVE_CARD_STATUSES = ["ready", "requested", "in_progress", "review", "blocked", "failed"] as const;
 
 interface GhIssueState {
   number: number;
@@ -949,7 +949,7 @@ export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
      FROM kanban_cards
      WHERE github_repo IS NOT NULL
        AND github_issue_number IS NOT NULL
-       AND status IN ('ready', 'requested', 'in_progress', 'review', 'blocked')`,
+       AND status IN ('ready', 'requested', 'in_progress', 'review', 'blocked', 'failed')`,
   ).all() as unknown as KanbanCardBaseRow[];
 
   const changed: KanbanCardRow[] = [];

@@ -12,7 +12,7 @@ import type {
   TaskDispatch,
 } from "../types";
 
-export type { AuditLogEntry, KanbanRepoSource } from "../types";
+export type { AuditLogEntry, KanbanCard, KanbanRepoSource } from "../types";
 
 const BASE = "";
 
