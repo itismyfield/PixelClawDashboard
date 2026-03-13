@@ -75,7 +75,7 @@ export function useOfficePixiRuntime({
       if (!element) return;
       TextureStyle.defaultOptions.scaleMode = "nearest";
 
-      officeWRef.current = Math.max(MIN_OFFICE_W, element.clientWidth);
+      officeWRef.current = Math.max(MIN_OFFICE_W, Math.floor(element.clientWidth));
 
       const app = new Application();
       await app.init({
