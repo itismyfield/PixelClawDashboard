@@ -33,6 +33,7 @@ import {
 import { drawChair, drawDesk, drawPlant, drawWhiteboard } from "./drawing-furniture-a";
 import { drawBookshelf } from "./drawing-furniture-b";
 import { renderDeskAgentAndSubClones } from "./buildScene-department-agent";
+import type { ActiveIssueInfo } from "./buildScene-types";
 
 export interface DeptLayout {
   rx: number;
@@ -64,6 +65,7 @@ interface BuildDepartmentRoomsParams {
   removedSubBurstsByParent: Map<string, Array<{ x: number; y: number }>>;
   addedWorkingSubIds: Set<string>;
   nextSubSnapshot: Map<string, { parentAgentId: string; x: number; y: number }>;
+  activeIssueByAgent?: Map<string, ActiveIssueInfo>;
 }
 
 export function buildDepartmentRooms({
@@ -88,6 +90,7 @@ export function buildDepartmentRooms({
   removedSubBurstsByParent,
   addedWorkingSubIds,
   nextSubSnapshot,
+  activeIssueByAgent,
 }: BuildDepartmentRoomsParams): void {
   departments.forEach((dept, deptIdx) => {
     const { rx, ry, rw: roomW, rh: roomH, deptAgentRows } = deptLayouts[deptIdx];
@@ -229,6 +232,7 @@ export function buildDepartmentRooms({
           addedWorkingSubIds,
           nextSubSnapshot,
           themeAccent: theme.accent,
+          activeIssue: activeIssueByAgent?.get(agent.id),
         });
       }
     });

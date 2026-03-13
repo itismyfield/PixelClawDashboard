@@ -94,6 +94,7 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     unreadAgentIds: unread,
     customDeptThemes: customThemes,
     activeMeeting,
+    activeIssueByAgent,
   } = dataRef.current;
 
   const previousSubSnapshot = subCloneSnapshotRef.current;
@@ -289,6 +290,7 @@ export function buildOfficeScene(context: BuildOfficeSceneContext): void {
     removedSubBurstsByParent,
     addedWorkingSubIds,
     nextSubSnapshot,
+    activeIssueByAgent,
   });
   subCloneSnapshotRef.current = nextSubSnapshot;
 

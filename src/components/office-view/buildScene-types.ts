@@ -5,6 +5,11 @@ import type { ThemeMode } from "../../ThemeContext";
 import type { Delivery, RoomRect, SubCloneBurstParticle, WallClockVisual } from "./model";
 import type { SupportedLocale } from "./themes-locale";
 
+export interface ActiveIssueInfo {
+  number: number;
+  url: string;
+}
+
 export interface DataSnapshot {
   departments: Department[];
   agents: Agent[];
@@ -14,6 +19,7 @@ export interface DataSnapshot {
   meetingPresence?: Array<{ agent_id: string; until: number }>;
   customDeptThemes?: Record<string, { floor1: number; floor2: number; wall: number; accent: number }>;
   activeMeeting?: RoundTableMeeting | null;
+  activeIssueByAgent?: Map<string, ActiveIssueInfo>;
 }
 
 export interface CallbackSnapshot {

@@ -2,7 +2,7 @@ import type { MutableRefObject } from "react";
 import { AnimatedSprite, Container, Graphics, Text, TextStyle, type Texture } from "pixi.js";
 import { getAgentWarnings, getAgentWorkSummary } from "../../agent-insights";
 import type { Agent, SubAgent, Task } from "../../types";
-import type { AnimItem, CallbackSnapshot, SubCloneAnimItem } from "./buildScene-types";
+import type { ActiveIssueInfo, AnimItem, CallbackSnapshot, SubCloneAnimItem } from "./buildScene-types";
 import {
   DESK_W,
   TARGET_CHAR_H,
@@ -30,6 +30,7 @@ interface RenderDeskAgentAndSubClonesParams {
   addedWorkingSubIds: Set<string>;
   nextSubSnapshot: Map<string, { parentAgentId: string; x: number; y: number }>;
   themeAccent: number;
+  activeIssue?: ActiveIssueInfo;
 }
 
 export function renderDeskAgentAndSubClones({
@@ -51,6 +52,7 @@ export function renderDeskAgentAndSubClones({
   addedWorkingSubIds,
   nextSubSnapshot,
   themeAccent,
+  activeIssue,
 }: RenderDeskAgentAndSubClonesParams): void {
   const spriteNum = spriteMap.get(agent.id) ?? (hashStr(agent.id) % 13) + 1;
   const charContainer = new Container();
@@ -137,7 +139,11 @@ export function renderDeskAgentAndSubClones({
 
   if (isWorking && workSummary) {
     const txt = workSummary.length > 26 ? `${workSummary.slice(0, 26)}...` : workSummary;
-    const bubbleLines = [`💬 ${txt}`];
+    const bubbleLines: string[] = [];
+    if (activeIssue) {
+      bubbleLines.push(`🔧 #${activeIssue.number}`);
+    }
+    bubbleLines.push(`💬 ${txt}`);
     if (workingSubs.length > 1) {
       bubbleLines.push(`+${workingSubs.length - 1} linked`);
     }
@@ -167,6 +173,18 @@ export function renderDeskAgentAndSubClones({
     room.addChild(bubbleG);
     bubbleText.position.set(ax, bubbleTop + bh - 3);
     room.addChild(bubbleText);
+
+    // Make issue badge line clickable → open GitHub issue in new tab
+    if (activeIssue) {
+      const hitContainer = new Container();
+      hitContainer.position.set(ax - bw / 2, bubbleTop);
+      hitContainer.hitArea = { contains: (x: number, y: number) => x >= 0 && x <= bw && y >= 0 && y <= 12 };
+      hitContainer.eventMode = "static";
+      hitContainer.cursor = "pointer";
+      const issueUrl = activeIssue.url;
+      hitContainer.on("pointertap", () => { window.open(issueUrl, "_blank"); });
+      room.addChild(hitContainer);
+    }
   }
 
   const sceneWarnings = getAgentWarnings(agent, {

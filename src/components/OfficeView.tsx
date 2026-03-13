@@ -158,7 +158,22 @@ export default function OfficeView({
     activeMeeting,
     meetingPresence,
   });
-  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes, activeMeeting, meetingPresence };
+  // Build active issue lookup map from kanban cards
+  const activeIssueByAgent = useMemo(() => {
+    const map = new Map<string, { number: number; url: string }>();
+    if (!kanbanCards) return map;
+    for (const card of kanbanCards) {
+      if (!card.assignee_agent_id || !card.github_issue_number) continue;
+      if (card.status !== "in_progress" && card.status !== "review") continue;
+      if (map.has(card.assignee_agent_id)) continue; // first match wins
+      map.set(card.assignee_agent_id, {
+        number: card.github_issue_number,
+        url: card.github_issue_url || `https://github.com/${card.github_repo}/issues/${card.github_issue_number}`,
+      });
+    }
+    return map;
+  }, [kanbanCards]);
+  dataRef.current = { departments, agents, tasks: EMPTY_TASKS, subAgents, customDeptThemes, activeMeeting, meetingPresence, activeIssueByAgent };
 
   const cbRef = useRef<CallbackSnapshot>({
     onSelectAgent: onSelectAgent ?? (() => {}),
