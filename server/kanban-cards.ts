@@ -21,7 +21,7 @@ export const KANBAN_CARD_STATUSES = [
 
 export const KANBAN_CARD_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export const REQUEST_ACK_TIMEOUT_MS = 45 * 60 * 1000;
-export const IN_PROGRESS_STALE_MS = 8 * 60 * 60 * 1000;
+export const IN_PROGRESS_STALE_MS = 60 * 60 * 1000;
 
 export type KanbanCardStatus = (typeof KANBAN_CARD_STATUSES)[number];
 export type KanbanCardPriority = (typeof KANBAN_CARD_PRIORITIES)[number];

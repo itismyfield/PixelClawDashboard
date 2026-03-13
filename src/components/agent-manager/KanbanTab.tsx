@@ -109,7 +109,7 @@ const EMPTY_EDITOR: EditorState = {
 };
 
 const REQUEST_TIMEOUT_MS = 45 * 60 * 1000;
-const IN_PROGRESS_STALE_MS = 8 * 60 * 60 * 1000;
+const IN_PROGRESS_STALE_MS = 60 * 60 * 1000;
 
 function priorityLabel(priority: KanbanCardPriority, tr: (ko: string, en: string) => string): string {
   switch (priority) {
