@@ -193,6 +193,33 @@ export function initSchema(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_repo_sources_created ON kanban_repo_sources (created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS dispatch_queue (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      priority_rank INTEGER NOT NULL DEFAULT 0,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','dispatched','done','skipped')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      dispatched_at INTEGER,
+      completed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_dispatch_queue_agent ON dispatch_queue (agent_id, status, priority_rank);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_queue_status ON dispatch_queue (status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS auto_queue_runs (
+      id TEXT PRIMARY KEY,
+      repo TEXT,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active','paused','completed')),
+      ai_model TEXT,
+      ai_rationale TEXT,
+      timeout_minutes INTEGER NOT NULL DEFAULT 100,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      completed_at INTEGER
+    );
+
     CREATE TABLE IF NOT EXISTS round_table_meetings (
       id TEXT PRIMARY KEY,
       agenda TEXT NOT NULL,

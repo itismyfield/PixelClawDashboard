@@ -18,6 +18,7 @@ import {
   closeGitHubIssueOnDone,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
+import { onCardTerminal } from "../auto-queue.js";
 
 const router = Router();
 
@@ -548,6 +549,15 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
     if (finalCard.status === "done") {
       finalCard = rewardKanbanCompletion(db, finalCard.id) ?? finalCard;
       closeGitHubIssueOnDone(finalCard);
+    }
+
+    // Auto-queue: trigger next dispatch when card reaches terminal state
+    if (["done", "failed", "cancelled"].includes(finalCard.status) && !["done", "failed", "cancelled"].includes(existing.status)) {
+      try {
+        onCardTerminal(db, finalCard.id, finalCard.status);
+      } catch (e) {
+        console.error("[kanban] auto-queue onCardTerminal error:", (e as Error).message);
+      }
     }
 
     res.json(finalCard);

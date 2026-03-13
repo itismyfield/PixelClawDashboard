@@ -33,6 +33,8 @@ import kanbanCardRoutes from "./routes/kanban-cards.js";
 import kanbanRepoRoutes from "./routes/kanban-repos.js";
 import { startIssueTriage, stopIssueTriage } from "./issue-triage.js";
 import rateLimitRoutes, { startRateLimitPolling, stopRateLimitPolling } from "./routes/rate-limits.js";
+import autoQueueRoutes from "./routes/auto-queue.js";
+import { startAutoQueueCheck, stopAutoQueueCheck } from "./auto-queue.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -85,6 +87,7 @@ app.use(kanbanCardRoutes);
 app.use(kanbanRepoRoutes);
 app.use(roundTableRoutes);
 app.use(rateLimitRoutes);
+app.use(autoQueueRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
@@ -111,6 +114,7 @@ server.listen(PORT, HOST, () => {
   startDispatchWatcher();
   startIssueTriage();
   startRateLimitPolling();
+  startAutoQueueCheck();
 });
 
 // Graceful shutdown
@@ -123,6 +127,7 @@ function gracefulShutdown() {
   stopDispatchWatcher();
   stopIssueTriage();
   stopRateLimitPolling();
+  stopAutoQueueCheck();
   server.close();
   closeDb();
   process.exit(0);

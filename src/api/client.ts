@@ -717,3 +717,72 @@ export async function getSkillCatalog(): Promise<SkillCatalogEntry[]> {
   const data = await request<{ catalog: SkillCatalogEntry[] }>("/api/skills/catalog");
   return data.catalog;
 }
+
+// ── Auto-Queue ──
+
+export interface AutoQueueRun {
+  id: string;
+  repo: string | null;
+  status: "active" | "paused" | "completed";
+  ai_model: string | null;
+  ai_rationale: string | null;
+  timeout_minutes: number;
+  created_at: number;
+  completed_at: number | null;
+}
+
+export interface DispatchQueueEntry {
+  id: string;
+  agent_id: string;
+  card_id: string;
+  priority_rank: number;
+  reason: string | null;
+  status: "pending" | "dispatched" | "done" | "skipped";
+  created_at: number;
+  dispatched_at: number | null;
+  completed_at: number | null;
+  card_title?: string;
+  github_issue_number?: number | null;
+  github_repo?: string | null;
+}
+
+export interface AutoQueueStatus {
+  run: AutoQueueRun | null;
+  entries: DispatchQueueEntry[];
+  agents: Record<string, { pending: number; dispatched: number; done: number; skipped: number }>;
+}
+
+export async function generateAutoQueue(repo?: string | null): Promise<{
+  run: AutoQueueRun;
+  entries: DispatchQueueEntry[];
+}> {
+  return request("/api/auto-queue/generate", {
+    method: "POST",
+    body: JSON.stringify({ repo: repo ?? null }),
+  });
+}
+
+export async function activateAutoQueue(): Promise<{
+  dispatched: KanbanCard[];
+  count: number;
+}> {
+  return request("/api/auto-queue/activate", { method: "POST" });
+}
+
+export async function getAutoQueueStatus(): Promise<AutoQueueStatus> {
+  return request("/api/auto-queue/status");
+}
+
+export async function skipAutoQueueEntry(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/auto-queue/entries/${id}/skip`, { method: "PATCH" });
+}
+
+export async function updateAutoQueueRun(
+  id: string,
+  status: "paused" | "active" | "completed",
+): Promise<{ ok: boolean }> {
+  return request(`/api/auto-queue/runs/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
