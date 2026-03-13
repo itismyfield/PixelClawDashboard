@@ -34,7 +34,7 @@ interface RateLimitResponse {
 }
 
 const STALE_MS = 5 * 60 * 1000; // 5 min
-const CLAUDE_POLL_INTERVAL = 2 * 60 * 1000; // 2 min
+const CLAUDE_POLL_INTERVAL = 5 * 60 * 1000; // 5 min
 
 function classifyLevel(util: number): "normal" | "warning" | "danger" {
   if (util >= 90) return "danger";
@@ -83,13 +83,20 @@ async function pollClaudeUsage(): Promise<void> {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
         "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       },
       signal: controller.signal,
     });
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.error(`[rate-limits] Claude usage API ${response.status}`);
+      if (response.status === 429) {
+        // Keep stale cache visible instead of hiding Claude entirely
+        if (claudeCache) claudeCache.timestamp = claudeCache.timestamp;
+        console.warn("[rate-limits] Claude usage API 429 — keeping stale cache");
+      } else {
+        console.error(`[rate-limits] Claude usage API ${response.status}`);
+      }
       return;
     }
 
