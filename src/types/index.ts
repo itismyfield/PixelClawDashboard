@@ -600,14 +600,11 @@ export type OfficePackProfiles = Partial<Record<WorkflowPackKey, OfficePackProfi
 export interface CompanySettings {
   companyName: string;
   ceoName: string;
-  autoAssign: boolean;
-  yoloMode?: boolean;
   autoUpdateEnabled?: boolean;
   autoUpdateNoticePending?: boolean;
   oauthAutoSwap?: boolean;
   theme: "dark" | "light" | "auto";
   language: UiLanguage;
-  defaultProvider: CliProvider;
   officeWorkflowPack?: WorkflowPackKey;
   providerModelConfig?: Record<string, ProviderModelConfig>;
   roomThemes?: Record<string, RoomTheme>;
@@ -619,10 +616,8 @@ export interface CompanySettings {
 export const DEFAULT_SETTINGS: CompanySettings = {
   companyName: "PixelClawDashboard",
   ceoName: "CEO",
-  autoAssign: false,
   theme: "dark",
   language: "ko",
-  defaultProvider: "claude",
 };
 
 // Dispatched Session (파견 인력)
