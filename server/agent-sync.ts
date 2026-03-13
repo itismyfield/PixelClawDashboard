@@ -6,8 +6,9 @@ import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
 import { listRoleBindings } from "./role-map.js";
 
+import { getRuntimeConfig } from "./runtime-config.js";
+// Intervals read from runtime config at start time
 const AGENT_SYNC_SAFETY_MS = 10 * 60 * 1000; // 10 min safety fallback (fs.watch is primary)
-const STATUS_RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 min safety (hook.ts drives real-time)
 const ROLE_MAP_PATH = path.join(os.homedir(), ".remotecc", "role_map.json");
 
 interface ConfiguredAgent {
@@ -190,13 +191,14 @@ export function startAgentSync(): void {
     syncAgentsOnce();
   }, AGENT_SYNC_SAFETY_MS);
 
-  // Reconcile: 5min safety sweep (hook.ts drives real-time updates)
+  // Reconcile: safety sweep (hook.ts drives real-time updates)
+  const reconcileMs = getRuntimeConfig().agentSyncSec * 1000;
   reconcileTimer = setInterval(() => {
     reconcileAgentStatusOnce();
-  }, STATUS_RECONCILE_INTERVAL_MS);
+  }, reconcileMs);
 
   console.log(
-    `[PCD] agent-sync started (source=role_map, sync=fs.watch+${AGENT_SYNC_SAFETY_MS / 1000 / 60}min-fallback, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s-safety)`,
+    `[PCD] agent-sync started (source=role_map, sync=fs.watch+${AGENT_SYNC_SAFETY_MS / 1000 / 60}min-fallback, reconcile=${reconcileMs / 1000}s-safety)`,
   );
 }
 

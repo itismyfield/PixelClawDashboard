@@ -65,6 +65,8 @@ export {
   savePipelineStages,
   deletePipelineStages,
   getCardPipelineStatus,
+  getRuntimeConfig,
+  saveRuntimeConfig,
 } from "./client";
 
 export type {
@@ -93,6 +95,7 @@ export type {
   GitHubReposResponse,
   KanbanRepoSource,
   ChatMessage,
+  RuntimeConfigResponse,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──

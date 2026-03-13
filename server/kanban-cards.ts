@@ -20,6 +20,15 @@ export const KANBAN_CARD_STATUSES = [
 ] as const;
 
 export const KANBAN_CARD_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+import { getRuntimeConfig } from "./runtime-config.js";
+
+export function getRequestAckTimeoutMs(): number {
+  return getRuntimeConfig().requestedAckTimeoutMin * 60 * 1000;
+}
+export function getInProgressStaleMs(): number {
+  return getRuntimeConfig().inProgressStaleMin * 60 * 1000;
+}
+// Legacy exports for code that imports these constants
 export const REQUEST_ACK_TIMEOUT_MS = 45 * 60 * 1000;
 export const IN_PROGRESS_STALE_MS = 60 * 60 * 1000;
 
@@ -874,8 +883,8 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
   stalledInProgress: KanbanCardRow[];
 } {
   const now = Date.now();
-  const requestedCutoff = now - REQUEST_ACK_TIMEOUT_MS;
-  const progressCutoff = now - IN_PROGRESS_STALE_MS;
+  const requestedCutoff = now - getRequestAckTimeoutMs();
+  const progressCutoff = now - getInProgressStaleMs();
 
   const timedOutRequested: KanbanCardRow[] = [];
   const stalledInProgress: KanbanCardRow[] = [];

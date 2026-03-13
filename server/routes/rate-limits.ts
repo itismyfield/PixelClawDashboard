@@ -33,14 +33,17 @@ interface RateLimitResponse {
   stale: boolean;
 }
 
-const STALE_MS = 5 * 60 * 1000; // 5 min
-const CLAUDE_POLL_INTERVAL = 5 * 60 * 1000; // 5 min
+import { getRuntimeConfig } from "../runtime-config.js";
+
+function getStaleMs(): number { return getRuntimeConfig().rateLimitStaleSec * 1000; }
+function getClaudePollInterval(): number { return getRuntimeConfig().claudeRateLimitPollSec * 1000; }
 const CACHE_DIR = path.join(os.homedir(), ".local", "state", "pixel-claw-dashboard");
 const RATE_LIMIT_CACHE_FILE = path.join(CACHE_DIR, "rate-limit-cache.json");
 
 function classifyLevel(util: number): "normal" | "warning" | "danger" {
-  if (util >= 90) return "danger";
-  if (util >= 80) return "warning";
+  const cfg = getRuntimeConfig();
+  if (util >= cfg.rateLimitDangerPct) return "danger";
+  if (util >= cfg.rateLimitWarningPct) return "warning";
   return "normal";
 }
 
@@ -170,7 +173,7 @@ interface CodexCacheEntry {
 }
 
 const CODEX_AUTH_PATH = path.join(os.homedir(), ".codex", "auth.json");
-const CODEX_POLL_INTERVAL = 2 * 60 * 1000; // 2 min
+function getCodexPollInterval(): number { return getRuntimeConfig().codexRateLimitPollSec * 1000; }
 let codexCache: CodexCacheEntry | null = null;
 let codexPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -239,7 +242,7 @@ router.get("/api/rate-limits", (_req, res) => {
   // Claude
   const claude = readClaudeCache();
   if (claude?.data) {
-    const stale = Date.now() - claude.timestamp > STALE_MS;
+    const stale = Date.now() - claude.timestamp > getStaleMs();
     const buckets: RateLimitResponse["buckets"] = [];
 
     if (claude.data.five_hour) {
@@ -276,7 +279,7 @@ router.get("/api/rate-limits", (_req, res) => {
   // Codex
   if (codexCache?.data.rate_limit) {
     const rl = codexCache.data.rate_limit;
-    const stale = Date.now() - codexCache.timestamp > STALE_MS;
+    const stale = Date.now() - codexCache.timestamp > getStaleMs();
     const buckets: RateLimitResponse["buckets"] = [];
 
     if (rl.primary_window) {
@@ -309,9 +312,9 @@ router.get("/api/rate-limits", (_req, res) => {
 export function startRateLimitPolling(): void {
   loadPersistedCache();
   pollClaudeUsage();
-  claudePollTimer = setInterval(pollClaudeUsage, CLAUDE_POLL_INTERVAL);
+  claudePollTimer = setInterval(pollClaudeUsage, getClaudePollInterval());
   pollCodexUsage();
-  codexPollTimer = setInterval(pollCodexUsage, CODEX_POLL_INTERVAL);
+  codexPollTimer = setInterval(pollCodexUsage, getCodexPollInterval());
 }
 
 export function stopRateLimitPolling(): void {

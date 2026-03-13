@@ -7,13 +7,7 @@ import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
 import { sendToAgentChannel } from "./discord-announce.js";
 import { PCD_HANDOFF_ARCHIVE_DIR, PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
-
-const SAFETY_POLL_MS = 30_000; // 30s safety fallback (fs.watch is primary)
-const STALE_CHECK_MS = 60 * 60 * 1000; // 1 hour
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
-const MAX_CHAIN_DEPTH = 5;
-const CEO_WARN_DEPTH = 3;
-const MAX_RETRIES = 3;
+import { getRuntimeConfig } from "./runtime-config.js";
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let staleTimer: ReturnType<typeof setInterval> | null = null;
@@ -101,14 +95,15 @@ function archiveFile(filePath: string): string {
 }
 
 async function sendAgentMessage(agentId: string, message: string): Promise<boolean> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  const maxRetries = getRuntimeConfig().maxRetries;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const ok = await sendToAgentChannel(agentId, message);
     if (ok) {
       console.log(`[PCD-dispatch] Delivered to ${agentId}: ${message.slice(0, 80)}`);
       return true;
     }
     console.error(
-      `[PCD-dispatch] Delivery attempt ${attempt}/${MAX_RETRIES} to ${agentId} failed`,
+      `[PCD-dispatch] Delivery attempt ${attempt}/${maxRetries} to ${agentId} failed`,
     );
   }
   return false;
@@ -209,6 +204,7 @@ function processHandoffFile(filePath: string): void {
   }
 
   // Chain depth hard limit
+  const { maxChainDepth: MAX_CHAIN_DEPTH, ceoWarnDepth: CEO_WARN_DEPTH, maxRetries: MAX_RETRIES } = getRuntimeConfig();
   if (chainDepth >= MAX_CHAIN_DEPTH) {
     const archivedPath = archiveFile(filePath);
     sendCeoAlert(
@@ -369,7 +365,7 @@ function processResultFile(filePath: string): void {
   emitDispatchUpdated(result.dispatch_id);
 
   // CEO warning for deep chains
-  if (dispatch.chain_depth >= CEO_WARN_DEPTH) {
+  if (dispatch.chain_depth >= getRuntimeConfig().ceoWarnDepth) {
     sendCeoAlert(
       `Dispatch chain result at depth ${dispatch.chain_depth}: "${result.summary}" (${result.status})`,
     );
@@ -408,6 +404,7 @@ function pollOnce(): void {
 
 function cleanupStaleDispatches(): void {
   const db = getDb();
+  const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours (not configurable)
   const cutoff = Date.now() - STALE_THRESHOLD_MS;
 
   const stale = db
@@ -541,7 +538,7 @@ function recoverPendingDispatches(): void {
       if (!delivered) {
         db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(row.id);
         sendCeoAlert(
-          `Recovery: failed to deliver dispatch "${row.title}" to ${toAgent} after ${MAX_RETRIES} retries.`,
+          `Recovery: failed to deliver dispatch "${row.title}" to ${toAgent} after ${getRuntimeConfig().maxRetries} retries.`,
         );
         emitDispatchUpdated(row.id);
       }
@@ -573,11 +570,14 @@ export function startDispatchWatcher(): void {
     console.warn("[PCD] dispatch-watcher: fs.watch unavailable, using polling only");
   }
 
-  // Safety fallback: poll every 30s in case fs.watch misses events
-  pollTimer = setInterval(pollOnce, SAFETY_POLL_MS);
-  staleTimer = setInterval(cleanupStaleDispatches, STALE_CHECK_MS);
+  // Safety fallback: poll in case fs.watch misses events
+  const cfg = getRuntimeConfig();
+  const pollMs = cfg.dispatchPollSec * 1000;
+  const staleCheckMs = cfg.githubIssueSyncSec * 1000; // stale check runs at same interval as issue sync
+  pollTimer = setInterval(pollOnce, pollMs);
+  staleTimer = setInterval(cleanupStaleDispatches, staleCheckMs);
   console.log(
-    `[PCD] dispatch-watcher started (mode=fs.watch+${SAFETY_POLL_MS / 1000}s-fallback, stale-check=${STALE_CHECK_MS / 1000 / 60}min)`,
+    `[PCD] dispatch-watcher started (mode=fs.watch+${cfg.dispatchPollSec}s-fallback, stale-check=${cfg.githubIssueSyncSec / 60}min)`,
   );
 }
 

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { execFile, execSync } from "node:child_process";
 import { getDb } from "../db/runtime.js";
 import { listLaunchdJobs } from "../launchd-jobs.js";
-import { IN_PROGRESS_STALE_MS, REQUEST_ACK_TIMEOUT_MS } from "../kanban-cards.js";
+import { getRequestAckTimeoutMs, getInProgressStaleMs } from "../kanban-cards.js";
 
 const router = Router();
 
@@ -25,7 +25,8 @@ interface GitHubClosedTodayCache {
 }
 
 let ghClosedCache: GitHubClosedTodayCache | null = null;
-const GH_CACHE_TTL = 5 * 60 * 1000; // 5 min
+import { getRuntimeConfig } from "../runtime-config.js";
+function getGhCacheTtl(): number { return getRuntimeConfig().githubRepoCacheSec * 1000; }
 
 function todayDateKey(): string {
   return new Date().toISOString().slice(0, 10);
@@ -33,7 +34,7 @@ function todayDateKey(): string {
 
 function getGitHubClosedToday(): number {
   const dateKey = todayDateKey();
-  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < GH_CACHE_TTL) {
+  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < getGhCacheTtl()) {
     return ghClosedCache.count;
   }
   refreshGitHubClosedToday(dateKey);
@@ -42,7 +43,7 @@ function getGitHubClosedToday(): number {
 
 function getGitHubClosedTodayIssues(): ClosedIssue[] {
   const dateKey = todayDateKey();
-  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < GH_CACHE_TTL) {
+  if (ghClosedCache && ghClosedCache.dateKey === dateKey && Date.now() - ghClosedCache.fetchedAt < getGhCacheTtl()) {
     return ghClosedCache.issues;
   }
   refreshGitHubClosedToday(dateKey);
@@ -229,8 +230,8 @@ router.get("/api/stats", (req, res) => {
       .get() as { cnt: number }
   ).cnt;
 
-  const requestedCutoff = Date.now() - REQUEST_ACK_TIMEOUT_MS;
-  const progressCutoff = Date.now() - IN_PROGRESS_STALE_MS;
+  const requestedCutoff = Date.now() - getRequestAckTimeoutMs();
+  const progressCutoff = Date.now() - getInProgressStaleMs();
   const kanbanCounts = db.prepare(
     `SELECT status, COUNT(*) as cnt
      FROM kanban_cards

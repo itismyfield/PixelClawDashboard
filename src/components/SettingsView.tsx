@@ -1,10 +1,89 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CompanySettings } from "../types";
+import * as api from "../api";
 
 interface SettingsViewProps {
   settings: CompanySettings;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
   isKo: boolean;
+}
+
+// ── Runtime Config field definitions ──
+
+interface ConfigField {
+  key: string;
+  labelKo: string;
+  labelEn: string;
+  unit: string;
+  min: number;
+  max: number;
+  step: number;
+}
+
+const CATEGORIES: Array<{
+  titleKo: string;
+  titleEn: string;
+  fields: ConfigField[];
+}> = [
+  {
+    titleKo: "폴링 & 타이머",
+    titleEn: "Polling & Timers",
+    fields: [
+      { key: "dispatchPollSec", labelKo: "디스패치 폴링 주기", labelEn: "Dispatch poll interval", unit: "s", min: 5, max: 300, step: 5 },
+      { key: "agentSyncSec", labelKo: "에이전트 상태 동기화 주기", labelEn: "Agent status sync interval", unit: "s", min: 30, max: 1800, step: 30 },
+      { key: "githubIssueSyncSec", labelKo: "GitHub 이슈 동기화 주기", labelEn: "GitHub issue sync interval", unit: "s", min: 300, max: 7200, step: 60 },
+      { key: "claudeRateLimitPollSec", labelKo: "Claude Rate Limit 폴링", labelEn: "Claude rate limit poll", unit: "s", min: 30, max: 1800, step: 30 },
+      { key: "codexRateLimitPollSec", labelKo: "Codex Rate Limit 폴링", labelEn: "Codex rate limit poll", unit: "s", min: 30, max: 1800, step: 30 },
+      { key: "issueTriagePollSec", labelKo: "이슈 트리아지 주기", labelEn: "Issue triage interval", unit: "s", min: 60, max: 3600, step: 60 },
+    ],
+  },
+  {
+    titleKo: "칸반 타임아웃",
+    titleEn: "Kanban Timeouts",
+    fields: [
+      { key: "requestedAckTimeoutMin", labelKo: "요청됨 ACK 타임아웃", labelEn: "Requested ACK timeout", unit: "min", min: 5, max: 120, step: 5 },
+      { key: "inProgressStaleMin", labelKo: "진행 중 정체 판정", labelEn: "In-progress stale detection", unit: "min", min: 15, max: 480, step: 15 },
+    ],
+  },
+  {
+    titleKo: "디스패치 제한",
+    titleEn: "Dispatch Limits",
+    fields: [
+      { key: "maxChainDepth", labelKo: "최대 체인 깊이", labelEn: "Max chain depth", unit: "", min: 1, max: 20, step: 1 },
+      { key: "ceoWarnDepth", labelKo: "CEO 경고 깊이", labelEn: "CEO warning depth", unit: "", min: 1, max: 10, step: 1 },
+      { key: "maxRetries", labelKo: "최대 재시도 횟수", labelEn: "Max retries", unit: "", min: 1, max: 10, step: 1 },
+    ],
+  },
+  {
+    titleKo: "알림 임계값",
+    titleEn: "Alert Thresholds",
+    fields: [
+      { key: "rateLimitWarningPct", labelKo: "Rate Limit 경고 수준", labelEn: "Rate limit warning level", unit: "%", min: 50, max: 99, step: 1 },
+      { key: "rateLimitDangerPct", labelKo: "Rate Limit 위험 수준", labelEn: "Rate limit danger level", unit: "%", min: 60, max: 100, step: 1 },
+    ],
+  },
+  {
+    titleKo: "캐시 TTL",
+    titleEn: "Cache TTL",
+    fields: [
+      { key: "githubRepoCacheSec", labelKo: "GitHub 레포 캐시", labelEn: "GitHub repo cache", unit: "s", min: 30, max: 1800, step: 30 },
+      { key: "rateLimitStaleSec", labelKo: "Rate Limit 캐시 stale 판정", labelEn: "Rate limit cache stale", unit: "s", min: 30, max: 1800, step: 30 },
+    ],
+  },
+];
+
+function formatUnit(value: number, unit: string): string {
+  if (unit === "s" && value >= 60) {
+    const m = Math.floor(value / 60);
+    const s = value % 60;
+    return s > 0 ? `${m}m${s}s` : `${m}m`;
+  }
+  if (unit === "min" && value >= 60) {
+    const h = Math.floor(value / 60);
+    const m = value % 60;
+    return m > 0 ? `${h}h${m}m` : `${h}h`;
+  }
+  return unit ? `${value}${unit}` : `${value}`;
 }
 
 export default function SettingsView({
@@ -22,12 +101,60 @@ export default function SettingsView({
   const [saving, setSaving] = useState(false);
   const tr = (ko: string, en: string) => (isKo ? ko : en);
 
+  // ── Runtime Config state ──
+  const [rcValues, setRcValues] = useState<Record<string, number>>({});
+  const [rcDefaults, setRcDefaults] = useState<Record<string, number>>({});
+  const [rcLoaded, setRcLoaded] = useState(false);
+  const [rcSaving, setRcSaving] = useState(false);
+  const [rcDirty, setRcDirty] = useState(false);
+
+  useEffect(() => {
+    void api.getRuntimeConfig().then((data) => {
+      setRcValues(data.current);
+      setRcDefaults(data.defaults);
+      setRcLoaded(true);
+    }).catch(() => {});
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
     try {
       await onSave({ companyName, ceoName, language, theme, autoAssign, yoloMode, defaultProvider });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRcSave = async () => {
+    setRcSaving(true);
+    try {
+      // Only send changed values
+      const patch: Record<string, number> = {};
+      for (const [key, val] of Object.entries(rcValues)) {
+        if (val !== rcDefaults[key]) {
+          patch[key] = val;
+        }
+      }
+      // If all values match defaults, send the full object to save explicitly
+      const result = await api.saveRuntimeConfig(
+        Object.keys(patch).length > 0 ? rcValues : rcValues,
+      );
+      setRcValues(result.config);
+      setRcDirty(false);
+    } finally {
+      setRcSaving(false);
+    }
+  };
+
+  const handleRcChange = (key: string, value: number) => {
+    setRcValues((prev) => ({ ...prev, [key]: value }));
+    setRcDirty(true);
+  };
+
+  const handleRcReset = (key: string) => {
+    if (rcDefaults[key] !== undefined) {
+      setRcValues((prev) => ({ ...prev, [key]: rcDefaults[key] }));
+      setRcDirty(true);
     }
   };
 
@@ -177,6 +304,100 @@ export default function SettingsView({
       >
         {saving ? tr("저장 중...", "Saving...") : tr("저장", "Save")}
       </button>
+
+      {/* ── Runtime Config ── */}
+      {rcLoaded && (
+        <>
+          <div className="border-t pt-6" style={{ borderColor: "var(--th-border)" }}>
+            <h2 className="text-xl font-bold mb-1" style={{ color: "var(--th-text)" }}>
+              {tr("런타임 설정", "Runtime Config")}
+            </h2>
+            <p className="text-[11px] mb-4" style={{ color: "var(--th-text-muted)" }}>
+              {tr("변경 즉시 반영 (재시작 불필요)", "Changes apply immediately (no restart needed)")}
+            </p>
+          </div>
+
+          {CATEGORIES.map((cat) => (
+            <div key={cat.titleEn}>
+              <h3 className="text-xs font-semibold uppercase mb-2" style={{ color: "var(--th-text-muted)" }}>
+                {tr(cat.titleKo, cat.titleEn)}
+              </h3>
+              <div className="space-y-2">
+                {cat.fields.map((f) => {
+                  const val = rcValues[f.key] ?? rcDefaults[f.key] ?? 0;
+                  const def = rcDefaults[f.key] ?? 0;
+                  const isDefault = val === def;
+
+                  return (
+                    <div key={f.key} className="rounded-xl p-3" style={cardStyle}>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-medium" style={{ color: "var(--th-text-muted)" }}>
+                          {tr(f.labelKo, f.labelEn)}
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono" style={{ color: isDefault ? "var(--th-text-muted)" : "#fbbf24" }}>
+                            {formatUnit(val, f.unit)}
+                          </span>
+                          {!isDefault && (
+                            <button
+                              onClick={() => handleRcReset(f.key)}
+                              className="text-[10px] px-1.5 py-0.5 rounded"
+                              style={{ color: "var(--th-text-muted)", background: "var(--th-bg-surface)" }}
+                              title={`${tr("기본값", "Default")}: ${formatUnit(def, f.unit)}`}
+                            >
+                              {tr("초기화", "Reset")}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={f.min}
+                          max={f.max}
+                          step={f.step}
+                          value={val}
+                          onChange={(e) => handleRcChange(f.key, Number(e.target.value))}
+                          className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                          style={{ accentColor: "#6366f1" }}
+                        />
+                        <input
+                          type="number"
+                          min={f.min}
+                          max={f.max}
+                          step={f.step}
+                          value={val}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n) && n >= f.min && n <= f.max) {
+                              handleRcChange(f.key, n);
+                            }
+                          }}
+                          className="w-16 px-2 py-1 rounded text-xs text-right font-mono"
+                          style={inputStyle}
+                        />
+                      </div>
+                      {!isDefault && (
+                        <div className="text-[10px] mt-0.5" style={{ color: "var(--th-text-muted)" }}>
+                          {tr("기본값", "Default")}: {formatUnit(def, f.unit)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          <button
+            onClick={handleRcSave}
+            disabled={rcSaving || !rcDirty}
+            className="px-6 py-2.5 rounded-xl text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+          >
+            {rcSaving ? tr("저장 중...", "Saving...") : tr("런타임 설정 저장", "Save Runtime Config")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

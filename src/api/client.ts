@@ -215,6 +215,26 @@ export async function saveSettings(
   });
 }
 
+// ── Runtime Config ──
+
+export interface RuntimeConfigResponse {
+  current: Record<string, number>;
+  defaults: Record<string, number>;
+}
+
+export async function getRuntimeConfig(): Promise<RuntimeConfigResponse> {
+  return request("/api/settings/runtime-config");
+}
+
+export async function saveRuntimeConfig(
+  patch: Record<string, number>,
+): Promise<{ ok: boolean; config: Record<string, number> }> {
+  return request("/api/settings/runtime-config", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
 // ── Stats ──
 
 export async function getStats(officeId?: string): Promise<DashboardStats> {

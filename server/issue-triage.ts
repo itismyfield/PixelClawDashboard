@@ -19,7 +19,7 @@ import { sendToAgentChannel, sendDiscordMessage } from "./discord-announce.js";
 // Config
 // ---------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5분
+import { getRuntimeConfig } from "./runtime-config.js";
 const TRIAGE_COMMENT_TAG = "<!-- pcd-auto-triage -->";
 const PMD_CHANNEL_ID = "1478652416533463101";
 const PMD_TRIAGE_TIMEOUT_MS = 5 * 60 * 1000; // 5분 타임아웃
@@ -495,7 +495,7 @@ export function startIssueTriage(): void {
     void triageOnce().catch((err) =>
       console.error("[triage] Error in triage poll:", err),
     );
-  }, POLL_INTERVAL_MS);
+  }, getRuntimeConfig().issueTriagePollSec * 1000);
 }
 
 export function stopIssueTriage(): void {
