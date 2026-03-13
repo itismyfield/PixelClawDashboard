@@ -35,11 +35,38 @@ interface RateLimitResponse {
 
 const STALE_MS = 5 * 60 * 1000; // 5 min
 const CLAUDE_POLL_INTERVAL = 5 * 60 * 1000; // 5 min
+const CACHE_DIR = path.join(os.homedir(), ".local", "state", "pixel-claw-dashboard");
+const RATE_LIMIT_CACHE_FILE = path.join(CACHE_DIR, "rate-limit-cache.json");
 
 function classifyLevel(util: number): "normal" | "warning" | "danger" {
   if (util >= 90) return "danger";
   if (util >= 80) return "warning";
   return "normal";
+}
+
+// ── Persistent cache helpers ──
+
+interface PersistedCache {
+  claude?: ClaudeCacheData;
+  codex?: CodexCacheEntry;
+}
+
+function persistCache(): void {
+  try {
+    const data: PersistedCache = {};
+    if (claudeCache) data.claude = claudeCache;
+    if (codexCache) data.codex = codexCache;
+    fs.writeFileSync(RATE_LIMIT_CACHE_FILE, JSON.stringify(data), "utf-8");
+  } catch { /* best effort */ }
+}
+
+function loadPersistedCache(): void {
+  try {
+    const raw = fs.readFileSync(RATE_LIMIT_CACHE_FILE, "utf-8");
+    const data = JSON.parse(raw) as PersistedCache;
+    if (data.claude && !claudeCache) claudeCache = data.claude;
+    if (data.codex && !codexCache) codexCache = data.codex;
+  } catch { /* no cache file yet */ }
 }
 
 // ── Claude: direct Anthropic API polling ──
@@ -109,6 +136,7 @@ async function pollClaudeUsage(): Promise<void> {
       },
       timestamp: Date.now(),
     };
+    persistCache();
   } catch (e) {
     console.error("[rate-limits] Claude usage poll error:", (e as Error).message);
   }
@@ -184,6 +212,7 @@ async function pollCodexUsage(): Promise<void> {
       try {
         const data = JSON.parse(stdout) as CodexUsageResponse;
         codexCache = { data, timestamp: Date.now() };
+        persistCache();
       } catch (e) {
         console.error("[rate-limits] Codex usage parse error:", e);
       }
@@ -278,6 +307,7 @@ router.get("/api/rate-limits", (_req, res) => {
 // ── Lifecycle ──
 
 export function startRateLimitPolling(): void {
+  loadPersistedCache();
   pollClaudeUsage();
   claudePollTimer = setInterval(pollClaudeUsage, CLAUDE_POLL_INTERVAL);
   pollCodexUsage();
