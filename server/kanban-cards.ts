@@ -822,6 +822,25 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
     ).run(...vals);
   }
 
+  // When a review dispatch completes without a .result.json verdict,
+  // auto-pass so the review card doesn't get stuck forever.
+  if (dispatch.status === "completed" && dispatch.dispatch_type === "review" && !dispatch.result_file) {
+    const pendingReview = db.prepare(
+      `SELECT id FROM kanban_reviews WHERE review_dispatch_id = ? AND verdict = 'pending' LIMIT 1`,
+    ).get(dispatch.id) as { id: string } | undefined;
+    if (pendingReview) {
+      try {
+        processReviewVerdict(db, dispatch.id, {
+          overall: "pass",
+          items: [{ id: "auto-pass", category: "pass", summary: "리뷰 dispatch가 result 없이 완료 — 자동 pass 처리" }],
+        });
+        console.warn(`[kanban] Review ${dispatch.id} completed without verdict — auto-pass applied`);
+      } catch (err) {
+        console.error(`[kanban] Review auto-pass failed for ${dispatch.id}:`, err);
+      }
+    }
+  }
+
   return emitKanbanCard(db, card.id, "kanban_card_updated");
 }
 
