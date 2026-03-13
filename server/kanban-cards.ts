@@ -781,8 +781,26 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
     return undefined;
   }
 
-  const nextStatus = mapDispatchStatusToCardStatus(dispatch.status, card.status);
+  let nextStatus = mapDispatchStatusToCardStatus(dispatch.status, card.status);
   const now = Date.now();
+
+  // If dispatch completed and card would go to review, but GitHub issue is
+  // already closed, skip review and go straight to done.
+  if (nextStatus === "review" && card.github_repo && card.github_issue_number) {
+    try {
+      const state = execFileSync("gh", [
+        "issue", "view", String(card.github_issue_number),
+        "--repo", card.github_repo, "--json", "state", "-q", ".state",
+      ], { timeout: 10_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      if (state === "CLOSED") {
+        nextStatus = "done";
+        console.log(`[kanban] GitHub issue ${card.github_repo}#${card.github_issue_number} already closed — skipping review, card → done`);
+      }
+    } catch {
+      // gh CLI failure — proceed with review as normal
+    }
+  }
+
   const sets: string[] = [];
   const vals: Array<string | number | null> = [];
 
@@ -805,9 +823,12 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
       sets.push("started_at = ?");
       vals.push(now);
     }
-    if (["failed", "cancelled"].includes(nextStatus)) {
-      sets.push("completed_at = ?");
+    if (["done", "failed", "cancelled"].includes(nextStatus)) {
+      sets.push("completed_at = COALESCE(completed_at, ?)");
       vals.push(dispatch.completed_at ?? now);
+    }
+    if (nextStatus === "done") {
+      sets.push("review_status = NULL");
     }
   }
 
