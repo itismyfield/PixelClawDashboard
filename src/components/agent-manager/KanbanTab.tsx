@@ -1303,8 +1303,9 @@ export default function KanbanTab({
       )}
 
       {selectedCard && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4" onClick={() => setSelectedCardId(null)}>
           <div
+            onClick={(e) => e.stopPropagation()}
             className="w-full max-w-3xl max-h-[88svh] overflow-y-auto rounded-t-3xl border p-5 sm:max-h-[90vh] sm:rounded-3xl sm:p-6 space-y-4"
             style={{
               backgroundColor: "rgba(2,6,23,0.96)",
@@ -1661,8 +1662,9 @@ export default function KanbanTab({
       )}
 
       {selectedBacklogIssue && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4" onClick={() => setSelectedBacklogIssue(null)}>
           <div
+            onClick={(e) => e.stopPropagation()}
             className="w-full max-w-3xl max-h-[88svh] overflow-y-auto rounded-t-3xl border p-5 sm:max-h-[90vh] sm:rounded-3xl sm:p-6 space-y-4"
             style={{
               backgroundColor: "rgba(2,6,23,0.96)",
