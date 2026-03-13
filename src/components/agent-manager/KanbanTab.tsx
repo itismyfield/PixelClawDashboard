@@ -368,10 +368,10 @@ export default function KanbanTab({
     setNewChecklistItem("");
     setReviewData(null);
     setReviewDecisions({});
-    // Fetch review data for dilemma_pending cards
-    if (selectedCard?.review_status === "dilemma_pending" || selectedCard?.review_status === "decided") {
+    // Fetch review data for suggestion_pending/dilemma_pending cards
+    if (selectedCard?.review_status === "suggestion_pending" || selectedCard?.review_status === "dilemma_pending" || selectedCard?.review_status === "decided") {
       api.getKanbanReviews(selectedCard.id).then((reviews) => {
-        const latest = reviews.filter((r) => r.verdict === "dilemma" || r.verdict === "mixed" || r.verdict === "decided")
+        const latest = reviews.filter((r) => r.verdict === "improve" || r.verdict === "dilemma" || r.verdict === "mixed" || r.verdict === "decided")
           .sort((a, b) => b.round - a.round)[0];
         if (latest) {
           setReviewData(latest);
@@ -1095,7 +1095,7 @@ export default function KanbanTab({
             </>
           )}
 
-          <div className={compactBoard ? "" : "overflow-x-auto pb-2"}>
+          <div className={compactBoard ? "" : "pb-2"} style={compactBoard ? undefined : { overflowX: "auto", overflowY: "clip" }}>
             <div className={compactBoard ? "space-y-4" : "flex items-start gap-4 min-w-max"}>
               {visibleColumns.map((column) => {
               const columnCards = cardsByStatus.get(column.status) ?? [];
@@ -1330,13 +1330,14 @@ export default function KanbanTab({
 
                           {card.status === "review" && card.review_status && (
                             <div className="mt-2 rounded-md px-2.5 py-2 text-xs" style={{
-                              backgroundColor: card.review_status === "dilemma_pending" ? "rgba(234,179,8,0.12)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.12)" : "rgba(20,184,166,0.12)",
-                              border: `1px solid ${card.review_status === "dilemma_pending" ? "rgba(234,179,8,0.3)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)"}`,
-                              color: card.review_status === "dilemma_pending" ? "#fde047" : card.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
+                              backgroundColor: (card.review_status === "dilemma_pending" || card.review_status === "suggestion_pending") ? "rgba(234,179,8,0.12)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.12)" : "rgba(20,184,166,0.12)",
+                              border: `1px solid ${(card.review_status === "dilemma_pending" || card.review_status === "suggestion_pending") ? "rgba(234,179,8,0.3)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)"}`,
+                              color: (card.review_status === "dilemma_pending" || card.review_status === "suggestion_pending") ? "#fde047" : card.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
                             }}>
                               {card.review_status === "reviewing" && tr("카운터 모델 리뷰 중", "Counter-model reviewing")}
                               {card.review_status === "awaiting_dod" && tr("DoD 완료 대기", "Awaiting DoD completion")}
                               {card.review_status === "improve_rework" && tr("개선 재작업 중", "Improvement rework")}
+                              {card.review_status === "suggestion_pending" && tr("리뷰 제안 결정 대기", "Review suggestions pending")}
                               {card.review_status === "dilemma_pending" && tr("판단 대기 (딜레마)", "Dilemma pending")}
                               {card.review_status === "decided" && tr("결정됨", "Decided")}
                             </div>
@@ -1628,33 +1629,34 @@ export default function KanbanTab({
             {/* Review status */}
             {selectedCard.status === "review" && selectedCard.review_status && (
               <div className="rounded-2xl border p-4" style={{
-                backgroundColor: selectedCard.review_status === "dilemma_pending" ? "rgba(234,179,8,0.08)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.08)" : "rgba(20,184,166,0.08)",
-                borderColor: selectedCard.review_status === "dilemma_pending" ? "rgba(234,179,8,0.3)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)",
+                backgroundColor: (selectedCard.review_status === "dilemma_pending" || selectedCard.review_status === "suggestion_pending") ? "rgba(234,179,8,0.08)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.08)" : "rgba(20,184,166,0.08)",
+                borderColor: (selectedCard.review_status === "dilemma_pending" || selectedCard.review_status === "suggestion_pending") ? "rgba(234,179,8,0.3)" : selectedCard.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)",
               }}>
                 <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{
-                  color: selectedCard.review_status === "dilemma_pending" ? "#eab308" : selectedCard.review_status === "improve_rework" ? "#f97316" : "#14b8a6",
+                  color: (selectedCard.review_status === "dilemma_pending" || selectedCard.review_status === "suggestion_pending") ? "#eab308" : selectedCard.review_status === "improve_rework" ? "#f97316" : "#14b8a6",
                 }}>
                   {tr("카운터 모델 리뷰", "Counter-Model Review")}
                 </div>
                 <div className="text-sm" style={{
-                  color: selectedCard.review_status === "dilemma_pending" ? "#fde047" : selectedCard.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
+                  color: (selectedCard.review_status === "dilemma_pending" || selectedCard.review_status === "suggestion_pending") ? "#fde047" : selectedCard.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
                 }}>
                   {selectedCard.review_status === "reviewing" && tr("카운터 모델이 코드를 리뷰하고 있습니다...", "Counter model is reviewing...")}
                   {selectedCard.review_status === "awaiting_dod" && tr("DoD 항목이 모두 완료되면 자동 리뷰가 시작됩니다.", "Auto review starts when all DoD items are complete.")}
                   {selectedCard.review_status === "improve_rework" && tr("개선 사항이 발견되어 원본 모델에 재작업을 요청했습니다.", "Improvements needed — rework dispatched to original model.")}
+                  {selectedCard.review_status === "suggestion_pending" && tr("카운터 모델이 검토 항목을 추출했습니다. 수용/불수용을 결정해 주세요.", "Counter model extracted review findings. Decide accept/reject for each.")}
                   {selectedCard.review_status === "dilemma_pending" && tr("판단이 어려운 항목이 있습니다. 수동으로 결정해 주세요.", "Dilemma items found — manual decision needed.")}
                   {selectedCard.review_status === "decided" && tr("리뷰 결정이 완료되었습니다.", "Review decision completed.")}
                 </div>
               </div>
             )}
 
-            {/* Dilemma decision UI */}
-            {selectedCard.review_status === "dilemma_pending" && reviewData && (() => {
+            {/* Review suggestion decision UI */}
+            {(selectedCard.review_status === "suggestion_pending" || selectedCard.review_status === "dilemma_pending") && reviewData && (() => {
               const items: Array<{ id: string; category: string; summary: string; detail?: string; suggestion?: string; pros?: string; cons?: string; decision?: string }> =
                 reviewData.items_json ? JSON.parse(reviewData.items_json) : [];
-              const dilemmaItems = items.filter((i) => i.category === "dilemma");
-              if (dilemmaItems.length === 0) return null;
-              const allDecided = dilemmaItems.every((i) => reviewDecisions[i.id]);
+              const actionableItems = items.filter((i) => i.category !== "pass");
+              if (actionableItems.length === 0) return null;
+              const allDecided = actionableItems.every((i) => reviewDecisions[i.id]);
               return (
                 <div className="rounded-2xl border p-4 space-y-4" style={{
                   borderColor: "rgba(234,179,8,0.35)",
@@ -1668,11 +1670,11 @@ export default function KanbanTab({
                       backgroundColor: allDecided ? "rgba(34,197,94,0.18)" : "rgba(234,179,8,0.18)",
                       color: allDecided ? "#4ade80" : "#fde047",
                     }}>
-                      {Object.keys(reviewDecisions).filter((k) => dilemmaItems.some((d) => d.id === k)).length}/{dilemmaItems.length}
+                      {Object.keys(reviewDecisions).filter((k) => actionableItems.some((d) => d.id === k)).length}/{actionableItems.length}
                     </span>
                   </div>
                   <div className="space-y-3">
-                    {dilemmaItems.map((item) => {
+                    {actionableItems.map((item) => {
                       const decision = reviewDecisions[item.id];
                       return (
                         <div key={item.id} className="rounded-xl border p-3 space-y-2" style={{

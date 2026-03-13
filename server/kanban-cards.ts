@@ -23,6 +23,7 @@ export const KANBAN_CARD_STATUSES = [
 export const KANBAN_REVIEW_STATUSES = [
   "awaiting_dod",
   "reviewing",
+  "suggestion_pending",
   "improve_rework",
   "dilemma_pending",
   "decided",
@@ -1359,7 +1360,12 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string): boo
   }));
 
   const reviewInstructions = [
-    `당신은 코드 리뷰어입니다. 아래 DoD 항목에 대해 구현이 올바른지 검토하세요.`,
+    `## 읽기 전용 코드 리뷰`,
+    ``,
+    `⚠️ **중요: 이것은 읽기 전용 리뷰입니다. 코드를 절대 수정하지 마세요.**`,
+    `- 파일을 편집(Edit/Write)하지 마세요`,
+    `- git commit/push를 하지 마세요`,
+    `- 코드를 읽고 검토 항목만 추출하세요`,
     ``,
     `## 리뷰 대상`,
     `- 이슈: ${card.github_issue_url ?? card.title}`,
@@ -1373,15 +1379,17 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string): boo
     ...(changedFiles.length > 0 ? changedFiles.map((f) => `- ${f}`) : ["- (없음)"]),
     ``,
     `## 리뷰 지침`,
-    `각 DoD 항목에 대해 다음 중 하나로 판정하세요:`,
-    `- **pass**: 구현이 올바르고 요구사항을 충족`,
-    `- **improve**: 구현에 개선이 필요 (구체적 제안 포함)`,
-    `- **dilemma**: 판단이 어려움, 장단점을 명시하여 사람이 결정하도록`,
+    `각 DoD 항목과 변경 파일을 읽고, 발견된 문제/개선점을 항목별로 나열하세요.`,
+    `당신은 판정(pass/fail)을 내리지 않습니다 — 검토 항목 추출만 합니다.`,
+    `문제가 없으면 items를 빈 배열로 반환하세요.`,
     ``,
     `결과를 .result.json으로 반환하세요:`,
     `{ "dispatch_id": "${reviewDispatchId}", "from": "${agent.id}", "to": "${card.requester_agent_id ?? card.assignee_agent_id}", "status": "pass",`,
-    `  "summary": "리뷰 완료", "review_verdict": { "overall": "pass|improve|dilemma|mixed",`,
-    `  "items": [{ "id": "item-1", "category": "pass|improve|dilemma", "summary": "...", "detail": "...", "suggestion": "..." }] } }`,
+    `  "summary": "리뷰 완료", "review_verdict": { "overall": "pass",`,
+    `  "items": [{ "id": "item-1", "category": "improve", "summary": "발견 사항 요약", "detail": "상세 설명", "suggestion": "개선 제안" }] } }`,
+    ``,
+    `- items가 비어있으면 overall을 "pass"로, 항목이 있으면 "improve"로 설정하세요.`,
+    `- category는 모두 "improve"로 통일하세요 (판정은 작업 모델이 합니다).`,
   ].join("\n");
 
   const handoff = {
@@ -1512,40 +1520,23 @@ export function processReviewVerdict(
       console.log(`[kanban-review] Card ${card.id} passed review → done`);
       break;
     }
-    case "improve": {
-      // Re-dispatch to original model for rework
+    case "improve":
+    case "mixed": {
+      // Present findings for decision — original model (or human) decides accept/reject
       db.prepare(
-        `UPDATE kanban_cards SET review_status = 'improve_rework', updated_at = ? WHERE id = ?`,
+        `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
       ).run(now, card.id);
       emitKanbanCard(db, card.id, "kanban_card_updated");
-      // Create rework dispatch
-      createReworkDispatch(db, card, review, verdict);
-      console.log(`[kanban-review] Card ${card.id} needs improvement → rework dispatched`);
+      console.log(`[kanban-review] Card ${card.id} has review findings → awaiting decision`);
       break;
     }
     case "dilemma": {
-      // Flag for human decision
+      // Also route through suggestion_pending for consistency
       db.prepare(
-        `UPDATE kanban_cards SET review_status = 'dilemma_pending', updated_at = ? WHERE id = ?`,
+        `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
       ).run(now, card.id);
       emitKanbanCard(db, card.id, "kanban_card_updated");
-      console.log(`[kanban-review] Card ${card.id} has dilemma items → awaiting human decision`);
-      break;
-    }
-    case "mixed": {
-      // Has both improve and dilemma items
-      // Auto-dispatch improve items, flag dilemma items
-      db.prepare(
-        `UPDATE kanban_cards SET review_status = 'improve_rework', updated_at = ? WHERE id = ?`,
-      ).run(now, card.id);
-      emitKanbanCard(db, card.id, "kanban_card_updated");
-      // Create rework for improve items only
-      const improveVerdict: ReviewVerdict = {
-        overall: "improve",
-        items: verdict.items.filter((i) => i.category === "improve"),
-      };
-      createReworkDispatch(db, card, review, improveVerdict);
-      console.log(`[kanban-review] Card ${card.id} mixed verdict → rework for improve items, dilemma items flagged`);
+      console.log(`[kanban-review] Card ${card.id} has dilemma items → awaiting decision`);
       break;
     }
   }
@@ -1738,9 +1729,9 @@ export function triggerDecidedRework(
     ? (JSON.parse(review.items_json) as Array<ReviewVerdictItem & { decision?: string; decided_at?: number }>)
     : [];
 
-  // Validate: all dilemma items must have decisions
-  const dilemmaItems = items.filter((i) => i.category === "dilemma");
-  const undecided = dilemmaItems.filter((i) => !i.decision);
+  // Validate: all non-pass items must have decisions
+  const actionableItems = items.filter((i) => i.category !== "pass");
+  const undecided = actionableItems.filter((i) => !i.decision);
   if (undecided.length > 0) {
     throw new Error(`undecided_items: ${undecided.map((i) => i.id).join(",")}`);
   }
@@ -1754,16 +1745,14 @@ export function triggerDecidedRework(
 
   const acceptedItems = items.filter((i) => i.decision === "accept");
   const rejectedItems = items.filter((i) => i.decision === "reject");
-  // Also include any "improve" items that were auto-dispatched but may need to be in rework
-  const improveItems = items.filter((i) => i.category === "improve");
 
   // Post decision comment on GitHub
   if (card.github_repo && card.github_issue_number) {
     postDecisionCommentOnGitHub(card, review.round, acceptedItems, rejectedItems);
   }
 
-  // If there are accepted dilemma items or improve items → create rework dispatch
-  const reworkItems = [...improveItems, ...acceptedItems];
+  // Rework items = only accepted items (original model decides what to fix)
+  const reworkItems = acceptedItems;
   if (reworkItems.length > 0) {
     const reworkVerdict: ReviewVerdict = {
       overall: "improve",
