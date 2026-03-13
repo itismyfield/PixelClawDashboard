@@ -223,25 +223,31 @@ function processHandoffFile(filePath: string): void {
   }
 
   const now = Date.now();
-  const archivedPath = archiveFile(filePath);
 
-  // Insert or update dispatch row
+  // DB first, then archive — if the process dies between these two steps,
+  // recovery will find a dispatched row with no context_file and re-send,
+  // rather than an archived file with a pending row that never gets updated.
   if (existing) {
     db.prepare(
       `UPDATE task_dispatches
-       SET status = 'dispatched', context_file = ?, dispatched_at = ?
+       SET status = 'dispatched', dispatched_at = ?
        WHERE id = ?`,
-    ).run(archivedPath, now, handoff.dispatch_id);
+    ).run(now, handoff.dispatch_id);
   } else {
     db.prepare(
       `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
-       VALUES (?, ?, ?, ?, 'dispatched', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'dispatched', ?, NULL, ?, ?, ?, ?)`,
     ).run(
       handoff.dispatch_id, handoff.from, toAgent, handoff.type,
-      handoff.title, archivedPath, handoff.parent_dispatch_id ?? null,
+      handoff.title, handoff.parent_dispatch_id ?? null,
       chainDepth, now, now,
     );
   }
+
+  // Archive after DB commit — safe to lose this step on crash
+  const archivedPath = archiveFile(filePath);
+  db.prepare("UPDATE task_dispatches SET context_file = ? WHERE id = ?")
+    .run(archivedPath, handoff.dispatch_id);
 
   // Deliver message to target agent (fire-and-forget, non-blocking)
   const msg = `DISPATCH:${handoff.dispatch_id} - ${handoff.title}`;
