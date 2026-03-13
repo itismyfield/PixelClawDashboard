@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/api/auth/session",
   "/api/hook/", // hook endpoints are open (local only)
   "/api/round-table-meetings", // RemoteCC posts meeting results (local only)
+  "/api/docs", // API documentation (agent-accessible)
 ];
 
 export function authMiddleware(

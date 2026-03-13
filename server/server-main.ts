@@ -36,6 +36,7 @@ import rateLimitRoutes, { startRateLimitPolling, stopRateLimitPolling } from "./
 import autoQueueRoutes from "./routes/auto-queue.js";
 import pipelineRoutes from "./routes/pipeline.js";
 import { startAutoQueueCheck, stopAutoQueueCheck } from "./auto-queue.js";
+import docsRoutes from "./routes/docs.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -90,6 +91,7 @@ app.use(roundTableRoutes);
 app.use(rateLimitRoutes);
 app.use(autoQueueRoutes);
 app.use(pipelineRoutes);
+app.use(docsRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
