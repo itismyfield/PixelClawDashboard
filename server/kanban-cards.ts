@@ -917,7 +917,10 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
 
 // ── GitHub issue state sync ──
 
-const ACTIVE_CARD_STATUSES = ["ready", "requested", "in_progress", "review", "blocked", "failed"] as const;
+const TERMINAL_OR_BACKLOG: readonly KanbanCardStatus[] = ["backlog", "done", "cancelled"];
+const ACTIVE_CARD_STATUSES = KANBAN_CARD_STATUSES.filter(
+  (s) => !TERMINAL_OR_BACKLOG.includes(s),
+);
 
 interface GhIssueState {
   number: number;
@@ -944,13 +947,14 @@ function ghIssueState(repo: string, issueNumber: number): string | null {
  * If the issue was reopened while card is done/cancelled, transition back to "in_progress".
  */
 export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
+  const placeholders = ACTIVE_CARD_STATUSES.map(() => "?").join(", ");
   const activeCards = db.prepare(
     `SELECT *
      FROM kanban_cards
      WHERE github_repo IS NOT NULL
        AND github_issue_number IS NOT NULL
-       AND status IN ('ready', 'requested', 'in_progress', 'review', 'blocked', 'failed')`,
-  ).all() as unknown as KanbanCardBaseRow[];
+       AND status IN (${placeholders})`,
+  ).all(...ACTIVE_CARD_STATUSES) as unknown as KanbanCardBaseRow[];
 
   const changed: KanbanCardRow[] = [];
 
