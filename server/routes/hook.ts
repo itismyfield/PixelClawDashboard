@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
-import { emitKanbanCard, commentBlockedOnGitHub } from "../kanban-cards.js";
+import { emitKanbanCard, commentBlockedOnGitHub, updateGitHubChecklistOnReview } from "../kanban-cards.js";
 import { sendDiscordMessage } from "../discord-announce.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
@@ -90,12 +90,12 @@ function promoteKanbanForDispatch(
   const db = getDb();
 
   const card = db.prepare(
-    `SELECT kc.id, kc.status, kc.title, kc.github_repo, kc.github_issue_number, kc.assignee_agent_id
+    `SELECT kc.id, kc.status, kc.title, kc.github_repo, kc.github_issue_number, kc.assignee_agent_id, kc.metadata_json
      FROM kanban_cards kc WHERE kc.latest_dispatch_id = ? LIMIT 1`,
   ).get(dispatchId) as {
     id: string; status: string; title: string;
     github_repo: string | null; github_issue_number: number | null;
-    assignee_agent_id: string | null;
+    assignee_agent_id: string | null; metadata_json: string | null;
   } | undefined;
   if (!card) return;
 
@@ -152,6 +152,8 @@ function promoteKanbanForDispatch(
     ).run(now, dispatchId);
     emitKanbanCard(db, card.id, "kanban_card_updated");
     console.log(`[PCD] kanban dispatch-promote: ${card.id} → review (dispatch ${dispatchId} completed)`);
+    // Update GitHub issue DoD checklist + add review-pending comment
+    updateGitHubChecklistOnReview(card);
   }
 }
 

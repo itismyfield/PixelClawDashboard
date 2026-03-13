@@ -603,6 +603,78 @@ export function closeGitHubIssueOnDone(card: {
 }
 
 /**
+ * When a kanban card transitions to "review", update the linked GitHub issue:
+ * 1. Check off completed DoD items in the issue body (- [ ] → - [x])
+ * 2. Add a "리뷰 대기중" comment
+ * Fire-and-forget — errors are logged but don't block the caller.
+ */
+export function updateGitHubChecklistOnReview(card: {
+  github_repo?: string | null;
+  github_issue_number?: number | null;
+  title: string;
+  id: string;
+  metadata_json?: string | null;
+  assignee_agent_id?: string | null;
+}): void {
+  const repo = card.github_repo;
+  const issueNum = card.github_issue_number;
+  if (!repo || !issueNum) return;
+
+  const metadata = parseKanbanCardMetadata(card.metadata_json);
+  const checklist = metadata.review_checklist ?? [];
+  const doneLabels = new Set(
+    checklist.filter((item) => item.done).map((item) => item.label.trim()),
+  );
+
+  // Update DoD checkboxes in issue body if there are completed items
+  if (doneLabels.size > 0) {
+    try {
+      const raw = execFileSync("gh", [
+        "issue", "view", String(issueNum), "--repo", repo, "--json", "body", "-q", ".body",
+      ], { timeout: 15_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+      // Replace matching unchecked items with checked
+      const updatedBody = raw.replace(
+        /^- \[ \] (.+)$/gm,
+        (_match, text: string) => {
+          const trimmed = text.trim();
+          if (doneLabels.has(trimmed)) {
+            return `- [x] ${trimmed}`;
+          }
+          return _match;
+        },
+      );
+
+      if (updatedBody !== raw) {
+        execFileSync("gh", ["issue", "edit", String(issueNum), "--repo", repo, "--body", updatedBody], {
+          timeout: 15_000,
+          stdio: "pipe",
+        });
+        console.log(`[kanban] updated DoD checklist on ${repo}#${issueNum} (${doneLabels.size} items checked)`);
+      }
+    } catch (e) {
+      console.error(`[kanban] gh issue edit (DoD checklist) failed for ${repo}#${issueNum}:`, (e as Error).message);
+    }
+  }
+
+  // Add review-pending comment
+  const agentName = card.assignee_agent_id ?? "unknown";
+  const checkedCount = doneLabels.size;
+  const totalCount = checklist.length;
+  const summary = totalCount > 0 ? ` (${checkedCount}/${totalCount} DoD 항목 완료)` : "";
+  const comment = `🔍 **리뷰 대기중**${summary}\n\n카드 "${card.title}" — 에이전트 ${agentName} 작업 완료, 리뷰를 기다리고 있습니다.`;
+  try {
+    execFileSync("gh", ["issue", "comment", String(issueNum), "--repo", repo, "--body", comment], {
+      timeout: 15_000,
+      stdio: "pipe",
+    });
+    console.log(`[kanban] posted review-pending comment on ${repo}#${issueNum}`);
+  } catch (e) {
+    console.error(`[kanban] gh issue comment (review) failed for ${repo}#${issueNum}:`, (e as Error).message);
+  }
+}
+
+/**
  * Post a "blocked" comment on the linked GitHub issue.
  * Fire-and-forget — errors are logged but don't block the caller.
  */
