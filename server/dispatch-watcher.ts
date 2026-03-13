@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db/runtime.js";
-import { enforceKanbanTimeouts, syncGitHubIssueStates, syncKanbanCardWithDispatch, processReviewVerdict } from "./kanban-cards.js";
+import { enforceKanbanTimeouts, syncGitHubIssueStates, syncKanbanCardWithDispatch, processReviewVerdict, type KanbanCardRow } from "./kanban-cards.js";
+import { onCardTerminal } from "./auto-queue.js";
 import type { ReviewVerdict } from "./kanban-cards.js";
 import { broadcast } from "./ws.js";
 import { resolveAgent } from "./dispatch-routing.js";
@@ -490,6 +491,14 @@ function runGitHubIssueSync(): void {
     const ghClosed = syncGitHubIssueStates(db);
     if (ghClosed.length > 0) {
       console.log(`[PCD-dispatch] GitHub sync: ${ghClosed.length} card(s) closed via issue state`);
+      // Trigger auto-queue progression for each closed card
+      for (const card of ghClosed) {
+        try {
+          onCardTerminal(db, card.id, "done");
+        } catch (e) {
+          console.error(`[PCD-dispatch] onCardTerminal failed for card ${card.id}:`, (e as Error).message);
+        }
+      }
     }
   } catch (error) {
     console.error("[PCD-dispatch] GitHub issue sync error:", error);

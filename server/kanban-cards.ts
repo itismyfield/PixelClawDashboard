@@ -1186,10 +1186,13 @@ export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
       db.prepare(
         `UPDATE kanban_cards
          SET status = 'done',
+             review_status = NULL,
              completed_at = COALESCE(completed_at, ?),
              updated_at = ?
          WHERE id = ?`,
       ).run(now, now, card.id);
+
+      rewardKanbanCompletion(db, card.id);
 
       const updatedCard = emitKanbanCard(db, card.id, "kanban_card_updated");
       if (updatedCard) changed.push(updatedCard);
