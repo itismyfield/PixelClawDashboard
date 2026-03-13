@@ -11,6 +11,7 @@ import { getRuntimeConfig } from "./runtime-config.js";
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let staleTimer: ReturnType<typeof setInterval> | null = null;
+let ghSyncTimer: ReturnType<typeof setInterval> | null = null;
 let watcher: fs.FSWatcher | null = null;
 let pollDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -445,8 +446,13 @@ function cleanupStaleDispatches(): void {
     console.log(`[PCD-dispatch] Blocked ${stalledInProgress.length} stale in-progress kanban card(s)`);
   }
 
-  // Sync GitHub issue states → auto-close cards whose issues were closed externally
+}
+
+// ── GitHub issue sync (independent timer) ──
+
+function runGitHubIssueSync(): void {
   try {
+    const db = getDb();
     const ghClosed = syncGitHubIssueStates(db);
     if (ghClosed.length > 0) {
       console.log(`[PCD-dispatch] GitHub sync: ${ghClosed.length} card(s) closed via issue state`);
@@ -573,11 +579,20 @@ export function startDispatchWatcher(): void {
   // Safety fallback: poll in case fs.watch misses events
   const cfg = getRuntimeConfig();
   const pollMs = cfg.dispatchPollSec * 1000;
-  const staleCheckMs = cfg.githubIssueSyncSec * 1000; // stale check runs at same interval as issue sync
+  const STALE_CHECK_MS = 60 * 60 * 1000; // 1 hour (fixed)
+  const ghSyncMs = cfg.githubIssueSyncSec * 1000;
   pollTimer = setInterval(pollOnce, pollMs);
-  staleTimer = setInterval(cleanupStaleDispatches, staleCheckMs);
+  staleTimer = setInterval(cleanupStaleDispatches, STALE_CHECK_MS);
+
+  // GitHub issue sync: independent timer + immediate first run
+  runGitHubIssueSync();
+  ghSyncTimer = setInterval(runGitHubIssueSync, ghSyncMs);
+
   console.log(
-    `[PCD] dispatch-watcher started (mode=fs.watch+${cfg.dispatchPollSec}s-fallback, stale-check=${cfg.githubIssueSyncSec / 60}min)`,
+    `[PCD] dispatch-watcher started (mode=fs.watch+${cfg.dispatchPollSec}s-fallback, stale-check=60min)`,
+  );
+  console.log(
+    `[PCD] GitHub issue sync started (interval=${Math.round(cfg.githubIssueSyncSec / 60)}min)`,
   );
 }
 
@@ -597,5 +612,9 @@ export function stopDispatchWatcher(): void {
   if (staleTimer) {
     clearInterval(staleTimer);
     staleTimer = null;
+  }
+  if (ghSyncTimer) {
+    clearInterval(ghSyncTimer);
+    ghSyncTimer = null;
   }
 }

@@ -37,7 +37,7 @@ export interface RuntimeConfig {
 export const RUNTIME_CONFIG_DEFAULTS: RuntimeConfig = {
   dispatchPollSec: 30,
   agentSyncSec: 300,          // 5 min
-  githubIssueSyncSec: 3600,   // 1 hour
+  githubIssueSyncSec: 600,    // 10 min
   claudeRateLimitPollSec: 300, // 5 min
   codexRateLimitPollSec: 120,  // 2 min
   issueTriagePollSec: 300,     // 5 min
