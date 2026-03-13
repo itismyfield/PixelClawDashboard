@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -33,8 +33,8 @@ interface RateLimitResponse {
   stale: boolean;
 }
 
-const CLAUDE_CACHE_DIR = path.join(os.homedir(), ".cache", "claude-dashboard");
 const STALE_MS = 5 * 60 * 1000; // 5 min
+const CLAUDE_POLL_INTERVAL = 2 * 60 * 1000; // 2 min
 
 function classifyLevel(util: number): "normal" | "warning" | "danger" {
   if (util >= 90) return "danger";
@@ -42,28 +42,73 @@ function classifyLevel(util: number): "normal" | "warning" | "danger" {
   return "normal";
 }
 
-// ── Claude: read local plugin cache ──
+// ── Claude: direct Anthropic API polling ──
 
-function readClaudeCache(): ClaudeCacheData | null {
+let claudeCache: ClaudeCacheData | null = null;
+let claudePollTimer: ReturnType<typeof setInterval> | null = null;
+
+function getClaudeOAuthToken(): string | null {
   try {
-    const files = fs.readdirSync(CLAUDE_CACHE_DIR).filter((f) => f.startsWith("cache-") && f.endsWith(".json"));
-    if (files.length === 0) return null;
+    const result = execFileSync(
+      "security",
+      ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    const creds = JSON.parse(result) as { claudeAiOauth?: { accessToken?: string } };
+    return creds?.claudeAiOauth?.accessToken ?? null;
+  } catch {
+    // Fallback to credentials file
+    try {
+      const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
+      const raw = fs.readFileSync(credPath, "utf-8");
+      const creds = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
+      return creds?.claudeAiOauth?.accessToken ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
 
-    let latest = files[0];
-    let latestMtime = 0;
-    for (const f of files) {
-      const st = fs.statSync(path.join(CLAUDE_CACHE_DIR, f));
-      if (st.mtimeMs > latestMtime) {
-        latestMtime = st.mtimeMs;
-        latest = f;
-      }
+async function pollClaudeUsage(): Promise<void> {
+  try {
+    const token = getClaudeOAuthToken();
+    if (!token) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.error(`[rate-limits] Claude usage API ${response.status}`);
+      return;
     }
 
-    const raw = fs.readFileSync(path.join(CLAUDE_CACHE_DIR, latest), "utf-8");
-    return JSON.parse(raw) as ClaudeCacheData;
-  } catch {
-    return null;
+    const data = (await response.json()) as Record<string, RateLimitBucket | undefined>;
+    claudeCache = {
+      data: {
+        five_hour: data.five_hour,
+        seven_day: data.seven_day,
+        seven_day_sonnet: data.seven_day_sonnet,
+      },
+      timestamp: Date.now(),
+    };
+  } catch (e) {
+    console.error("[rate-limits] Claude usage poll error:", (e as Error).message);
   }
+}
+
+function readClaudeCache(): ClaudeCacheData | null {
+  return claudeCache;
 }
 
 // ── Codex: poll chatgpt.com backend API ──
@@ -225,16 +270,32 @@ router.get("/api/rate-limits", (_req, res) => {
 
 // ── Lifecycle ──
 
-export function startCodexPoll(): void {
+export function startRateLimitPolling(): void {
+  pollClaudeUsage();
+  claudePollTimer = setInterval(pollClaudeUsage, CLAUDE_POLL_INTERVAL);
   pollCodexUsage();
   codexPollTimer = setInterval(pollCodexUsage, CODEX_POLL_INTERVAL);
 }
 
-export function stopCodexPoll(): void {
+export function stopRateLimitPolling(): void {
+  if (claudePollTimer) {
+    clearInterval(claudePollTimer);
+    claudePollTimer = null;
+  }
   if (codexPollTimer) {
     clearInterval(codexPollTimer);
     codexPollTimer = null;
   }
+}
+
+/** @deprecated Use startRateLimitPolling instead */
+export function startCodexPoll(): void {
+  startRateLimitPolling();
+}
+
+/** @deprecated Use stopRateLimitPolling instead */
+export function stopCodexPoll(): void {
+  stopRateLimitPolling();
 }
 
 export default router;
