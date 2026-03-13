@@ -1278,11 +1278,15 @@ export default function KanbanTab({
                             </span>
                           </div>
 
-                          {card.description && (
-                            <p className="mt-2 text-xs" style={{ color: "var(--th-text-secondary)" }}>
-                              {card.description}
-                            </p>
-                          )}
+                          {card.description && (() => {
+                            const sections = parseIssueSections(card.description);
+                            const displayText = sections?.content ?? card.description;
+                            return (
+                              <div className="mt-2 text-xs" style={{ color: "var(--th-text-secondary)", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                <MarkdownContent content={displayText} />
+                              </div>
+                            );
+                          })()}
 
                           <div className="mt-3 space-y-1.5 text-xs" style={{ color: "var(--th-text-muted)" }}>
                             <div>{tr("담당자", "Assignee")}: {getAgentLabel(card.assignee_agent_id)}</div>
