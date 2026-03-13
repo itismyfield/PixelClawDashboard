@@ -1667,6 +1667,18 @@ export function processReviewVerdict(
       break;
     }
   }
+
+  // Complete review child card — the review work itself is done regardless of verdict
+  const reviewChildCard = db.prepare(
+    `SELECT id, status FROM kanban_cards WHERE latest_dispatch_id = ? AND id != ? LIMIT 1`,
+  ).get(reviewDispatchId, card.id) as { id: string; status: string } | undefined;
+  if (reviewChildCard && !["done", "failed", "cancelled"].includes(reviewChildCard.status)) {
+    db.prepare(
+      `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
+    ).run(now, now, reviewChildCard.id);
+    emitKanbanCard(db, reviewChildCard.id, "kanban_card_updated");
+    console.log(`[kanban-review] Review child card ${reviewChildCard.id} → done`);
+  }
 }
 
 /**
