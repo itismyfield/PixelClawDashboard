@@ -1,10 +1,14 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
 import { listRoleBindings } from "./role-map.js";
 
-const AGENT_SYNC_INTERVAL_MS = 3 * 60 * 1000; // 3 min
-const STATUS_RECONCILE_INTERVAL_MS = 45 * 1000; // 45 sec
+const AGENT_SYNC_SAFETY_MS = 10 * 60 * 1000; // 10 min safety fallback (fs.watch is primary)
+const STATUS_RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 min safety (hook.ts drives real-time)
+const ROLE_MAP_PATH = path.join(os.homedir(), ".remotecc", "role_map.json");
 
 interface ConfiguredAgent {
   id: string;
@@ -156,25 +160,55 @@ export function reconcileAgentStatusOnce(): number {
 
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+let roleMapWatcher: fs.FSWatcher | null = null;
+let syncDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSync(): void {
+  if (syncDebounce) return;
+  syncDebounce = setTimeout(() => {
+    syncDebounce = null;
+    syncAgentsOnce();
+  }, 500);
+}
 
 export function startAgentSync(): void {
   syncAgentsOnce();
   reconcileAgentStatusOnce();
 
+  // Primary: fs.watch on role_map.json for instant agent sync
+  try {
+    if (fs.existsSync(ROLE_MAP_PATH)) {
+      roleMapWatcher = fs.watch(ROLE_MAP_PATH, () => debouncedSync());
+      roleMapWatcher.on("error", () => {});
+    }
+  } catch {
+    // fs.watch unavailable — safety interval handles it
+  }
+
+  // Safety fallback: sync every 10min in case fs.watch misses
   syncTimer = setInterval(() => {
     syncAgentsOnce();
-  }, AGENT_SYNC_INTERVAL_MS);
+  }, AGENT_SYNC_SAFETY_MS);
 
+  // Reconcile: 5min safety sweep (hook.ts drives real-time updates)
   reconcileTimer = setInterval(() => {
     reconcileAgentStatusOnce();
   }, STATUS_RECONCILE_INTERVAL_MS);
 
   console.log(
-    `[PCD] agent-sync started (source=role_map, sync=${AGENT_SYNC_INTERVAL_MS / 1000}s, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s)`,
+    `[PCD] agent-sync started (source=role_map, sync=fs.watch+${AGENT_SYNC_SAFETY_MS / 1000 / 60}min-fallback, reconcile=${STATUS_RECONCILE_INTERVAL_MS / 1000}s-safety)`,
   );
 }
 
 export function stopAgentSync(): void {
+  if (roleMapWatcher) {
+    roleMapWatcher.close();
+    roleMapWatcher = null;
+  }
+  if (syncDebounce) {
+    clearTimeout(syncDebounce);
+    syncDebounce = null;
+  }
   if (syncTimer) {
     clearInterval(syncTimer);
     syncTimer = null;

@@ -8,7 +8,7 @@ import { resolveAgent } from "./dispatch-routing.js";
 import { sendToAgentChannel } from "./discord-announce.js";
 import { PCD_HANDOFF_ARCHIVE_DIR, PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
 
-const POLL_MS = 2000;
+const SAFETY_POLL_MS = 30_000; // 30s safety fallback (fs.watch is primary)
 const STALE_CHECK_MS = 60 * 60 * 1000; // 1 hour
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_CHAIN_DEPTH = 5;
@@ -17,6 +17,16 @@ const MAX_RETRIES = 3;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let staleTimer: ReturnType<typeof setInterval> | null = null;
+let watcher: fs.FSWatcher | null = null;
+let pollDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedPoll(): void {
+  if (pollDebounce) return;
+  pollDebounce = setTimeout(() => {
+    pollDebounce = null;
+    pollOnce();
+  }, 100);
+}
 
 // ── Handoff JSON types ──
 
@@ -550,14 +560,36 @@ export function startDispatchWatcher(): void {
   recoverPendingDispatches();
   // Process any existing files on startup
   pollOnce();
-  pollTimer = setInterval(pollOnce, POLL_MS);
+
+  // Primary: fs.watch for instant file detection
+  try {
+    watcher = fs.watch(PCD_HANDOFF_DIR, (_eventType, filename) => {
+      if (filename?.endsWith(".json")) debouncedPoll();
+    });
+    watcher.on("error", (err) => {
+      console.error("[PCD] dispatch-watcher fs.watch error:", err);
+    });
+  } catch {
+    console.warn("[PCD] dispatch-watcher: fs.watch unavailable, using polling only");
+  }
+
+  // Safety fallback: poll every 30s in case fs.watch misses events
+  pollTimer = setInterval(pollOnce, SAFETY_POLL_MS);
   staleTimer = setInterval(cleanupStaleDispatches, STALE_CHECK_MS);
   console.log(
-    `[PCD] dispatch-watcher started (poll=${POLL_MS / 1000}s, stale-check=${STALE_CHECK_MS / 1000 / 60}min)`,
+    `[PCD] dispatch-watcher started (mode=fs.watch+${SAFETY_POLL_MS / 1000}s-fallback, stale-check=${STALE_CHECK_MS / 1000 / 60}min)`,
   );
 }
 
 export function stopDispatchWatcher(): void {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+  if (pollDebounce) {
+    clearTimeout(pollDebounce);
+    pollDebounce = null;
+  }
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
