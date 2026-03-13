@@ -398,23 +398,29 @@ export default function KanbanTab({
   useEffect(() => {
     if (!selectedRepo) {
       setIssues([]);
+      setLoadingIssues(false);
       return;
     }
 
+    let stale = false;
+    setIssues([]);
     setLoadingIssues(true);
     setActionError(null);
     api.getGitHubIssues(selectedRepo, "open", 100)
       .then((result) => {
+        if (stale) return;
         setIssues(result.issues);
         if (result.error) {
           setActionError(result.error);
         }
       })
       .catch((error) => {
-      setIssues([]);
-      setActionError(error instanceof Error ? error.message : "Failed to load GitHub issues.");
+        if (stale) return;
+        setIssues([]);
+        setActionError(error instanceof Error ? error.message : "Failed to load GitHub issues.");
       })
-      .finally(() => setLoadingIssues(false));
+      .finally(() => { if (!stale) setLoadingIssues(false); });
+    return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRepo]);
 
