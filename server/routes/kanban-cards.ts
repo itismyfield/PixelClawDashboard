@@ -13,6 +13,7 @@ import {
   KANBAN_CARD_PRIORITIES,
   KANBAN_CARD_STATUSES,
   listKanbanCards,
+  redispatchKanbanCard,
   retryKanbanCard,
   rewardKanbanCompletion,
   closeGitHubIssueOnDone,
@@ -226,6 +227,30 @@ router.post("/api/kanban-cards/:id/retry", (req, res) => {
     res.json(card);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "kanban_card_retry_failed" });
+  }
+});
+
+router.post("/api/kanban-cards/:id/redispatch", (req, res) => {
+  const db = getDb();
+  try {
+    const card = redispatchKanbanCard(db, req.params.id, {
+      reason: req.body?.reason ?? null,
+    });
+    appendAuditLog({
+      actor: getAuditActor(req),
+      action: "redispatch",
+      entityType: "kanban_card",
+      entityId: req.params.id,
+      summary: `Kanban card redispatched: ${card.title}`,
+      metadata: {
+        assignee_agent_id: card.assignee_agent_id,
+        status: card.status,
+        reason: req.body?.reason ?? null,
+      },
+    });
+    res.json(card);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "kanban_card_redispatch_failed" });
   }
 });
 

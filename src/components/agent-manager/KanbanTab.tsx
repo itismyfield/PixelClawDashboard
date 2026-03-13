@@ -87,6 +87,10 @@ interface KanbanTabProps {
     id: string,
     payload?: { assignee_agent_id?: string | null; request_now?: boolean },
   ) => Promise<void>;
+  onRedispatchCard: (
+    id: string,
+    payload?: { reason?: string | null },
+  ) => Promise<void>;
   onDeleteCard: (id: string) => Promise<void>;
 }
 
@@ -184,6 +188,8 @@ function stringifyCardMetadata(metadata: KanbanCardMetadata): string | null {
       }))
       .filter((item) => item.label);
   }
+  if (metadata.redispatch_count) payload.redispatch_count = metadata.redispatch_count;
+  if (metadata.redispatch_reason) payload.redispatch_reason = metadata.redispatch_reason;
   if (metadata.reward) payload.reward = metadata.reward;
   return Object.keys(payload).length > 0 ? JSON.stringify(payload) : null;
 }
@@ -291,6 +297,7 @@ export default function KanbanTab({
   onAssignIssue,
   onUpdateCard,
   onRetryCard,
+  onRedispatchCard,
   onDeleteCard,
 }: KanbanTabProps) {
   const [repoSources, setRepoSources] = useState<KanbanRepoSource[]>([]);
@@ -310,6 +317,8 @@ export default function KanbanTab({
   const [initialLoading, setInitialLoading] = useState(true);
   const [savingCard, setSavingCard] = useState(false);
   const [retryingCard, setRetryingCard] = useState(false);
+  const [redispatching, setRedispatching] = useState(false);
+  const [redispatchReason, setRedispatchReason] = useState("");
   const [assigningIssue, setAssigningIssue] = useState(false);
   const [repoBusy, setRepoBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -571,6 +580,24 @@ export default function KanbanTab({
 
   const canRetryCard = (card: KanbanCard | null) =>
     Boolean(card && ["failed", "blocked", "requested", "in_progress", "cancelled"].includes(card.status));
+
+  const canRedispatchCard = (card: KanbanCard | null) =>
+    Boolean(card && ["requested", "in_progress"].includes(card.status));
+
+  const handleRedispatch = async () => {
+    if (!selectedCard) return;
+    setRedispatching(true);
+    setActionError(null);
+    try {
+      await onRedispatchCard(selectedCard.id, {
+        reason: redispatchReason.trim() || null,
+      });
+      setRedispatchReason("");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : tr("재디스패치에 실패했습니다.", "Failed to redispatch."));
+    }
+    setRedispatching(false);
+  };
 
   const handleAddRepo = async () => {
     const repo = repoInput.trim();
@@ -1291,6 +1318,11 @@ export default function KanbanTab({
                                     {tr("Failover", "Failover")} {metadata.failover_count}
                                   </span>
                                 ) : null}
+                                {metadata.redispatch_count ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-white/8" style={{ color: "#fbbf24" }}>
+                                    {tr("재디스패치", "Redispatch")} {metadata.redispatch_count}
+                                  </span>
+                                ) : null}
                                 {checklistSummary && (
                                   <span className="px-2 py-0.5 rounded-full text-[11px] bg-white/8" style={{ color: "#99f6e4" }}>
                                     {tr("리뷰", "Review")} {checklistSummary}
@@ -1915,6 +1947,39 @@ export default function KanbanTab({
                 </div>
               );
             })()}
+
+            {canRedispatchCard(selectedCard) && (
+              <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(148,163,184,0.18)" }}>
+                <div>
+                  <h4 className="font-medium" style={{ color: "var(--th-text-heading)" }}>
+                    {tr("재디스패치", "Redispatch")}
+                  </h4>
+                  <p className="text-xs" style={{ color: "var(--th-text-muted)" }}>
+                    {tr(
+                      "현재 dispatch를 취소하고 업데이트된 이슈 본문으로 새 dispatch를 생성합니다.",
+                      "Cancel current dispatch and create a new one from the updated issue body.",
+                    )}
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  placeholder={tr("사유 (선택)", "Reason (optional)")}
+                  value={redispatchReason}
+                  onChange={(e) => setRedispatchReason(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2 text-sm bg-white/6 border"
+                  style={{ borderColor: "rgba(148,163,184,0.24)", color: "var(--th-text-primary)" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleRedispatch()}
+                  disabled={redispatching}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: "#d97706" }}
+                >
+                  {redispatching ? tr("재디스패치 중...", "Redispatching...") : tr("재디스패치", "Redispatch")}
+                </button>
+              </div>
+            )}
 
             {canRetryCard(selectedCard) && (
               <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(148,163,184,0.18)" }}>

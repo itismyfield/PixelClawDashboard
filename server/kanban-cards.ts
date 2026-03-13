@@ -65,6 +65,8 @@ export interface KanbanCardMetadata {
   timed_out_stage?: "requested" | "in_progress";
   timed_out_at?: number;
   timed_out_reason?: string;
+  redispatch_count?: number;
+  redispatch_reason?: string;
   review_checklist?: KanbanReviewChecklistItem[];
   reward?: {
     granted_at: number;
@@ -993,6 +995,80 @@ export function retryKanbanCard(
     if (!updated) throw new Error("kanban_card_not_found");
     return updated;
   }
+
+  return createDispatchForKanbanCard(db, cardId);
+}
+
+/**
+ * Redispatch a kanban card: cancel current dispatch, fetch latest GitHub issue
+ * body, rebuild dispatch payload, and create a new dispatch.
+ * Only valid for `requested` and `in_progress` cards.
+ */
+export function redispatchKanbanCard(
+  db: DatabaseSync,
+  cardId: string,
+  options?: { reason?: string | null },
+): KanbanCardRow {
+  const card = getRawKanbanCardById(db, cardId);
+  if (!card) throw new Error("kanban_card_not_found");
+  if (!["requested", "in_progress"].includes(card.status)) {
+    throw new Error("redispatch_invalid_status");
+  }
+  if (!card.assignee_agent_id) throw new Error("assignee_agent_id is required");
+
+  const now = Date.now();
+
+  // 1. Cancel current dispatch if exists
+  if (card.latest_dispatch_id) {
+    db.prepare(
+      `UPDATE task_dispatches SET status = 'cancelled', completed_at = ? WHERE id = ? AND status NOT IN ('completed','cancelled','failed')`,
+    ).run(now, card.latest_dispatch_id);
+  }
+
+  // 2. Fetch latest GitHub issue body if linked
+  let updatedDescription = card.description;
+  if (card.github_repo && card.github_issue_number) {
+    try {
+      const body = execFileSync("gh", [
+        "issue", "view", String(card.github_issue_number),
+        "--repo", card.github_repo,
+        "--json", "body", "-q", ".body",
+      ], { timeout: 15_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      if (body) updatedDescription = body;
+    } catch (e) {
+      console.error(`[kanban] gh issue view failed for redispatch ${card.github_repo}#${card.github_issue_number}:`, (e as Error).message);
+    }
+  }
+
+  // 3. Update card description if changed
+  if (updatedDescription !== card.description) {
+    db.prepare(`UPDATE kanban_cards SET description = ?, updated_at = ? WHERE id = ?`).run(
+      updatedDescription, now, cardId,
+    );
+  }
+
+  // 4. Track redispatch metadata
+  const metadata = parseKanbanCardMetadata(card.metadata_json);
+  metadata.redispatch_count = (metadata.redispatch_count ?? 0) + 1;
+  if (options?.reason) {
+    metadata.redispatch_reason = options.reason;
+  }
+  db.prepare(`UPDATE kanban_cards SET metadata_json = ?, updated_at = ? WHERE id = ?`).run(
+    stringifyKanbanCardMetadata(metadata), now, cardId,
+  );
+
+  // 5. Reset card to ready state, then create new dispatch
+  db.prepare(
+    `UPDATE kanban_cards
+     SET status = 'ready',
+         latest_dispatch_id = NULL,
+         review_status = NULL,
+         requested_at = NULL,
+         started_at = NULL,
+         completed_at = NULL,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(now, cardId);
 
   return createDispatchForKanbanCard(db, cardId);
 }

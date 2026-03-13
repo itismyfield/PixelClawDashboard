@@ -282,6 +282,16 @@ export async function retryKanbanCard(
   });
 }
 
+export async function redispatchKanbanCard(
+  id: string,
+  payload?: { reason?: string | null },
+): Promise<KanbanCard> {
+  return request(`/api/kanban-cards/${id}/redispatch`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
 export async function assignKanbanIssue(payload: {
   github_repo: string;
   github_issue_number: number;

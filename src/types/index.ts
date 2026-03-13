@@ -404,6 +404,8 @@ export interface KanbanCardMetadata {
   timed_out_stage?: "requested" | "in_progress";
   timed_out_at?: number;
   timed_out_reason?: string;
+  redispatch_count?: number;
+  redispatch_reason?: string;
   review_checklist?: KanbanReviewChecklistItem[];
   reward?: {
     granted_at: number;

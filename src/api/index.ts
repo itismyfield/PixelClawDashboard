@@ -26,6 +26,7 @@ export {
   updateKanbanCard,
   deleteKanbanCard,
   retryKanbanCard,
+  redispatchKanbanCard,
   assignKanbanIssue,
   getKanbanRepoSources,
   addKanbanRepoSource,

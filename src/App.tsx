@@ -521,6 +521,10 @@ export default function App() {
                     const updated = await api.retryKanbanCard(id, payload);
                     upsertKanbanCard(updated);
                   }}
+                  onRedispatchCard={async (id, payload) => {
+                    const updated = await api.redispatchKanbanCard(id, payload);
+                    upsertKanbanCard(updated);
+                  }}
                   onDeleteCard={async (id) => {
                     await api.deleteKanbanCard(id);
                     setKanbanCards((prev) => prev.filter((card) => card.id !== id));
