@@ -263,6 +263,40 @@ export function initSchema(db: DatabaseSync): void {
       PRIMARY KEY (github_repo, github_issue_number)
     );
 
+    CREATE TABLE IF NOT EXISTS pipeline_stages (
+      id TEXT PRIMARY KEY,
+      repo TEXT NOT NULL,
+      stage_name TEXT NOT NULL,
+      stage_order INTEGER NOT NULL DEFAULT 0,
+      entry_skill TEXT DEFAULT NULL,
+      provider TEXT DEFAULT NULL,
+      agent_override_id TEXT DEFAULT NULL,
+      timeout_minutes INTEGER NOT NULL DEFAULT 60,
+      on_failure TEXT NOT NULL DEFAULT 'fail'
+        CHECK(on_failure IN ('fail','retry','previous','goto')),
+      on_failure_target TEXT DEFAULT NULL,
+      max_retries INTEGER NOT NULL DEFAULT 3,
+      skip_condition TEXT DEFAULT NULL,
+      parallel_with TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pipeline_stages_repo ON pipeline_stages (repo, stage_order);
+
+    CREATE TABLE IF NOT EXISTS pipeline_history (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL,
+      stage_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active','completed','failed','skipped','retrying')),
+      attempt INTEGER NOT NULL DEFAULT 1,
+      dispatch_id TEXT DEFAULT NULL,
+      failure_reason TEXT DEFAULT NULL,
+      started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      completed_at INTEGER DEFAULT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pipeline_history_card ON pipeline_history (card_id, started_at DESC);
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       actor TEXT NOT NULL DEFAULT 'dashboard-session',
@@ -412,6 +446,12 @@ function migrate(db: DatabaseSync): void {
     END
     WHERE provider IS NULL OR provider = '' OR provider = 'claude'
   `);
+
+  // Add pipeline_stage_id column to kanban_cards if missing
+  const kanbanCols2 = db.prepare("PRAGMA table_info(kanban_cards)").all() as Array<{ name: string }>;
+  if (!kanbanCols2.some((c) => c.name === "pipeline_stage_id")) {
+    db.exec("ALTER TABLE kanban_cards ADD COLUMN pipeline_stage_id TEXT DEFAULT NULL");
+  }
 
   const repoSrcCols = db.prepare("PRAGMA table_info(kanban_repo_sources)").all() as Array<{ name: string }>;
   if (!repoSrcCols.some((c) => c.name === "default_agent_id")) {

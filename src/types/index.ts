@@ -432,6 +432,7 @@ export interface KanbanCard {
   github_issue_number: number | null;
   github_issue_url: string | null;
   metadata_json: string | null;
+  pipeline_stage_id: string | null;
   created_at: number;
   updated_at: number;
   started_at: number | null;
@@ -443,6 +444,37 @@ export interface KanbanCard {
   latest_dispatch_result_summary?: string | null;
   latest_dispatch_chain_depth?: number | null;
   child_count?: number;
+}
+
+// Pipeline
+export interface PipelineStage {
+  id: string;
+  repo: string;
+  stage_name: string;
+  stage_order: number;
+  entry_skill: string | null;
+  provider: string | null;
+  agent_override_id: string | null;
+  timeout_minutes: number;
+  on_failure: "fail" | "retry" | "previous" | "goto";
+  on_failure_target: string | null;
+  max_retries: number;
+  skip_condition: string | null;
+  parallel_with: string | null;
+  created_at: number;
+}
+
+export interface PipelineHistoryEntry {
+  id: string;
+  card_id: string;
+  stage_id: string;
+  stage_name: string;
+  status: "active" | "completed" | "failed" | "skipped" | "retrying";
+  attempt: number;
+  dispatch_id: string | null;
+  failure_reason: string | null;
+  started_at: number;
+  completed_at: number | null;
 }
 
 export interface KanbanRepoSource {

@@ -19,6 +19,7 @@ import {
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 import { onCardTerminal } from "../auto-queue.js";
+import { hasPipeline, startPipeline, onPipelineStageComplete, onPipelineStageFailure } from "../pipeline.js";
 
 const router = Router();
 
@@ -551,6 +552,41 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
     }
     if ((finalCard.status === "done" || finalCard.status === "cancelled") && existing.status !== finalCard.status) {
       closeGitHubIssueOnDone(finalCard);
+    }
+
+    // Pipeline: intercept state transitions for pipeline-enabled repos
+    if (finalCard.github_repo && finalCard.pipeline_stage_id) {
+      // Card has active pipeline stage
+      if (finalCard.status === "review" && existing.status !== "review") {
+        // Dispatch completed → advance pipeline
+        try {
+          onPipelineStageComplete(db, finalCard.id);
+          finalCard = getKanbanCardById(db, finalCard.id) ?? finalCard;
+        } catch (e) {
+          console.error("[kanban] pipeline stage complete error:", (e as Error).message);
+        }
+      } else if (finalCard.status === "failed" && existing.status !== "failed") {
+        try {
+          onPipelineStageFailure(db, finalCard.id);
+          finalCard = getKanbanCardById(db, finalCard.id) ?? finalCard;
+        } catch (e) {
+          console.error("[kanban] pipeline stage failure error:", (e as Error).message);
+        }
+      }
+    } else if (
+      finalCard.github_repo
+      && finalCard.status === "ready"
+      && existing.status !== "ready"
+      && hasPipeline(db, finalCard.github_repo)
+    ) {
+      // Card entering ready with pipeline → auto-start pipeline
+      try {
+        if (startPipeline(db, finalCard.id)) {
+          finalCard = getKanbanCardById(db, finalCard.id) ?? finalCard;
+        }
+      } catch (e) {
+        console.error("[kanban] pipeline start error:", (e as Error).message);
+      }
     }
 
     // Auto-queue: trigger next dispatch when card reaches terminal state

@@ -299,6 +299,51 @@ export async function deleteKanbanRepoSource(id: string): Promise<void> {
   await request(`/api/kanban-repos/${id}`, { method: "DELETE" });
 }
 
+// ── Pipeline ──
+
+export interface PipelineStageInput {
+  stage_name: string;
+  entry_skill?: string | null;
+  provider?: string | null;
+  agent_override_id?: string | null;
+  timeout_minutes?: number;
+  on_failure?: "fail" | "retry" | "previous" | "goto";
+  on_failure_target?: string | null;
+  max_retries?: number;
+  skip_condition?: string | null;
+  parallel_with?: string | null;
+}
+
+export async function getPipelineStages(repo: string): Promise<import("../types").PipelineStage[]> {
+  const data = await request<{ stages: import("../types").PipelineStage[] }>(
+    `/api/pipeline/stages?repo=${encodeURIComponent(repo)}`,
+  );
+  return data.stages;
+}
+
+export async function savePipelineStages(
+  repo: string,
+  stages: PipelineStageInput[],
+): Promise<import("../types").PipelineStage[]> {
+  const data = await request<{ stages: import("../types").PipelineStage[] }>(
+    "/api/pipeline/stages",
+    { method: "PUT", body: JSON.stringify({ repo, stages }) },
+  );
+  return data.stages;
+}
+
+export async function deletePipelineStages(repo: string): Promise<void> {
+  await request(`/api/pipeline/stages?repo=${encodeURIComponent(repo)}`, { method: "DELETE" });
+}
+
+export async function getCardPipelineStatus(cardId: string): Promise<{
+  stages: import("../types").PipelineStage[];
+  history: import("../types").PipelineHistoryEntry[];
+  current_stage: import("../types").PipelineStage | null;
+}> {
+  return request(`/api/pipeline/cards/${cardId}`);
+}
+
 export async function getTaskDispatches(filters?: {
   status?: string;
   from_agent_id?: string;

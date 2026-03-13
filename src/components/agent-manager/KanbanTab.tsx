@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type DragEvent } from "react";
 import * as api from "../../api";
 import type { GitHubIssue, GitHubRepoOption, KanbanRepoSource } from "../../api";
 import AutoQueuePanel from "./AutoQueuePanel";
+import PipelineEditor from "./PipelineEditor";
+import PipelineProgress from "./PipelineProgress";
 import MarkdownContent from "../common/MarkdownContent";
 import type {
   Agent,
@@ -923,12 +925,20 @@ export default function KanbanTab({
       </section>
 
       {selectedRepo && (
-        <AutoQueuePanel
-          tr={tr}
-          locale={locale}
-          agents={agents}
-          selectedRepo={selectedRepo}
-        />
+        <>
+          <AutoQueuePanel
+            tr={tr}
+            locale={locale}
+            agents={agents}
+            selectedRepo={selectedRepo}
+          />
+          <PipelineEditor
+            tr={tr}
+            locale={locale}
+            repo={selectedRepo}
+            agents={agents}
+          />
+        </>
       )}
 
       {!selectedRepo ? (
@@ -1350,6 +1360,16 @@ export default function KanbanTab({
                 {tr("닫기", "Close")}
               </button>
             </div>
+
+            {/* Pipeline progress visualization */}
+            {selectedCard.pipeline_stage_id && (
+              <PipelineProgress
+                tr={tr}
+                locale={locale}
+                cardId={selectedCard.id}
+                currentStageId={selectedCard.pipeline_stage_id}
+              />
+            )}
 
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1">

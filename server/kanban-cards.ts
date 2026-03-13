@@ -78,6 +78,7 @@ interface KanbanCardBaseRow {
   started_at: number | null;
   requested_at: number | null;
   completed_at: number | null;
+  pipeline_stage_id: string | null;
 }
 
 interface TaskDispatchRow {

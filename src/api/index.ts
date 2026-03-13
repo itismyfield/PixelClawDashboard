@@ -61,6 +61,10 @@ export {
   getAutoQueueStatus,
   skipAutoQueueEntry,
   updateAutoQueueRun,
+  getPipelineStages,
+  savePipelineStages,
+  deletePipelineStages,
+  getCardPipelineStatus,
 } from "./client";
 
 export type {

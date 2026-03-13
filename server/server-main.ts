@@ -34,6 +34,7 @@ import kanbanRepoRoutes from "./routes/kanban-repos.js";
 import { startIssueTriage, stopIssueTriage } from "./issue-triage.js";
 import rateLimitRoutes, { startRateLimitPolling, stopRateLimitPolling } from "./routes/rate-limits.js";
 import autoQueueRoutes from "./routes/auto-queue.js";
+import pipelineRoutes from "./routes/pipeline.js";
 import { startAutoQueueCheck, stopAutoQueueCheck } from "./auto-queue.js";
 
 const PORT = parseInt(process.env.PORT || "8791", 10);
@@ -88,6 +89,7 @@ app.use(kanbanRepoRoutes);
 app.use(roundTableRoutes);
 app.use(rateLimitRoutes);
 app.use(autoQueueRoutes);
+app.use(pipelineRoutes);
 
 // Static files (production)
 const distDir = path.join(process.cwd(), "dist");
