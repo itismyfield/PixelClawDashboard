@@ -46,9 +46,42 @@ const PROVIDER_PALETTES: Record<string, ProviderPalette> = {
     warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
     danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
   },
+  OpenCode: {
+    accent: "#a855f7",
+    normal: { bar: "#a855f7", text: "#c084fc", glow: "rgba(168,85,247,0.3)" },
+    warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
+    danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
+  },
+  Copilot: {
+    accent: "#10b981",
+    normal: { bar: "#10b981", text: "#6ee7b7", glow: "rgba(16,185,129,0.3)" },
+    warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
+    danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
+  },
+  Antigravity: {
+    accent: "#f472b6",
+    normal: { bar: "#f472b6", text: "#f9a8d4", glow: "rgba(244,114,182,0.3)" },
+    warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
+    danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
+  },
+  API: {
+    accent: "#94a3b8",
+    normal: { bar: "#94a3b8", text: "#cbd5e1", glow: "rgba(148,163,184,0.3)" },
+    warning: { bar: "#f59e0b", text: "#fbbf24", glow: "rgba(245,158,11,0.4)" },
+    danger: { bar: "#ef4444", text: "#fca5a5", glow: "rgba(239,68,68,0.5)" },
+  },
 };
 
 const DEFAULT_PALETTE: ProviderPalette = PROVIDER_PALETTES.Codex;
+const PROVIDER_ICONS: Record<string, string> = {
+  Claude: "🤖",
+  Codex: "⚡",
+  Gemini: "🔮",
+  OpenCode: "🧩",
+  Copilot: "🛩️",
+  Antigravity: "🌀",
+  API: "🔌",
+};
 
 function getColors(provider: string, level: string) {
   const palette = PROVIDER_PALETTES[provider] || DEFAULT_PALETTE;
@@ -109,7 +142,7 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                   className="text-[10px] sm:text-xs font-bold uppercase tracking-wider"
                   style={{ color: accent }}
                 >
-                  {({ Claude: "🤖", Codex: "⚡", Gemini: "🔮" } as Record<string, string>)[provider.provider] ?? "•"}{" "}
+                  {(PROVIDER_ICONS[provider.provider] ?? "•")}{" "}
                   {provider.provider}
                 </span>
                 {provider.stale ? (

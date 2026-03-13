@@ -29,6 +29,18 @@ const PROVIDER_META: Record<string, { label: string; bg: string; color: string; 
     color: "#6ee7b7",
     border: "rgba(16,185,129,0.25)",
   },
+  antigravity: {
+    label: "Antigravity",
+    bg: "rgba(244,114,182,0.12)",
+    color: "#f9a8d4",
+    border: "rgba(244,114,182,0.25)",
+  },
+  api: {
+    label: "API",
+    bg: "rgba(148,163,184,0.12)",
+    color: "#cbd5e1",
+    border: "rgba(148,163,184,0.25)",
+  },
 };
 
 function getProviderMeta(provider: string | null) {

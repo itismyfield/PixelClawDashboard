@@ -534,6 +534,20 @@ interface RLProvider {
 const RL_COLORS: Record<string, { normal: string; warning: string; danger: string; accent: string }> = {
   Claude: { accent: "#f59e0b", normal: "#f59e0b", warning: "#ea580c", danger: "#ef4444" },
   Codex: { accent: "#34d399", normal: "#34d399", warning: "#fbbf24", danger: "#f87171" },
+  Gemini: { accent: "#3b82f6", normal: "#3b82f6", warning: "#f59e0b", danger: "#ef4444" },
+  OpenCode: { accent: "#a855f7", normal: "#a855f7", warning: "#f59e0b", danger: "#ef4444" },
+  Copilot: { accent: "#10b981", normal: "#10b981", warning: "#f59e0b", danger: "#ef4444" },
+  Antigravity: { accent: "#f472b6", normal: "#f472b6", warning: "#f59e0b", danger: "#ef4444" },
+  API: { accent: "#94a3b8", normal: "#94a3b8", warning: "#f59e0b", danger: "#ef4444" },
+};
+const RL_ICONS: Record<string, string> = {
+  Claude: "🤖",
+  Codex: "⚡",
+  Gemini: "🔮",
+  OpenCode: "🧩",
+  Copilot: "🛩️",
+  Antigravity: "🌀",
+  API: "🔌",
 };
 
 function barColor(provider: string, level: string) {
@@ -573,7 +587,7 @@ function MiniRateLimitBar({ isKo }: { isKo: boolean }) {
             {/* Fixed-width left: provider + stale placeholder */}
             <div className="flex items-center gap-1 shrink-0" style={{ width: 96 }}>
               <span className="text-[9px] font-bold uppercase truncate" style={{ color: accent }}>
-                {p.provider === "Claude" ? "🤖" : "⚡"} {p.provider}
+                {(RL_ICONS[p.provider] ?? "•")} {p.provider}
               </span>
               {p.stale ? (
                 <span
