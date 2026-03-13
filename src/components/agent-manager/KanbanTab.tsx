@@ -327,16 +327,23 @@ export default function KanbanTab({
   /** Resolve agent from `agent:*` GitHub labels by matching role_id. */
   const resolveAgentFromLabels = useMemo(() => {
     const roleIdMap = new Map<string, Agent>();
+    const suffixMap = new Map<string, Agent>();
     for (const agent of agents) {
       if (agent.role_id) {
         roleIdMap.set(agent.role_id, agent);
+        // Also map the suffix after last hyphen (e.g. "ch-dd" → "dd")
+        const lastDash = agent.role_id.lastIndexOf("-");
+        if (lastDash >= 0) {
+          const suffix = agent.role_id.slice(lastDash + 1);
+          if (!suffixMap.has(suffix)) suffixMap.set(suffix, agent);
+        }
       }
     }
     return (labels: Array<{ name: string; color: string }>): Agent | null => {
       for (const label of labels) {
         if (label.name.startsWith("agent:")) {
           const roleId = label.name.slice("agent:".length).trim();
-          const matched = roleIdMap.get(roleId);
+          const matched = roleIdMap.get(roleId) ?? suffixMap.get(roleId);
           if (matched) return matched;
         }
       }
