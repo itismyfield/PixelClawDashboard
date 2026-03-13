@@ -537,22 +537,41 @@ export function rewardKanbanCompletion(db: DatabaseSync, cardId: string): Kanban
 }
 
 /**
- * Close the linked GitHub issue when a kanban card transitions to "done".
- * Runs async (fire-and-forget) — errors are logged but don't block the response.
+ * Close the linked GitHub issue when a kanban card reaches a terminal state (done/cancelled).
+ * Runs sync (fire-and-forget style) — errors are logged but don't block the response.
  */
 export function closeGitHubIssueOnDone(card: {
   github_repo?: string | null;
   github_issue_number?: number | null;
   title: string;
   id: string;
+  status?: string;
 }): void {
   const repo = card.github_repo;
   const issueNum = card.github_issue_number;
   if (!repo || !issueNum) return;
 
-  const comment = `✅ Closed automatically by PCD kanban — card "${card.title}" marked done.`;
+  const status = card.status ?? "done";
+  const emoji = status === "cancelled" ? "🚫" : "✅";
+  const label = status === "cancelled" ? "cancelled" : "done";
+  const comment = `${emoji} Closed automatically by PCD kanban — card "${card.title}" marked ${label}.`;
 
-  // Fire-and-forget: comment then close
+  // Check if issue is already closed — skip if so
+  try {
+    const result = execFileSync("gh", ["issue", "view", String(issueNum), "--repo", repo, "--json", "state", "-q", ".state"], {
+      timeout: 15_000,
+      stdio: "pipe",
+    });
+    if (result.toString().trim() === "CLOSED") {
+      console.log(`[kanban] GitHub issue ${repo}#${issueNum} already closed, skipping`);
+      return;
+    }
+  } catch (e) {
+    console.error(`[kanban] gh issue view failed for ${repo}#${issueNum}:`, (e as Error).message);
+    return;
+  }
+
+  // Comment then close
   try {
     execFileSync("gh", ["issue", "comment", String(issueNum), "--repo", repo, "--body", comment], {
       timeout: 15_000,
@@ -567,10 +586,8 @@ export function closeGitHubIssueOnDone(card: {
       timeout: 15_000,
       stdio: "pipe",
     });
-    console.log(`[kanban] closed GitHub issue ${repo}#${issueNum}`);
+    console.log(`[kanban] closed GitHub issue ${repo}#${issueNum} (card ${label})`);
   } catch (e) {
-    // gh issue close exits 0 even for already-closed issues,
-    // so this catch handles only real errors (network, auth, etc.)
     console.error(`[kanban] gh issue close failed for ${repo}#${issueNum}:`, (e as Error).message);
   }
 }

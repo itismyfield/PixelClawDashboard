@@ -548,6 +548,8 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
 
     if (finalCard.status === "done") {
       finalCard = rewardKanbanCompletion(db, finalCard.id) ?? finalCard;
+    }
+    if ((finalCard.status === "done" || finalCard.status === "cancelled") && existing.status !== finalCard.status) {
       closeGitHubIssueOnDone(finalCard);
     }
 
