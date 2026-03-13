@@ -23,8 +23,6 @@ router.post("/api/auto-queue/generate", async (req, res) => {
       res.status(400).json({ error: "no_ready_cards", message: "No ready cards to queue" });
     } else if (msg === "no_assigned_ready_cards") {
       res.status(400).json({ error: "no_assigned_ready_cards", message: "No assigned ready cards to queue" });
-    } else if (msg === "no_claude_token") {
-      res.status(500).json({ error: "no_claude_token", message: "Claude API token not available" });
     } else {
       res.status(500).json({ error: "auto_queue_generate_failed", message: msg });
     }

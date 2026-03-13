@@ -1,7 +1,5 @@
+import { execFile } from "node:child_process";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
@@ -59,25 +57,32 @@ const AUTO_QUEUE_TIMEOUT_MS = 100 * 60 * 1000; // 100 minutes
 const AUTO_QUEUE_CHECK_MS = 60 * 1000; // check every 1 minute
 let checkTimer: ReturnType<typeof setInterval> | null = null;
 
-// ── Claude API for prioritization ──
+// ── Claude CLI for prioritization ──
 
-function getClaudeApiToken(): string | null {
-  try {
-    const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
-    const raw = fs.readFileSync(credPath, "utf-8");
-    const creds = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
-    return creds?.claudeAiOauth?.accessToken ?? null;
-  } catch {
-    return null;
-  }
+const CLAUDE_BIN = "/Users/itismyfield/bin/claude";
+
+function runClaude(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      CLAUDE_BIN,
+      ["-p", "--model", "haiku", "--max-turns", "1"],
+      { timeout: 60_000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(new Error(`claude -p failed: ${stderr || err.message}`));
+        } else {
+          resolve(stdout);
+        }
+      },
+    );
+    child.stdin?.write(prompt);
+    child.stdin?.end();
+  });
 }
 
 export async function prioritizeCards(
   cards: Array<{ id: string; title: string; description: string | null; priority: string | null; github_repo: string | null; github_issue_number: number | null; created_at: number }>,
 ): Promise<AIPriorityResult[]> {
-  const token = getClaudeApiToken();
-  if (!token) throw new Error("no_claude_token");
-
   const cardList = cards
     .map(
       (c, i) =>
@@ -101,41 +106,13 @@ Respond ONLY with a JSON array, no other text:
 
 Rank 1 = highest priority (dispatch first).`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "anthropic-version": "2023-06-01",
-        "User-Agent": "claude-code/1.0.0",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Claude API ${response.status}: ${err.slice(0, 200)}`);
-    }
-
-    const data = (await response.json()) as {
-      content: Array<{ type: string; text?: string }>;
-    };
-    const text = data.content.find((c) => c.type === "text")?.text ?? "[]";
+    const text = await runClaude(prompt);
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return cards.map((c, i) => ({ card_id: c.id, rank: i + 1, reason: "default order" }));
 
     return JSON.parse(jsonMatch[0]) as AIPriorityResult[];
   } catch (e) {
-    clearTimeout(timeout);
     console.error("[auto-queue] AI prioritization failed:", (e as Error).message);
     // Fallback: priority field order
     const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
