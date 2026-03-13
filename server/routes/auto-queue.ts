@@ -42,11 +42,12 @@ router.post("/api/auto-queue/activate", (_req, res) => {
   }
 });
 
-// Get current queue status
-router.get("/api/auto-queue/status", (_req, res) => {
+// Get current queue status (optionally filtered by repo)
+router.get("/api/auto-queue/status", (req, res) => {
   const db = getDb();
+  const repo = typeof req.query.repo === "string" ? req.query.repo : null;
   try {
-    const status = getQueueStatus(db);
+    const status = getQueueStatus(db, repo);
     res.json(status);
   } catch (e) {
     res.status(500).json({ error: "auto_queue_status_failed", message: (e as Error).message });

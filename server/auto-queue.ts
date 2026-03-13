@@ -347,14 +347,20 @@ export function onCardTerminal(
 
 // ── Queue status ──
 
-export function getQueueStatus(db: DatabaseSync): {
+export function getQueueStatus(db: DatabaseSync, repo?: string | null): {
   run: AutoQueueRun | null;
   entries: DispatchQueueEntry[];
   agents: Record<string, { pending: number; dispatched: number; done: number; skipped: number }>;
 } {
-  const run = db.prepare(
-    `SELECT * FROM auto_queue_runs WHERE status = 'active' ORDER BY created_at DESC LIMIT 1`,
-  ).get() as unknown as AutoQueueRun | undefined;
+  const run = (
+    repo
+      ? db.prepare(
+          `SELECT * FROM auto_queue_runs WHERE status = 'active' AND repo = ? ORDER BY created_at DESC LIMIT 1`,
+        ).get(repo)
+      : db.prepare(
+          `SELECT * FROM auto_queue_runs WHERE status = 'active' ORDER BY created_at DESC LIMIT 1`,
+        ).get()
+  ) as unknown as AutoQueueRun | undefined;
 
   const entries = run
     ? (db.prepare(

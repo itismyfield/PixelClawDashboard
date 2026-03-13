@@ -39,12 +39,12 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
 
   const fetchStatus = useCallback(async () => {
     try {
-      const s = await api.getAutoQueueStatus();
+      const s = await api.getAutoQueueStatus(selectedRepo || null);
       setStatus(s);
     } catch {
       // silent
     }
-  }, []);
+  }, [selectedRepo]);
 
   useEffect(() => {
     void fetchStatus();

@@ -769,8 +769,9 @@ export async function activateAutoQueue(): Promise<{
   return request("/api/auto-queue/activate", { method: "POST" });
 }
 
-export async function getAutoQueueStatus(): Promise<AutoQueueStatus> {
-  return request("/api/auto-queue/status");
+export async function getAutoQueueStatus(repo?: string | null): Promise<AutoQueueStatus> {
+  const params = repo ? `?repo=${encodeURIComponent(repo)}` : "";
+  return request(`/api/auto-queue/status${params}`);
 }
 
 export async function skipAutoQueueEntry(id: string): Promise<{ ok: boolean }> {
