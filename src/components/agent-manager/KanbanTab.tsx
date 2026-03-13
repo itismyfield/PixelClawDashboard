@@ -327,7 +327,7 @@ export default function KanbanTab({
   const [reviewDecisions, setReviewDecisions] = useState<Record<string, "accept" | "reject">>({});
   const [reviewBusy, setReviewBusy] = useState(false);
   const [recentDonePage, setRecentDonePage] = useState(0);
-  const [recentDoneOpen, setRecentDoneOpen] = useState(true);
+  const [recentDoneOpen, setRecentDoneOpen] = useState(false);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
