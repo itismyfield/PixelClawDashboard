@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { buildDispatchPayload, formatInstructionsFromInput } from "./dispatch-input.js";
+import { getDb } from "./db/runtime.js";
 import { PCD_HANDOFF_DIR, ensurePcdRuntimeDirs } from "./runtime-paths.js";
 import { broadcast } from "./ws.js";
 
@@ -603,9 +604,81 @@ export function closeGitHubIssueOnDone(card: {
 }
 
 /**
- * When a kanban card transitions to "review", update the linked GitHub issue:
- * 1. Check off completed DoD items in the issue body (- [ ] → - [x])
- * 2. Add a "리뷰 대기중" comment
+ * Parse DoD section from a GitHub issue body and extract checkbox states.
+ * Returns an array of { label, done } objects, or null if no DoD section found.
+ */
+function parseDodFromBody(body: string): Array<{ label: string; done: boolean }> | null {
+  if (!body.includes("## DoD")) return null;
+  const sections: Record<string, string> = {};
+  let currentKey: string | null = null;
+  let currentLines: string[] = [];
+  for (const line of body.split("\n")) {
+    const heading = line.match(/^##\s+(.+)$/);
+    if (heading) {
+      if (currentKey) sections[currentKey] = currentLines.join("\n").trim();
+      currentKey = heading[1].trim();
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+  if (currentKey) sections[currentKey] = currentLines.join("\n").trim();
+  const dodText = sections["DoD"] ?? "";
+  if (!dodText) return null;
+  const items: Array<{ label: string; done: boolean }> = [];
+  for (const line of dodText.split("\n")) {
+    const m = line.match(/^-\s*\[([ x])\]\s*(.+)$/);
+    if (m) {
+      const label = m[2].trim();
+      if (label) items.push({ label, done: m[1] === "x" });
+    }
+  }
+  return items.length > 0 ? items : null;
+}
+
+/**
+ * Fetch the GitHub issue body and mirror DoD checkbox states into the kanban
+ * card's review_checklist metadata. GitHub is the source of truth.
+ * Returns the updated checklist, or null if mirroring was not possible.
+ */
+export function mirrorGitHubDodToChecklist(
+  db: DatabaseSync,
+  cardId: string,
+  repo: string,
+  issueNumber: number,
+): KanbanReviewChecklistItem[] | null {
+  let body: string;
+  try {
+    body = execFileSync("gh", [
+      "issue", "view", String(issueNumber), "--repo", repo, "--json", "body", "-q", ".body",
+    ], { timeout: 15_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (e) {
+    console.error(`[kanban] gh issue view (DoD mirror) failed for ${repo}#${issueNumber}:`, (e as Error).message);
+    return null;
+  }
+
+  const dodItems = parseDodFromBody(body);
+  if (!dodItems) return null;
+
+  const checklist: KanbanReviewChecklistItem[] = dodItems.map((item, i) => ({
+    id: `item-${i + 1}`,
+    label: item.label,
+    done: item.done,
+  }));
+
+  setCardMetadata(db, cardId, (meta) => ({
+    ...meta,
+    review_checklist: checklist,
+  }));
+  emitKanbanCard(db, cardId, "kanban_card_updated");
+  console.log(`[kanban] mirrored DoD from ${repo}#${issueNumber} → card ${cardId} (${dodItems.filter((d) => d.done).length}/${dodItems.length} done)`);
+  return checklist;
+}
+
+/**
+ * When a kanban card transitions to "review":
+ * 1. Mirror GitHub issue DoD checkbox states into review_checklist
+ * 2. Add a "리뷰 대기중" comment on the GitHub issue
  * Fire-and-forget — errors are logged but don't block the caller.
  */
 export function updateGitHubChecklistOnReview(card: {
@@ -620,47 +693,14 @@ export function updateGitHubChecklistOnReview(card: {
   const issueNum = card.github_issue_number;
   if (!repo || !issueNum) return;
 
-  const metadata = parseKanbanCardMetadata(card.metadata_json);
-  const checklist = metadata.review_checklist ?? [];
-  const doneLabels = new Set(
-    checklist.filter((item) => item.done).map((item) => item.label.trim()),
-  );
-
-  // Update DoD checkboxes in issue body if there are completed items
-  if (doneLabels.size > 0) {
-    try {
-      const raw = execFileSync("gh", [
-        "issue", "view", String(issueNum), "--repo", repo, "--json", "body", "-q", ".body",
-      ], { timeout: 15_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-
-      // Replace matching unchecked items with checked
-      const updatedBody = raw.replace(
-        /^- \[ \] (.+)$/gm,
-        (_match, text: string) => {
-          const trimmed = text.trim();
-          if (doneLabels.has(trimmed)) {
-            return `- [x] ${trimmed}`;
-          }
-          return _match;
-        },
-      );
-
-      if (updatedBody !== raw) {
-        execFileSync("gh", ["issue", "edit", String(issueNum), "--repo", repo, "--body", updatedBody], {
-          timeout: 15_000,
-          stdio: "pipe",
-        });
-        console.log(`[kanban] updated DoD checklist on ${repo}#${issueNum} (${doneLabels.size} items checked)`);
-      }
-    } catch (e) {
-      console.error(`[kanban] gh issue edit (DoD checklist) failed for ${repo}#${issueNum}:`, (e as Error).message);
-    }
-  }
+  // Mirror GitHub DoD → review_checklist (GitHub is source of truth)
+  const db = getDb();
+  const checklist = mirrorGitHubDodToChecklist(db, card.id, repo, issueNum);
+  const checkedCount = checklist?.filter((item) => item.done).length ?? 0;
+  const totalCount = checklist?.length ?? 0;
 
   // Add review-pending comment
   const agentName = card.assignee_agent_id ?? "unknown";
-  const checkedCount = doneLabels.size;
-  const totalCount = checklist.length;
   const summary = totalCount > 0 ? ` (${checkedCount}/${totalCount} DoD 항목 완료)` : "";
   const comment = `🔍 **리뷰 대기중**${summary}\n\n카드 "${card.title}" — 에이전트 ${agentName} 작업 완료, 리뷰를 기다리고 있습니다.`;
   try {
@@ -1123,6 +1163,9 @@ export function syncGitHubIssueStates(db: DatabaseSync): KanbanCardRow[] {
       if (updatedCard) changed.push(updatedCard);
 
       console.log(`[PCD] github-sync: ${card.github_repo}#${card.github_issue_number} closed → card ${card.id} done`);
+    } else if (state === "OPEN" && card.status === "review") {
+      // Periodically mirror DoD checkbox states for review cards
+      mirrorGitHubDodToChecklist(db, card.id, card.github_repo!, card.github_issue_number!);
     }
   }
 

@@ -17,6 +17,7 @@ import {
   rewardKanbanCompletion,
   closeGitHubIssueOnDone,
   updateGitHubChecklistOnReview,
+  mirrorGitHubDodToChecklist,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 import { onCardTerminal } from "../auto-queue.js";
@@ -379,9 +380,17 @@ router.patch("/api/kanban-cards/:id", (req, res) => {
     : existing.metadata_json;
   const intendedMetadata = parseKanbanCardMetadata(intendedMetadataJson);
 
-  if (desiredStatus === "done" && intendedMetadata.review_checklist?.some((item) => !item.done)) {
-    res.status(400).json({ error: "review_checklist_incomplete" });
-    return;
+  if (desiredStatus === "done") {
+    // For GitHub-linked cards, mirror latest DoD from GitHub before gating
+    let checklistForGating = intendedMetadata.review_checklist;
+    if (existing.github_repo && existing.github_issue_number) {
+      const mirrored = mirrorGitHubDodToChecklist(db, existing.id, existing.github_repo, existing.github_issue_number);
+      if (mirrored) checklistForGating = mirrored;
+    }
+    if (checklistForGating?.some((item) => !item.done)) {
+      res.status(400).json({ error: "review_checklist_incomplete" });
+      return;
+    }
   }
 
   const sets: string[] = [];

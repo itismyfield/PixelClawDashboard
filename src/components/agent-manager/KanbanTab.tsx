@@ -1636,11 +1636,18 @@ export default function KanbanTab({
                   )}
 
                   {/* DoD Checklist */}
-                  {editor.review_checklist.length > 0 && (
+                  {editor.review_checklist.length > 0 && (() => {
+                    const isGitHubLinked = Boolean(selectedCard.github_issue_number);
+                    return (
                     <div className="rounded-2xl border p-4 bg-white/5 space-y-3" style={{ borderColor: "rgba(20,184,166,0.3)" }}>
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#2dd4bf" }}>
                           DoD (Definition of Done)
+                          {isGitHubLinked && (
+                            <span className="ml-2 text-[9px] font-normal normal-case tracking-normal" style={{ color: "var(--th-text-muted)" }}>
+                              {tr("(GitHub 정본)", "(synced from GitHub)")}
+                            </span>
+                          )}
                         </div>
                         <span className="text-xs px-2 py-1 rounded-full bg-white/8" style={{ color: "var(--th-text-secondary)" }}>
                           {editor.review_checklist.filter((item) => item.done).length}/{editor.review_checklist.length}
@@ -1651,12 +1658,13 @@ export default function KanbanTab({
                           <label
                             key={item.id}
                             className="flex items-center gap-3 rounded-xl px-3 py-2"
-                            style={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                            style={{ backgroundColor: "rgba(255,255,255,0.04)", opacity: isGitHubLinked ? 0.85 : 1 }}
                           >
                             <input
                               type="checkbox"
                               checked={item.done}
-                              onChange={(event) => setEditor((prev) => ({
+                              disabled={isGitHubLinked}
+                              onChange={isGitHubLinked ? undefined : (event) => setEditor((prev) => ({
                                 ...prev,
                                 review_checklist: prev.review_checklist.map((current) =>
                                   current.id === item.id ? { ...current, done: event.target.checked } : current,
@@ -1676,7 +1684,8 @@ export default function KanbanTab({
                         ))}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* 의존성 */}
                   {parsed.dependencies && (
