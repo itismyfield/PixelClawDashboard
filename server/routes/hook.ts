@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
-import { emitKanbanCard } from "../kanban-cards.js";
+import { emitKanbanCard, commentBlockedOnGitHub } from "../kanban-cards.js";
+import { sendDiscordMessage } from "../discord-announce.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
 import { recordSkillUsageEvent } from "../skill-sync.js";
@@ -81,12 +82,21 @@ function emitLinkedAgentStatus(agentId: string): void {
  * completed (idle): card in_progress → review  (agent finished work, then session ended)
  * disconnect:       card stays in_progress      (abnormal termination — not auto-promoted)
  */
-function promoteKanbanForDispatch(dispatchId: string, signal: "working" | "completed"): void {
+function promoteKanbanForDispatch(
+  dispatchId: string,
+  signal: "working" | "completed" | "blocked",
+  blockedReason?: string,
+): void {
   const db = getDb();
 
   const card = db.prepare(
-    `SELECT id, status FROM kanban_cards WHERE latest_dispatch_id = ? LIMIT 1`,
-  ).get(dispatchId) as { id: string; status: string } | undefined;
+    `SELECT kc.id, kc.status, kc.title, kc.github_repo, kc.github_issue_number, kc.assignee_agent_id
+     FROM kanban_cards kc WHERE kc.latest_dispatch_id = ? LIMIT 1`,
+  ).get(dispatchId) as {
+    id: string; status: string; title: string;
+    github_repo: string | null; github_issue_number: number | null;
+    assignee_agent_id: string | null;
+  } | undefined;
   if (!card) return;
 
   const now = Date.now();
@@ -100,6 +110,32 @@ function promoteKanbanForDispatch(dispatchId: string, signal: "working" | "compl
     ).run(dispatchId);
     emitKanbanCard(db, card.id, "kanban_card_updated");
     console.log(`[PCD] kanban dispatch-promote: ${card.id} → in_progress (dispatch ${dispatchId})`);
+  } else if (signal === "blocked" && card.status === "in_progress") {
+    const reason = blockedReason || "Agent reported blocked (no reason given)";
+    db.prepare(
+      `UPDATE kanban_cards SET status = 'blocked', blocked_reason = ?, updated_at = ? WHERE id = ?`,
+    ).run(reason, now, card.id);
+    emitKanbanCard(db, card.id, "kanban_card_updated");
+    console.log(`[PCD] kanban dispatch-promote: ${card.id} → blocked (dispatch ${dispatchId}): ${reason}`);
+
+    // GitHub issue comment (fire-and-forget)
+    if (card.github_repo && card.github_issue_number) {
+      const agentName = card.assignee_agent_id
+        ? (db.prepare("SELECT name FROM agents WHERE id = ? LIMIT 1").get(card.assignee_agent_id) as { name: string } | undefined)?.name ?? card.assignee_agent_id
+        : "unknown";
+      commentBlockedOnGitHub(card.github_repo, card.github_issue_number, reason, agentName, card.id);
+    }
+
+    // CEO/PMD alert via internal message + Discord
+    const alertText = `🔴 **[BLOCKED]** "${card.title}" — ${reason}`;
+    db.prepare(
+      `INSERT INTO messages (sender_type, sender_id, receiver_type, receiver_id, content, message_type)
+       VALUES ('system', 'dispatch-watcher', 'agent', NULL, ?, 'status_update')`,
+    ).run(alertText);
+    broadcast("new_message", { content: alertText, sender_type: "system" });
+    // Send to PMD channel (fire-and-forget)
+    const PMD_CHANNEL_ID = "1478652416533463101";
+    sendDiscordMessage(PMD_CHANNEL_ID, alertText).catch(() => {});
   } else if (signal === "completed" && card.status === "in_progress") {
     // Only promote if no other working sessions reference this dispatch
     const otherWorking = db.prepare(
@@ -143,7 +179,7 @@ router.post("/api/hook/reset-status", (_req, res) => {
 // Dispatched session: register / heartbeat
 router.post("/api/hook/session", (req, res) => {
   const db = getDb();
-  const { session_key, name, model, status, session_info, tokens, cwd, dispatch_id } = req.body;
+  const { session_key, name, model, status, session_info, tokens, cwd, dispatch_id, blocked_reason } = req.body;
   if (!session_key)
     return res.status(400).json({ error: "session_key required" });
   const provider = inferRemoteCcProvider(session_key, name ?? null, req.body.provider ?? null);
@@ -243,7 +279,11 @@ router.post("/api/hook/session", (req, res) => {
     // Dispatch-aware kanban promotion: only when dispatch_id is present
     const effectiveDispatchId = activeDispatchId ?? (existing.active_dispatch_id as string | null);
     if (effectiveDispatchId) {
-      if (status === "working" && existing.status !== "working") {
+      const blockedText = typeof blocked_reason === "string" && blocked_reason.trim() ? blocked_reason.trim() : null;
+      if (blockedText) {
+        // Agent explicitly reported BLOCKED with a reason
+        promoteKanbanForDispatch(effectiveDispatchId, "blocked", blockedText);
+      } else if (status === "working" && existing.status !== "working") {
         promoteKanbanForDispatch(effectiveDispatchId, "working");
       } else if (status === "idle" && existing.status === "working") {
         // Agent finished work normally (working → idle) → promote to review
@@ -291,8 +331,13 @@ router.post("/api/hook/session", (req, res) => {
     emitLinkedAgentStatus(linkedAgentId);
   }
   // Dispatch-aware kanban promotion for new session
-  if (activeDispatchId && (status ?? "working") === "working") {
-    promoteKanbanForDispatch(activeDispatchId, "working");
+  if (activeDispatchId) {
+    const blockedText = typeof blocked_reason === "string" && blocked_reason.trim() ? blocked_reason.trim() : null;
+    if (blockedText) {
+      promoteKanbanForDispatch(activeDispatchId, "blocked", blockedText);
+    } else if ((status ?? "working") === "working") {
+      promoteKanbanForDispatch(activeDispatchId, "working");
+    }
   }
   res.status(201).json(session);
 });

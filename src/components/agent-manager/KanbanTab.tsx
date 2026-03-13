@@ -1294,6 +1294,13 @@ export default function KanbanTab({
                             );
                           })()}
 
+                          {card.status === "blocked" && card.blocked_reason && (
+                            <div className="mt-2 rounded-md px-2.5 py-2 text-xs" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5" }}>
+                              <span className="font-semibold">{tr("차단 사유", "Blocked reason")}:</span>{" "}
+                              {card.blocked_reason}
+                            </div>
+                          )}
+
                           <div className="mt-3 space-y-1.5 text-xs" style={{ color: "var(--th-text-muted)" }}>
                             <div>{tr("담당자", "Assignee")}: {getAgentLabel(card.assignee_agent_id)}</div>
                             {latestDispatch && <div>{tr("디스패치", "Dispatch")}: {latestDispatch.status}</div>}
@@ -1564,6 +1571,18 @@ export default function KanbanTab({
                 </div>
               </div>
             </div>
+
+            {/* Blocked reason */}
+            {selectedCard.status === "blocked" && selectedCard.blocked_reason && (
+              <div className="rounded-2xl border p-4" style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.3)" }}>
+                <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "#ef4444" }}>
+                  {tr("차단 사유", "Blocked Reason")}
+                </div>
+                <div className="text-sm" style={{ color: "#fca5a5" }}>
+                  {selectedCard.blocked_reason}
+                </div>
+              </div>
+            )}
 
             {/* Description / Issue Sections */}
             {(() => {

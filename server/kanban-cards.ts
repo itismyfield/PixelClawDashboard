@@ -602,6 +602,37 @@ export function closeGitHubIssueOnDone(card: {
   }
 }
 
+/**
+ * Post a "blocked" comment on the linked GitHub issue.
+ * Fire-and-forget — errors are logged but don't block the caller.
+ */
+export function commentBlockedOnGitHub(
+  repo: string,
+  issueNumber: number,
+  reason: string,
+  agentName: string,
+  cardId: string,
+): void {
+  const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const body = [
+    `🔴 **에이전트 질문 (blocked)**`,
+    ``,
+    reason,
+    ``,
+    `---`,
+    `*카드: ${cardId} | 에이전트: ${agentName} | 시각: ${ts}*`,
+  ].join("\n");
+  try {
+    execFileSync("gh", ["issue", "comment", String(issueNumber), "--repo", repo, "--body", body], {
+      timeout: 15_000,
+      stdio: "pipe",
+    });
+    console.log(`[kanban] posted blocked comment on ${repo}#${issueNumber}`);
+  } catch (e) {
+    console.error(`[kanban] gh issue comment (blocked) failed for ${repo}#${issueNumber}:`, (e as Error).message);
+  }
+}
+
 export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string): KanbanCardRow | undefined {
   const dispatch = getTaskDispatchById(db, dispatchId);
   if (!dispatch) {
