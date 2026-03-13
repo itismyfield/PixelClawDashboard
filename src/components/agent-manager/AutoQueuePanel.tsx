@@ -11,6 +11,8 @@ interface Props {
   selectedRepo: string;
 }
 
+type ViewMode = "all" | "agent";
+
 function formatTs(value: number | null | undefined, locale: UiLanguage): string {
   if (!value) return "-";
   return new Intl.DateTimeFormat(locale, {
@@ -28,12 +30,75 @@ const ENTRY_STATUS_STYLE: Record<string, { bg: string; text: string; label: stri
   skipped: { bg: "rgba(107,114,128,0.18)", text: "#9ca3af", label: "건너뜀", labelEn: "Skipped" },
 };
 
+function EntryRow({
+  entry,
+  idx,
+  tr,
+  locale,
+  onSkip,
+}: {
+  entry: DispatchQueueEntryType;
+  idx: number;
+  tr: (ko: string, en: string) => string;
+  locale: UiLanguage;
+  onSkip: (id: string) => void;
+}) {
+  const sty = ENTRY_STATUS_STYLE[entry.status] ?? ENTRY_STATUS_STYLE.pending;
+  return (
+    <div
+      className="flex items-center gap-2 rounded-xl px-3 py-2 border"
+      style={{
+        borderColor: entry.status === "dispatched" ? "rgba(245,158,11,0.3)" : "rgba(148,163,184,0.15)",
+        backgroundColor: entry.status === "dispatched" ? "rgba(245,158,11,0.06)" : "rgba(2,6,23,0.5)",
+      }}
+    >
+      <span className="text-[10px] font-mono shrink-0 w-5 text-center" style={{ color: "var(--th-text-muted)" }}>
+        {idx + 1}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs truncate" style={{ color: "var(--th-text-primary)" }}>
+          {entry.card_title ?? entry.card_id.slice(0, 8)}
+          {entry.github_issue_number && (
+            <span className="ml-1" style={{ color: "var(--th-text-muted)" }}>#{entry.github_issue_number}</span>
+          )}
+        </div>
+        {entry.reason && (
+          <div className="text-[10px] truncate" style={{ color: "var(--th-text-muted)" }}>
+            {entry.reason}
+          </div>
+        )}
+      </div>
+      <span
+        className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+        style={{ backgroundColor: sty.bg, color: sty.text }}
+      >
+        {tr(sty.label, sty.labelEn)}
+      </span>
+      {entry.status === "pending" && (
+        <button
+          onClick={() => onSkip(entry.id)}
+          className="text-[10px] px-1.5 py-0.5 rounded border shrink-0"
+          style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-muted)" }}
+        >
+          {tr("건너뛰기", "Skip")}
+        </button>
+      )}
+      {entry.dispatched_at && (
+        <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+          {formatTs(entry.dispatched_at, locale)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Props) {
   const [status, setStatus] = useState<AutoQueueStatus | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("agent");
 
   const agentMap = new Map(agents.map((a) => [a.id, a]));
 
@@ -117,6 +182,16 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
     list.push(entry);
     entriesByAgent.set(entry.agent_id, list);
   }
+
+  // All-queue view: merge all entries sorted by global rank (priority_rank across agents)
+  const allEntriesSorted = [...entries].sort((a, b) => {
+    // Active first, then pending, then done/skipped
+    const statusOrder: Record<string, number> = { dispatched: 0, pending: 1, done: 2, skipped: 3 };
+    const sa = statusOrder[a.status] ?? 1;
+    const sb = statusOrder[b.status] ?? 1;
+    if (sa !== sb) return sa - sb;
+    return a.priority_rank - b.priority_rank;
+  });
 
   return (
     <section
@@ -239,84 +314,112 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
         </div>
       )}
 
-      {/* Expanded: per-agent queue entries */}
+      {/* Expanded: queue entries */}
       {expanded && (
         <div className="space-y-3">
-          {/* Agent summary chips */}
-          {Object.keys(agentStats).length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(agentStats).map(([agentId, stats]) => (
+          {/* View mode toggle + Agent summary chips */}
+          {totalCount > 0 && (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(agentStats).map(([agentId, stats]) => (
+                  <div
+                    key={agentId}
+                    className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border"
+                    style={{ borderColor: "rgba(148,163,184,0.18)", backgroundColor: "rgba(15,23,42,0.5)" }}
+                  >
+                    <span style={{ color: "var(--th-text-secondary)" }}>{getAgentLabel(agentId)}</span>
+                    {stats.dispatched > 0 && <span style={{ color: "#fbbf24" }}>{stats.dispatched}</span>}
+                    {stats.pending > 0 && <span style={{ color: "#94a3b8" }}>{stats.pending}</span>}
+                    <span style={{ color: "#4ade80" }}>{stats.done}</span>
+                    {stats.skipped > 0 && <span style={{ color: "#6b7280" }}>-{stats.skipped}</span>}
+                  </div>
+                ))}
+              </div>
+
+              {/* View mode toggle */}
+              {Object.keys(agentStats).length > 1 && (
                 <div
-                  key={agentId}
-                  className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border"
-                  style={{ borderColor: "rgba(148,163,184,0.18)", backgroundColor: "rgba(15,23,42,0.5)" }}
+                  className="inline-flex rounded-lg border overflow-hidden"
+                  style={{ borderColor: "rgba(148,163,184,0.22)" }}
                 >
-                  <span style={{ color: "var(--th-text-secondary)" }}>{getAgentLabel(agentId)}</span>
-                  {stats.dispatched > 0 && <span style={{ color: "#fbbf24" }}>{stats.dispatched}</span>}
-                  {stats.pending > 0 && <span style={{ color: "#94a3b8" }}>{stats.pending}</span>}
-                  <span style={{ color: "#4ade80" }}>{stats.done}</span>
-                  {stats.skipped > 0 && <span style={{ color: "#6b7280" }}>-{stats.skipped}</span>}
+                  <button
+                    onClick={() => setViewMode("all")}
+                    className="text-[10px] px-2 py-1 transition-colors"
+                    style={{
+                      backgroundColor: viewMode === "all" ? "rgba(139,92,246,0.2)" : "transparent",
+                      color: viewMode === "all" ? "#a78bfa" : "var(--th-text-muted)",
+                    }}
+                  >
+                    {tr("전체", "All")}
+                  </button>
+                  <button
+                    onClick={() => setViewMode("agent")}
+                    className="text-[10px] px-2 py-1 transition-colors"
+                    style={{
+                      backgroundColor: viewMode === "agent" ? "rgba(139,92,246,0.2)" : "transparent",
+                      color: viewMode === "agent" ? "#a78bfa" : "var(--th-text-muted)",
+                    }}
+                  >
+                    {tr("에이전트별", "By Agent")}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── All view: merged list sorted by status then rank ── */}
+          {viewMode === "all" && (
+            <div className="space-y-1">
+              {allEntriesSorted.map((entry, idx) => (
+                <div key={entry.id} className="flex items-center gap-1">
+                  {/* Agent badge */}
+                  <span
+                    className="text-[9px] px-1.5 py-0.5 rounded shrink-0 max-w-[60px] truncate"
+                    style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "#a78bfa" }}
+                  >
+                    {getAgentLabel(entry.agent_id)}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <EntryRow entry={entry} idx={idx} tr={tr} locale={locale} onSkip={handleSkip} />
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Entry list grouped by agent */}
-          {Array.from(entriesByAgent.entries()).map(([agentId, agentEntries]) => (
+          {/* ── Agent view: grouped by agent ── */}
+          {viewMode === "agent" && Array.from(entriesByAgent.entries()).map(([agentId, agentEntries]) => (
             <div key={agentId} className="space-y-1">
-              <div className="text-[11px] font-medium px-1" style={{ color: "var(--th-text-muted)" }}>
-                {getAgentLabel(agentId)}
+              <div className="flex items-center gap-2 px-1">
+                <div className="text-[11px] font-medium" style={{ color: "var(--th-text-muted)" }}>
+                  {getAgentLabel(agentId)}
+                </div>
+                <div className="flex-1 h-px" style={{ backgroundColor: "rgba(148,163,184,0.15)" }} />
+                <div className="text-[10px]" style={{ color: "var(--th-text-muted)" }}>
+                  {agentEntries.filter((e) => e.status === "done").length}/{agentEntries.length}
+                </div>
               </div>
-              {agentEntries.map((entry, idx) => {
-                const sty = ENTRY_STATUS_STYLE[entry.status] ?? ENTRY_STATUS_STYLE.pending;
-                return (
-                  <div
-                    key={entry.id}
-                    className="flex items-center gap-2 rounded-xl px-3 py-2 border"
-                    style={{
-                      borderColor: entry.status === "dispatched" ? "rgba(245,158,11,0.3)" : "rgba(148,163,184,0.15)",
-                      backgroundColor: entry.status === "dispatched" ? "rgba(245,158,11,0.06)" : "rgba(2,6,23,0.5)",
-                    }}
-                  >
-                    <span className="text-[10px] font-mono shrink-0 w-5 text-center" style={{ color: "var(--th-text-muted)" }}>
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs truncate" style={{ color: "var(--th-text-primary)" }}>
-                        {entry.card_title ?? entry.card_id.slice(0, 8)}
-                        {entry.github_issue_number && (
-                          <span className="ml-1" style={{ color: "var(--th-text-muted)" }}>#{entry.github_issue_number}</span>
-                        )}
-                      </div>
-                      {entry.reason && (
-                        <div className="text-[10px] truncate" style={{ color: "var(--th-text-muted)" }}>
-                          {entry.reason}
-                        </div>
-                      )}
-                    </div>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{ backgroundColor: sty.bg, color: sty.text }}
-                    >
-                      {tr(sty.label, sty.labelEn)}
-                    </span>
-                    {entry.status === "pending" && (
-                      <button
-                        onClick={() => void handleSkip(entry.id)}
-                        className="text-[10px] px-1.5 py-0.5 rounded border shrink-0"
-                        style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-muted)" }}
-                      >
-                        {tr("건너뛰기", "Skip")}
-                      </button>
-                    )}
-                    {entry.dispatched_at && (
-                      <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
-                        {formatTs(entry.dispatched_at, locale)}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
+              {/* Per-agent progress bar */}
+              {agentEntries.length > 1 && (
+                <div className="flex gap-0.5 h-1 rounded-full overflow-hidden bg-white/5 mx-1">
+                  {(() => {
+                    const ad = agentEntries.filter((e) => e.status === "done").length;
+                    const aa = agentEntries.filter((e) => e.status === "dispatched").length;
+                    const as_ = agentEntries.filter((e) => e.status === "skipped").length;
+                    const at = agentEntries.length;
+                    return (
+                      <>
+                        {ad > 0 && <div className="rounded-full" style={{ width: `${(ad / at) * 100}%`, backgroundColor: "#4ade80" }} />}
+                        {aa > 0 && <div className="rounded-full" style={{ width: `${(aa / at) * 100}%`, backgroundColor: "#fbbf24" }} />}
+                        {as_ > 0 && <div className="rounded-full" style={{ width: `${(as_ / at) * 100}%`, backgroundColor: "#6b7280" }} />}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+              {agentEntries.map((entry, idx) => (
+                <EntryRow key={entry.id} entry={entry} idx={idx} tr={tr} locale={locale} onSkip={handleSkip} />
+              ))}
             </div>
           ))}
 

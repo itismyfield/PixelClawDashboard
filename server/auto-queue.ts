@@ -173,7 +173,17 @@ export async function generateQueue(
     throw new Error("no_assigned_ready_cards");
   }
 
-  // AI prioritization
+  // Group cards by assignee agent for per-agent sub-queue prioritization
+  const cardsByAgent = new Map<string, typeof assignedCards>();
+  for (const card of assignedCards) {
+    const agentId = card.assignee_agent_id!;
+    const list = cardsByAgent.get(agentId) ?? [];
+    list.push(card);
+    cardsByAgent.set(agentId, list);
+  }
+
+  // AI prioritization — one call for all cards, then split ranks per agent
+  // This avoids N API calls (one per agent) while still yielding per-agent ordering.
   const ranked = await prioritizeCards(
     assignedCards.map((c) => ({
       id: c.id,
@@ -186,13 +196,31 @@ export async function generateQueue(
     })),
   );
 
+  // Build per-agent ranked list with local 1-based ranks
+  const rankedByAgent = new Map<string, AIPriorityResult[]>();
+  for (const item of ranked) {
+    const card = assignedCards.find((c) => c.id === item.card_id);
+    if (!card?.assignee_agent_id) continue;
+    const agentId = card.assignee_agent_id;
+    const list = rankedByAgent.get(agentId) ?? [];
+    list.push(item);
+    rankedByAgent.set(agentId, list);
+  }
+  // Re-number ranks per agent (1-based within each sub-queue)
+  for (const [, agentList] of rankedByAgent) {
+    agentList.sort((a, b) => a.rank - b.rank);
+    agentList.forEach((item, idx) => { item.rank = idx + 1; });
+  }
+
+  const allRanked = Array.from(rankedByAgent.values()).flat();
+
   // Create run
   const runId = crypto.randomUUID();
   const now = Date.now();
   db.prepare(
     `INSERT INTO auto_queue_runs (id, repo, status, ai_model, ai_rationale, timeout_minutes, created_at)
      VALUES (?, ?, 'active', 'claude-sonnet-4', ?, 100, ?)`,
-  ).run(runId, repo, JSON.stringify(ranked.map((r) => ({ card_id: r.card_id, reason: r.reason }))), now);
+  ).run(runId, repo, JSON.stringify(allRanked.map((r) => ({ card_id: r.card_id, reason: r.reason }))), now);
 
   // Deactivate any previous active runs for this repo
   db.prepare(
@@ -206,9 +234,9 @@ export async function generateQueue(
        AND card_id IN (SELECT id FROM kanban_cards WHERE github_repo IS ?)`,
   ).run(now, repo);
 
-  // Insert queue entries grouped by agent, ordered by AI rank
+  // Insert queue entries grouped by agent, ordered by per-agent rank
   const entries: DispatchQueueEntry[] = [];
-  for (const item of ranked) {
+  for (const item of allRanked) {
     const card = assignedCards.find((c) => c.id === item.card_id);
     if (!card || !card.assignee_agent_id) continue;
 
