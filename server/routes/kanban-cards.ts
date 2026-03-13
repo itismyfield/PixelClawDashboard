@@ -20,6 +20,8 @@ import {
   mirrorGitHubDodToChecklist,
   triggerCounterModelReview,
   listKanbanReviews,
+  saveReviewDecisions,
+  triggerDecidedRework,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 import { onCardTerminal } from "../auto-queue.js";
@@ -635,6 +637,33 @@ router.get("/api/kanban-cards/:id/reviews", (req, res) => {
   }
   const reviews = listKanbanReviews(db, req.params.id);
   res.json({ reviews });
+});
+
+// Save accept/reject decisions for review items
+router.patch("/api/kanban-reviews/:reviewId/decisions", (req, res) => {
+  const db = getDb();
+  const decisions = req.body?.decisions;
+  if (!Array.isArray(decisions) || decisions.length === 0) {
+    res.status(400).json({ error: "decisions array is required" });
+    return;
+  }
+  try {
+    const review = saveReviewDecisions(db, req.params.reviewId, decisions);
+    res.json({ review });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "save_decisions_failed" });
+  }
+});
+
+// Trigger rework after all dilemma decisions are made
+router.post("/api/kanban-reviews/:reviewId/trigger-rework", (req, res) => {
+  const db = getDb();
+  try {
+    triggerDecidedRework(db, req.params.reviewId);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "trigger_rework_failed" });
+  }
 });
 
 router.delete("/api/kanban-cards/:id", (req, res) => {

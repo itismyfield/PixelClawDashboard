@@ -68,6 +68,9 @@ export {
   getRuntimeConfig,
   saveRuntimeConfig,
   reorderAutoQueueEntries,
+  getKanbanReviews,
+  saveReviewDecisions,
+  triggerDecidedRework,
 } from "./client";
 
 export type {
@@ -95,6 +98,7 @@ export type {
   GitHubRepoOption,
   GitHubReposResponse,
   KanbanRepoSource,
+  KanbanReview,
   ChatMessage,
   RuntimeConfigResponse,
 } from "./client";

@@ -1649,3 +1649,265 @@ function postReviewCommentOnGitHub(
     console.error(`[kanban-review] gh issue comment failed:`, (e as Error).message);
   }
 }
+
+// ── Dilemma decision system ──
+
+export interface ReviewDecisionInput {
+  item_id: string;
+  decision: "accept" | "reject";
+}
+
+/**
+ * Save accept/reject decisions for individual review items.
+ * Updates items_json in kanban_reviews with decision + decided_at fields.
+ */
+export function saveReviewDecisions(
+  db: DatabaseSync,
+  reviewId: string,
+  decisions: ReviewDecisionInput[],
+): KanbanReviewRow {
+  const review = db.prepare(
+    "SELECT * FROM kanban_reviews WHERE id = ? LIMIT 1",
+  ).get(reviewId) as KanbanReviewRow | undefined;
+  if (!review) throw new Error("review_not_found");
+
+  const items: ReviewVerdictItem[] = review.items_json
+    ? (JSON.parse(review.items_json) as ReviewVerdictItem[])
+    : [];
+  if (items.length === 0) throw new Error("review_has_no_items");
+
+  const now = Date.now();
+  const decisionMap = new Map(decisions.map((d) => [d.item_id, d.decision]));
+
+  for (const item of items) {
+    const dec = decisionMap.get(item.id);
+    if (dec) {
+      (item as ReviewVerdictItem & { decision?: string; decided_at?: number }).decision = dec;
+      (item as ReviewVerdictItem & { decided_at?: number }).decided_at = now;
+    }
+  }
+
+  db.prepare(
+    "UPDATE kanban_reviews SET items_json = ? WHERE id = ?",
+  ).run(JSON.stringify(items), reviewId);
+
+  return db.prepare(
+    "SELECT * FROM kanban_reviews WHERE id = ? LIMIT 1",
+  ).get(reviewId) as unknown as KanbanReviewRow;
+}
+
+/**
+ * After all dilemma items have decisions, trigger rework with accepted items.
+ * Validates all dilemma items have decisions, updates verdict to "decided",
+ * creates rework handoff with accepted suggestions, and posts GitHub comment.
+ */
+export function triggerDecidedRework(
+  db: DatabaseSync,
+  reviewId: string,
+): void {
+  const review = db.prepare(
+    "SELECT * FROM kanban_reviews WHERE id = ? LIMIT 1",
+  ).get(reviewId) as KanbanReviewRow | undefined;
+  if (!review) throw new Error("review_not_found");
+
+  const card = getRawKanbanCardById(db, review.card_id);
+  if (!card) throw new Error("card_not_found");
+
+  const items: Array<ReviewVerdictItem & { decision?: string; decided_at?: number }> = review.items_json
+    ? (JSON.parse(review.items_json) as Array<ReviewVerdictItem & { decision?: string; decided_at?: number }>)
+    : [];
+
+  // Validate: all dilemma items must have decisions
+  const dilemmaItems = items.filter((i) => i.category === "dilemma");
+  const undecided = dilemmaItems.filter((i) => !i.decision);
+  if (undecided.length > 0) {
+    throw new Error(`undecided_items: ${undecided.map((i) => i.id).join(",")}`);
+  }
+
+  const now = Date.now();
+
+  // Update review verdict to "decided"
+  db.prepare(
+    "UPDATE kanban_reviews SET verdict = 'decided', items_json = ?, completed_at = ? WHERE id = ?",
+  ).run(JSON.stringify(items), now, reviewId);
+
+  const acceptedItems = items.filter((i) => i.decision === "accept");
+  const rejectedItems = items.filter((i) => i.decision === "reject");
+  // Also include any "improve" items that were auto-dispatched but may need to be in rework
+  const improveItems = items.filter((i) => i.category === "improve");
+
+  // Post decision comment on GitHub
+  if (card.github_repo && card.github_issue_number) {
+    postDecisionCommentOnGitHub(card, review.round, acceptedItems, rejectedItems);
+  }
+
+  // If there are accepted dilemma items or improve items → create rework dispatch
+  const reworkItems = [...improveItems, ...acceptedItems];
+  if (reworkItems.length > 0) {
+    const reworkVerdict: ReviewVerdict = {
+      overall: "improve",
+      items: reworkItems.map((i) => ({
+        id: i.id,
+        category: "improve" as const,
+        summary: i.summary,
+        detail: i.detail,
+        suggestion: i.suggestion,
+      })),
+    };
+
+    // Transition card: review → requested (via initiateRework)
+    initiateRework(db, card, review, reworkVerdict, rejectedItems);
+  } else {
+    // All dilemma items rejected, no improve items → card can be done
+    db.prepare(
+      "UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?",
+    ).run(now, now, card.id);
+    if (card.latest_dispatch_id) {
+      db.prepare(
+        "UPDATE task_dispatches SET status = 'completed', result_summary = 'Review decided — all rejected', completed_at = ? WHERE id = ? AND status IN ('pending','dispatched','in_progress','completed')",
+      ).run(now, card.latest_dispatch_id);
+    }
+    emitKanbanCard(db, card.id, "kanban_card_updated");
+    rewardKanbanCompletion(db, card.id);
+    closeGitHubIssueOnDone(card);
+    console.log(`[kanban-review] Card ${card.id} all dilemma items rejected → done`);
+  }
+}
+
+/**
+ * Transition card from review→requested with a rework dispatch.
+ * Uses direct UPDATE instead of state machine since review→requested is not in standard transitions.
+ */
+function initiateRework(
+  db: DatabaseSync,
+  card: KanbanCardBaseRow,
+  review: KanbanReviewRow,
+  verdict: ReviewVerdict,
+  rejectedItems: Array<ReviewVerdictItem & { decision?: string }>,
+): void {
+  ensurePcdRuntimeDirs();
+  const reworkDispatchId = crypto.randomUUID();
+  const now = Date.now();
+
+  const acceptedSection = verdict.items
+    .map((i, idx) => `${idx + 1}. [수용] ${i.summary}${i.suggestion ? `\n   제안: ${i.suggestion}` : ""}`)
+    .join("\n");
+
+  const rejectedSection = rejectedItems.length > 0
+    ? rejectedItems
+        .map((i, idx) => `${idx + 1}. [불수용] ${i.summary} — 이 항목은 수정하지 마세요.`)
+        .join("\n")
+    : "";
+
+  const reworkInstructions = [
+    `리뷰 딜레마에 대한 사용자 결정이 내려졌습니다.`,
+    `리뷰 라운드: ${review.round}`,
+    ``,
+    `## 수용된 제안 (반드시 반영)`,
+    acceptedSection || "(없음)",
+    ...(rejectedSection ? [``, `## 불수용된 제안 (수정 금지)`, rejectedSection] : []),
+    ``,
+    `위 수용 항목을 반영한 뒤, 작업 완료 시 DoD를 다시 체크해 주세요.`,
+  ].join("\n");
+
+  const handoff = {
+    dispatch_id: reworkDispatchId,
+    from: card.requester_agent_id ?? card.assignee_agent_id,
+    to: card.assignee_agent_id,
+    type: "generic",
+    title: `[Rework R${review.round}] ${card.title}`,
+    parent_dispatch_id: review.review_dispatch_id,
+    context: {
+      summary: `Decided rework after review round ${review.round}: ${card.title}`,
+      repo_path: process.cwd(),
+    },
+    review_context: {
+      original_dispatch_id: review.original_dispatch_id,
+      original_agent_id: review.original_agent_id,
+      original_provider: review.original_provider,
+      review_round: (review.round ?? 0) + 1,
+    },
+    instructions: reworkInstructions,
+  };
+
+  const chainDepth = (() => {
+    if (!review.review_dispatch_id) return 0;
+    const parent = db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1")
+      .get(review.review_dispatch_id) as { chain_depth: number } | undefined;
+    return (parent?.chain_depth ?? 0) + 1;
+  })();
+
+  db.prepare(
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+     VALUES (?, ?, ?, 'generic', 'pending', ?, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    reworkDispatchId,
+    card.requester_agent_id ?? card.assignee_agent_id,
+    card.assignee_agent_id,
+    handoff.title,
+    review.review_dispatch_id,
+    chainDepth,
+    now,
+  );
+
+  // Direct UPDATE: review → requested (bypasses state machine)
+  db.prepare(
+    `UPDATE kanban_cards
+     SET status = 'requested',
+         review_status = 'improve_rework',
+         latest_dispatch_id = ?,
+         requested_at = ?,
+         started_at = NULL,
+         completed_at = NULL,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(reworkDispatchId, now, now, card.id);
+
+  const fileName = `${now}-${reworkDispatchId}.json`;
+  const filePath = path.join(PCD_HANDOFF_DIR, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
+
+  emitKanbanCard(db, card.id, "kanban_card_updated");
+  console.log(`[kanban-review] Decided rework dispatched: card=${card.id}, round=${review.round}`);
+}
+
+function postDecisionCommentOnGitHub(
+  card: KanbanCardBaseRow,
+  round: number,
+  acceptedItems: Array<ReviewVerdictItem & { decision?: string }>,
+  rejectedItems: Array<ReviewVerdictItem & { decision?: string }>,
+): void {
+  if (!card.github_repo || !card.github_issue_number) return;
+
+  const lines = [
+    `🗳️ **리뷰 딜레마 결정 (R${round})**`,
+    ``,
+  ];
+
+  if (acceptedItems.length > 0) {
+    lines.push(`### ✅ 수용`);
+    for (const item of acceptedItems) {
+      lines.push(`- ${item.summary}`);
+    }
+    lines.push("");
+  }
+
+  if (rejectedItems.length > 0) {
+    lines.push(`### ❌ 불수용`);
+    for (const item of rejectedItems) {
+      lines.push(`- ${item.summary}`);
+    }
+    lines.push("");
+  }
+
+  const body = lines.join("\n");
+  try {
+    execFileSync("gh", [
+      "issue", "comment", String(card.github_issue_number),
+      "--repo", card.github_repo, "--body", body,
+    ], { timeout: 15_000, stdio: "pipe" });
+    console.log(`[kanban-review] Posted decision comment on ${card.github_repo}#${card.github_issue_number}`);
+  } catch (e) {
+    console.error(`[kanban-review] gh decision comment failed:`, (e as Error).message);
+  }
+}

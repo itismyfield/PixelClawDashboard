@@ -319,6 +319,46 @@ export async function deleteKanbanRepoSource(id: string): Promise<void> {
   await request(`/api/kanban-repos/${id}`, { method: "DELETE" });
 }
 
+// ── Kanban Reviews ──
+
+export interface KanbanReview {
+  id: string;
+  card_id: string;
+  round: number;
+  original_dispatch_id: string | null;
+  original_agent_id: string | null;
+  original_provider: string | null;
+  review_dispatch_id: string | null;
+  reviewer_agent_id: string | null;
+  reviewer_provider: string | null;
+  verdict: string;
+  items_json: string | null;
+  github_comment_id: string | null;
+  created_at: number;
+  completed_at: number | null;
+}
+
+export async function getKanbanReviews(cardId: string): Promise<KanbanReview[]> {
+  const data = await request<{ reviews: KanbanReview[] }>(`/api/kanban-cards/${cardId}/reviews`);
+  return data.reviews;
+}
+
+export async function saveReviewDecisions(
+  reviewId: string,
+  decisions: Array<{ item_id: string; decision: "accept" | "reject" }>,
+): Promise<{ review: KanbanReview }> {
+  return request(`/api/kanban-reviews/${reviewId}/decisions`, {
+    method: "PATCH",
+    body: JSON.stringify({ decisions }),
+  });
+}
+
+export async function triggerDecidedRework(reviewId: string): Promise<{ ok: boolean }> {
+  return request(`/api/kanban-reviews/${reviewId}/trigger-rework`, {
+    method: "POST",
+  });
+}
+
 // ── Pipeline ──
 
 export interface PipelineStageInput {
