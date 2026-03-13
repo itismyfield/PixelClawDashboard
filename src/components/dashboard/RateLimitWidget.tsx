@@ -130,15 +130,15 @@ export default function RateLimitWidget({ t }: RateLimitWidgetProps) {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div
-                          className="relative h-[4px] sm:h-[5px] rounded-full overflow-hidden"
-                          style={{ background: "rgba(255,255,255,0.06)" }}
+                          className="relative h-[4px] sm:h-[8px] rounded-full overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.06)" }}
                         >
                           <div
                             className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
                             style={{
                               width: `${Math.min(bucket.utilization, 100)}%`,
                               background: colors.bar,
-                              boxShadow: bucket.level !== "normal" ? `0 0 8px ${colors.glow}` : "none",
+                              boxShadow: `0 0 ${bucket.level !== "normal" ? "8" : "4"}px ${colors.glow}`,
                             }}
                           />
                         </div>
