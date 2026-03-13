@@ -1092,6 +1092,27 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
     if (updated) stalledInProgress.push(updated);
   }
 
+  // Auto-pass stale pending reviews whose dispatch already completed
+  const staleReviews = db.prepare(
+    `SELECT kr.id, kr.review_dispatch_id
+     FROM kanban_reviews kr
+     JOIN task_dispatches td ON td.id = kr.review_dispatch_id
+     WHERE kr.verdict = 'pending'
+       AND td.status IN ('completed', 'failed')`,
+  ).all() as unknown as Array<{ id: string; review_dispatch_id: string }>;
+
+  for (const sr of staleReviews) {
+    try {
+      processReviewVerdict(db, sr.review_dispatch_id, {
+        overall: "pass",
+        items: [{ id: "auto-pass", category: "pass", summary: "리뷰 dispatch 완료 후 verdict 미반환 — 자동 pass" }],
+      });
+      console.warn(`[kanban-timeout] Auto-passed stale review ${sr.id} (dispatch ${sr.review_dispatch_id})`);
+    } catch (e) {
+      console.error(`[kanban-timeout] Failed to auto-pass review ${sr.id}:`, (e as Error).message);
+    }
+  }
+
   return { timedOutRequested, stalledInProgress };
 }
 

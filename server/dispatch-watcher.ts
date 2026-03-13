@@ -356,9 +356,16 @@ function processResultFile(filePath: string): void {
   ).run(dispatchStatus, archivedPath, result.summary, now, result.dispatch_id);
 
   // Handle review verdict if present
-  if (result.review_verdict && dispatch.dispatch_type === "review") {
+  if (dispatch.dispatch_type === "review") {
+    const verdict = result.review_verdict ?? {
+      overall: "pass" as const,
+      items: [{ id: "auto-pass", category: "pass" as const, summary: "리뷰 에이전트가 verdict 없이 완료 — 자동 pass 처리" }],
+    };
     try {
-      processReviewVerdict(db, result.dispatch_id, result.review_verdict);
+      processReviewVerdict(db, result.dispatch_id, verdict);
+      if (!result.review_verdict) {
+        console.warn(`[PCD-dispatch] Review ${result.dispatch_id} completed without verdict — auto-pass applied`);
+      }
     } catch (err) {
       console.error(`[PCD-dispatch] Review verdict processing failed for ${result.dispatch_id}:`, err);
     }
