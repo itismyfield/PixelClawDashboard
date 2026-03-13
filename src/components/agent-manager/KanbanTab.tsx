@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import * as api from "../../api";
 import type { GitHubIssue, GitHubRepoOption, KanbanRepoSource } from "../../api";
+import AutoQueuePanel from "./AutoQueuePanel";
 import MarkdownContent from "../common/MarkdownContent";
 import type {
   Agent,
@@ -920,6 +921,15 @@ export default function KanbanTab({
           </div>
         )}
       </section>
+
+      {selectedRepo && (
+        <AutoQueuePanel
+          tr={tr}
+          locale={locale}
+          agents={agents}
+          selectedRepo={selectedRepo}
+        />
+      )}
 
       {!selectedRepo ? (
         <div className="rounded-2xl border border-dashed px-4 py-10 text-center text-sm" style={{ borderColor: "rgba(148,163,184,0.22)", color: "var(--th-text-muted)" }}>

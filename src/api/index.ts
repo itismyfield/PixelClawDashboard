@@ -56,9 +56,17 @@ export {
   createRoundTableIssues,
   startRoundTableMeeting,
   getSkillCatalog,
+  generateAutoQueue,
+  activateAutoQueue,
+  getAutoQueueStatus,
+  skipAutoQueueEntry,
+  updateAutoQueueRun,
 } from "./client";
 
 export type {
+  AutoQueueRun,
+  AutoQueueStatus,
+  DispatchQueueEntry,
   CronJob,
   CronSchedule,
   CronJobState,
