@@ -57,7 +57,8 @@ const NOTIFY_BOT_TOKEN = loadNotifyToken();
 const CHANNEL_NAME_CACHE = new Map<string, string | null>();
 
 function getToken(bot: BotType = "command"): string {
-  return bot === "notify" ? (NOTIFY_BOT_TOKEN || COMMAND_BOT_TOKEN) : COMMAND_BOT_TOKEN;
+  if (bot === "notify") return NOTIFY_BOT_TOKEN;
+  return COMMAND_BOT_TOKEN;
 }
 
 function discordHeaders(bot: BotType = "command"): Record<string, string> {
@@ -166,6 +167,11 @@ export async function sendDiscordMessage(channelId: string, text: string, bot: B
     } catch (err) {
       console.error(`[discord-announce] Error ${channelId} (bot=${bot}):`, err);
     }
+  }
+  // Notify-only messages must not fall back to RemoteCC CLI (command bot identity)
+  if (bot === "notify") {
+    console.warn(`[discord-announce] Notify bot send failed, skipping RemoteCC fallback for ${channelId}`);
+    return false;
   }
   return sendDiscordViaRemoteCc(channelId, text);
 }
