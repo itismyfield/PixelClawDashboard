@@ -261,7 +261,7 @@ body {
 
 .pcd-markdown table {
   display: block;
-  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   border-collapse: collapse;
 }
@@ -273,14 +273,6 @@ body {
   text-align: left;
   white-space: normal;
   word-break: break-word;
-}
-
-@media (min-width: 640px) {
-  .pcd-markdown th,
-  .pcd-markdown td {
-    white-space: nowrap;
-    word-break: normal;
-  }
 }
 
 .pcd-markdown th {

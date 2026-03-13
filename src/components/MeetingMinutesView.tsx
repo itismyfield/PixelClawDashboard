@@ -350,7 +350,7 @@ export default function MeetingMinutesView({ meetings, onRefresh }: Props) {
 
   return (
     <div
-      className="p-4 sm:p-6 max-w-4xl mx-auto overflow-auto h-full pb-40"
+      className="p-4 sm:p-6 max-w-4xl mx-auto overflow-y-auto overflow-x-hidden h-full pb-40"
       style={{ paddingBottom: "max(10rem, calc(10rem + env(safe-area-inset-bottom)))" }}
     >
       {/* Header */}
