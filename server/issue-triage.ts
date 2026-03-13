@@ -213,14 +213,14 @@ async function requestPmdTriage(
 ): Promise<PmdTriageResult | null> {
   const tag = buildTriageRequestTag(repo, issue.number);
   const labels = issue.labels.map((l) => l.name).join(", ") || "(없음)";
-  const body = (issue.body || "").slice(0, 500);
+  const issueUrl = `https://github.com/${repo}/issues/${issue.number}`;
 
   const requestMsg = [
     `${tag}`,
     `**이슈 분류 요청** — ${repo}#${issue.number}`,
     `> **제목**: ${issue.title}`,
     `> **라벨**: ${labels}`,
-    `> **본문 요약**: ${body}`,
+    `> ${issueUrl}`,
     "",
     "담당 에이전트를 **agent:역할ID** 형식으로 답변해주세요.",
     "예) agent:ch-td, 사유: 아키텍처 관련 이슈",
