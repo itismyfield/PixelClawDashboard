@@ -397,13 +397,18 @@ async function triageOnce(): Promise<void> {
         continue;
       }
 
-      // Try PMD agent-based classification first, fall back to keyword
+      // For repos with a known default agent, skip PMD triage (no ambiguity)
       let classification: { agentId: string; reason: string; confidence: "high" | "medium" | "low" };
-      const pmdResult = await requestPmdTriage(repo, issue);
-      if (pmdResult) {
-        classification = pmdResult;
-      } else {
+      if (REPO_DEFAULT_AGENT[repo]) {
         classification = classifyIssue(repo, issue);
+      } else {
+        // CookingHeart etc: try PMD agent-based classification first, fall back to keyword
+        const pmdResult = await requestPmdTriage(repo, issue);
+        if (pmdResult) {
+          classification = pmdResult;
+        } else {
+          classification = classifyIssue(repo, issue);
+        }
       }
 
       const agentName = resolveAgentName(classification.agentId);
