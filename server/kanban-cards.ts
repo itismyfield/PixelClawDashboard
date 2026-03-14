@@ -784,6 +784,11 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
   let nextStatus = mapDispatchStatusToCardStatus(dispatch.status, card.status);
   const now = Date.now();
 
+  // Review child cards complete directly — they must not enter another review cycle
+  if (nextStatus === "review" && dispatch.dispatch_type === "review" && card.parent_card_id) {
+    nextStatus = "done";
+  }
+
   // If dispatch completed and card would go to review, but GitHub issue is
   // already closed, skip review and go straight to done.
   if (nextStatus === "review" && card.github_repo && card.github_issue_number) {
@@ -1930,6 +1935,35 @@ export function saveReviewDecisions(
   db.prepare(
     "UPDATE kanban_reviews SET items_json = ? WHERE id = ?",
   ).run(JSON.stringify(items), reviewId);
+
+  // Auto-transition: when all items have decisions, resolve the card
+  const allDecided = items.every(
+    (it) => (it as ReviewVerdictItem & { decision?: string }).decision,
+  );
+  if (allDecided) {
+    const hasReject = items.some(
+      (it) => (it as ReviewVerdictItem & { decision?: string }).decision === "reject",
+    );
+    const cardId = review.card_id;
+    if (hasReject) {
+      // Has rejected items → mark rework_pending for user to trigger rework
+      db.prepare(
+        "UPDATE kanban_cards SET review_status = 'rework_pending', updated_at = ? WHERE id = ?",
+      ).run(now, cardId);
+      emitKanbanCard(db, cardId, "kanban_card_updated");
+    } else {
+      // All accepted → pass: card goes to done
+      db.prepare(
+        "UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE id = ?",
+      ).run(now, now, cardId);
+      const doneCard = emitKanbanCard(db, cardId, "kanban_card_updated");
+      try { rewardKanbanCompletion(db, cardId); } catch { /* ignore */ }
+      try { if (doneCard) closeGitHubIssueOnDone(doneCard); } catch { /* ignore */ }
+      try {
+        import("./auto-queue.js").then(({ onCardTerminal: oct }) => oct(db, cardId, "done")).catch(() => {});
+      } catch { /* ignore */ }
+    }
+  }
 
   return db.prepare(
     "SELECT * FROM kanban_reviews WHERE id = ? LIMIT 1",
