@@ -848,12 +848,9 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
   // The review agent may have found real issues that weren't delivered as a result file.
   if (dispatch.status === "completed" && dispatch.dispatch_type === "review" && !dispatch.result_file) {
     const pendingReview = db.prepare(
-      `SELECT id FROM kanban_reviews WHERE review_dispatch_id = ? AND verdict = 'pending' LIMIT 1`,
-    ).get(dispatch.id) as { id: string } | undefined;
+      `SELECT id, card_id FROM kanban_reviews WHERE review_dispatch_id = ? AND verdict = 'pending' LIMIT 1`,
+    ).get(dispatch.id) as { id: string; card_id: string } | undefined;
     if (pendingReview) {
-      const reviewCard = db.prepare(
-        `SELECT id FROM kanban_cards WHERE latest_dispatch_id = ? LIMIT 1`,
-      ).get(dispatch.id) as { id: string } | undefined;
       // Update review row to 'improve' with a placeholder item prompting manual check
       const now2 = Date.now();
       db.prepare(
@@ -863,14 +860,14 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
         now2,
         pendingReview.id,
       );
-      // Set card to suggestion_pending so user sees it in decision UI
+      // Set the ORIGINAL card (from kanban_reviews.card_id) to suggestion_pending
+      // Note: card.id may be a child card; the review belongs to the parent card
+      const targetCardId = pendingReview.card_id;
       db.prepare(
         `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
-      ).run(now2, card.id);
-      if (reviewCard) {
-        emitKanbanCard(db, reviewCard.id, "kanban_card_updated");
-      }
-      console.warn(`[kanban] Review ${dispatch.id} completed without verdict — marked suggestion_pending for manual decision`);
+      ).run(now2, targetCardId);
+      emitKanbanCard(db, targetCardId, "kanban_card_updated");
+      console.warn(`[kanban] Review ${dispatch.id} completed without verdict — marked suggestion_pending for manual decision (card ${targetCardId})`);
     }
   }
 
@@ -1730,9 +1727,12 @@ export function processReviewVerdict(
         ).run(now, card.latest_dispatch_id);
       }
       emitKanbanCard(db, card.id, "kanban_card_updated");
-      // Reward + close issue
+      // Reward + close issue + auto-queue
       rewardKanbanCompletion(db, card.id);
       closeGitHubIssueOnDone(card);
+      import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
+        try { oct(db, card.id, "done"); } catch {}
+      }).catch(() => {});
       console.log(`[kanban-review] Card ${card.id} passed review → done`);
       break;
     }
