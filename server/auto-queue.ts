@@ -5,6 +5,7 @@ import { getDb } from "./db/runtime.js";
 import { broadcast } from "./ws.js";
 import {
   createDispatchForKanbanCard,
+  triggerCounterModelReview,
   type KanbanCardRow,
 } from "./kanban-cards.js";
 
@@ -55,6 +56,7 @@ interface AIPriorityResult {
 
 const AUTO_QUEUE_TIMEOUT_MS = 100 * 60 * 1000; // 100 minutes
 const AUTO_QUEUE_CHECK_MS = 60 * 1000; // check every 1 minute
+const DOD_AWAIT_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes — bypass DoD gate if agent didn't check
 let checkTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Claude CLI for prioritization ──
@@ -401,6 +403,22 @@ function checkAutoQueueTimeouts(): void {
   const db = getDb();
   const now = Date.now();
 
+  // Bypass DoD gate for cards stuck in review/awaiting_dod too long
+  const stuckAwaitingDod = db.prepare(
+    `SELECT id, updated_at FROM kanban_cards
+     WHERE status = 'review' AND review_status = 'awaiting_dod'
+       AND updated_at < ?`,
+  ).all(now - DOD_AWAIT_TIMEOUT_MS) as unknown as Array<{ id: string; updated_at: number }>;
+
+  for (const card of stuckAwaitingDod) {
+    console.log(`[auto-queue] DoD timeout for card ${card.id} (${Math.round((now - card.updated_at) / 60000)}min), bypassing DoD gate`);
+    try {
+      triggerCounterModelReview(db, card.id, { bypassDod: true });
+    } catch (e) {
+      console.error(`[auto-queue] DoD bypass review trigger failed for card ${card.id}:`, (e as Error).message);
+    }
+  }
+
   // Find dispatched entries that have timed out
   const timedOut = db.prepare(
     `SELECT dq.id, dq.agent_id, dq.card_id
@@ -417,6 +435,26 @@ function checkAutoQueueTimeouts(): void {
     ).run(now, entry.id);
     console.log(`[auto-queue] Timed out entry ${entry.id} for card ${entry.card_id}`);
     broadcast("auto_queue_timeout", { entry_id: entry.id, card_id: entry.card_id, agent_id: entry.agent_id });
+
+    // Try dispatching next for this agent
+    dispatchNextForAgent(db, entry.agent_id);
+  }
+
+  // Advance dispatched entries whose cards left requested/in_progress (e.g. moved to review)
+  // Without this, queue entries stay 'dispatched' until 100-min timeout even though the agent is free
+  const staleDispatched = db.prepare(
+    `SELECT dq.id, dq.agent_id, dq.card_id, kc.status as card_status
+     FROM dispatch_queue dq
+     JOIN kanban_cards kc ON kc.id = dq.card_id
+     WHERE dq.status = 'dispatched'
+       AND kc.status NOT IN ('requested', 'in_progress')`,
+  ).all() as unknown as Array<{ id: string; agent_id: string; card_id: string; card_status: string }>;
+
+  for (const entry of staleDispatched) {
+    db.prepare(
+      `UPDATE dispatch_queue SET status = 'done', completed_at = ? WHERE id = ?`,
+    ).run(now, entry.id);
+    console.log(`[auto-queue] Advanced stale entry ${entry.id} (card ${entry.card_id} is ${entry.card_status})`);
 
     // Try dispatching next for this agent
     dispatchNextForAgent(db, entry.agent_id);

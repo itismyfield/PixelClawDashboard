@@ -1491,13 +1491,13 @@ function getCounterChannel(agent: AgentChannelInfo, originalProvider: string): {
  * Creates a review dispatch to the counter model's channel.
  * Returns true if review was triggered, false if manual review fallback.
  */
-export function triggerCounterModelReview(db: DatabaseSync, cardId: string): boolean {
+export function triggerCounterModelReview(db: DatabaseSync, cardId: string, opts?: { bypassDod?: boolean }): boolean {
   const card = getRawKanbanCardById(db, cardId);
   if (!card || card.status !== "review") return false;
 
-  // Check DoD — all must be done
+  // Check DoD — all must be done (unless bypassed by timeout)
   const metadata = parseKanbanCardMetadata(card.metadata_json);
-  if (!metadata.review_checklist || metadata.review_checklist.some((item) => !item.done)) {
+  if (!opts?.bypassDod && (!metadata.review_checklist || metadata.review_checklist.some((item) => !item.done))) {
     // DoD not all done — set review_status = awaiting_dod
     db.prepare("UPDATE kanban_cards SET review_status = 'awaiting_dod', updated_at = ? WHERE id = ?")
       .run(Date.now(), cardId);
@@ -1558,7 +1558,7 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string): boo
     changedFiles = raw ? raw.split("\n").filter(Boolean) : [];
   } catch { /* ignore */ }
 
-  const dodItems = metadata.review_checklist.map((item) => ({
+  const dodItems = (metadata.review_checklist ?? []).map((item) => ({
     text: item.label,
     checked: item.done,
   }));
