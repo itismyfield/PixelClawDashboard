@@ -98,14 +98,20 @@ function getArchiveDestination(filePath: string): string {
   return dest;
 }
 
-function archiveFile(filePath: string): string {
+function archiveFile(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null; // already archived by concurrent poll
   const dest = getArchiveDestination(filePath);
   try {
     fs.renameSync(filePath, dest);
   } catch {
-    // If rename fails (cross-device), copy + delete
-    fs.copyFileSync(filePath, dest);
-    fs.unlinkSync(filePath);
+    // If rename fails (cross-device or race), try copy + delete
+    try {
+      fs.copyFileSync(filePath, dest);
+      fs.unlinkSync(filePath);
+    } catch {
+      // File vanished between existsSync and here — benign race condition
+      return null;
+    }
   }
   return dest;
 }
