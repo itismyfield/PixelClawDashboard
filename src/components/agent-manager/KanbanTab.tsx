@@ -509,7 +509,7 @@ export default function KanbanTab({
 
   const recentDoneCards = useMemo(() => {
     return repoCards
-      .filter((c) => c.status === "done" || c.status === "cancelled")
+      .filter((c) => (c.status === "done" || c.status === "cancelled") && !c.parent_card_id)
       .sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
   }, [repoCards]);
 
