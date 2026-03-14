@@ -784,8 +784,8 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
   let nextStatus = mapDispatchStatusToCardStatus(dispatch.status, card.status);
   const now = Date.now();
 
-  // Review child cards complete directly — they must not enter another review cycle
-  if (nextStatus === "review" && dispatch.dispatch_type === "review" && card.parent_card_id) {
+  // Review/decision child cards complete directly — they must not enter another review cycle
+  if (nextStatus === "review" && (dispatch.dispatch_type === "review" || dispatch.dispatch_type === "review-decision") && card.parent_card_id) {
     nextStatus = "done";
   }
 
@@ -872,6 +872,9 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
         `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
       ).run(now2, targetCardId);
       emitKanbanCard(db, targetCardId, "kanban_card_updated");
+      try { dispatchReviewDecision(db, targetCardId, pendingReview.id); } catch (e) {
+        console.error(`[kanban] dispatchReviewDecision error:`, (e as Error).message);
+      }
       console.warn(`[kanban] Review ${dispatch.id} completed without verdict — marked suggestion_pending for manual decision (card ${targetCardId})`);
     }
   }
@@ -1748,7 +1751,10 @@ export function processReviewVerdict(
         `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
       ).run(now, card.id);
       emitKanbanCard(db, card.id, "kanban_card_updated");
-      console.log(`[kanban-review] Card ${card.id} has review findings → awaiting decision`);
+      try { dispatchReviewDecision(db, card.id, review.id); } catch (e) {
+        console.error(`[kanban-review] dispatchReviewDecision error:`, (e as Error).message);
+      }
+      console.log(`[kanban-review] Card ${card.id} has review findings → dispatched decision to original agent`);
       break;
     }
     case "dilemma": {
@@ -1757,7 +1763,10 @@ export function processReviewVerdict(
         `UPDATE kanban_cards SET review_status = 'suggestion_pending', updated_at = ? WHERE id = ?`,
       ).run(now, card.id);
       emitKanbanCard(db, card.id, "kanban_card_updated");
-      console.log(`[kanban-review] Card ${card.id} has dilemma items → awaiting decision`);
+      try { dispatchReviewDecision(db, card.id, review.id); } catch (e) {
+        console.error(`[kanban-review] dispatchReviewDecision error:`, (e as Error).message);
+      }
+      console.log(`[kanban-review] Card ${card.id} has dilemma items → dispatched decision to original agent`);
       break;
     }
   }
@@ -1773,6 +1782,138 @@ export function processReviewVerdict(
     emitKanbanCard(db, reviewChildCard.id, "kanban_card_updated");
     console.log(`[kanban-review] Review child card ${reviewChildCard.id} → done`);
   }
+}
+
+/**
+ * Dispatch review decision task to the original agent.
+ * Called when review verdict is suggestion_pending — the original model
+ * must read findings, decide accept/reject, and call the decisions API.
+ */
+function dispatchReviewDecision(
+  db: DatabaseSync,
+  cardId: string,
+  reviewId: string,
+): void {
+  const card = getRawKanbanCardById(db, cardId);
+  if (!card) return;
+
+  const review = db.prepare(
+    "SELECT * FROM kanban_reviews WHERE id = ? LIMIT 1",
+  ).get(reviewId) as KanbanReviewRow | undefined;
+  if (!review) return;
+
+  const items: ReviewVerdictItem[] = review.items_json
+    ? (JSON.parse(review.items_json) as ReviewVerdictItem[])
+    : [];
+
+  const agent = db.prepare(
+    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+     FROM agents WHERE id = ? LIMIT 1`,
+  ).get(card.assignee_agent_id) as AgentChannelInfo | undefined;
+  if (!agent) return;
+
+  // Dispatch to the original provider's channel (not counter-model)
+  const originalProvider = review.original_provider ?? "claude";
+  let channelId: string | null;
+  if (originalProvider === "codex") {
+    channelId = agent.discord_channel_id_codex;
+  } else {
+    channelId = agent.discord_prefer_alt ? agent.discord_channel_id_alt : agent.discord_channel_id;
+  }
+  if (!channelId) return;
+
+  ensurePcdRuntimeDirs();
+  const decisionDispatchId = crypto.randomUUID();
+  const now = Date.now();
+
+  const itemsDesc = items.map((item, i) => {
+    const lines = [`${i + 1}. **${item.summary}**`];
+    if (item.detail) lines.push(`   ${item.detail}`);
+    if (item.suggestion) lines.push(`   💡 제안: ${item.suggestion}`);
+    return lines.join("\n");
+  }).join("\n\n");
+
+  const decisionsJson = items.map((it) =>
+    `{"item_id":"${it.id}","decision":"accept 또는 reject"}`,
+  ).join(",");
+
+  const instructions = [
+    `## 리뷰 결과 수용/불수용 판단`,
+    ``,
+    `카운터모델(${review.reviewer_provider})이 코드 리뷰를 완료했습니다.`,
+    `아래 항목을 읽고 각각 수용(accept) 또는 불수용(reject)을 판단하세요.`,
+    ``,
+    `### 리뷰 항목`,
+    itemsDesc || "(항목 없음)",
+    ``,
+    `### 판단 기준`,
+    `- 코드에 실제 문제가 있는 지적이면 **reject** (rework 발생)`,
+    `- 스타일/선호 차이이거나 이미 의도된 설계이면 **accept**`,
+    `- 확신이 없으면 코드를 직접 확인한 뒤 판단`,
+    ``,
+    `### 처리 절차`,
+    ``,
+    `**1. decisions API 호출:**`,
+    "```bash",
+    `curl -X PATCH http://127.0.0.1:8791/api/kanban-reviews/${reviewId}/decisions \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -H "Authorization: Bearer $SESSION_AUTH_TOKEN" \\`,
+    `  -d '{"decisions":[${decisionsJson}]}'`,
+    "```",
+    ``,
+    `**2. 결과에 따른 후속:**`,
+    `- 모든 항목 accept → 카드 자동 done 전환 → \`bash scripts/runtime/deploy-stable-release.sh\` 실행`,
+    `- reject 항목 있음 → 카드 rework_pending 전환 → rework API 호출:`,
+    `  \`curl -X POST http://127.0.0.1:8791/api/kanban-reviews/${reviewId}/trigger-rework -H "Authorization: Bearer $SESSION_AUTH_TOKEN"\``,
+    ``,
+    `### 대상 이슈`,
+    `- ${card.github_issue_url ?? card.title}`,
+  ].join("\n");
+
+  const handoff = {
+    dispatch_id: decisionDispatchId,
+    from: card.assignee_agent_id,
+    to: card.assignee_agent_id,
+    type: "review-decision",
+    title: `[Decision R${review.round}] ${card.title}`,
+    parent_dispatch_id: review.review_dispatch_id,
+    delivery_channel_id: channelId,
+    context: {
+      summary: `리뷰 결과 수용/불수용 판단: ${card.title}`,
+      review_id: reviewId,
+      review_items: items,
+      repo_path: process.cwd(),
+    },
+    instructions,
+  };
+
+  // Insert dispatch row
+  const chainDepth = (() => {
+    if (!review.review_dispatch_id) return 0;
+    const parent = db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1")
+      .get(review.review_dispatch_id) as { chain_depth: number } | undefined;
+    return (parent?.chain_depth ?? 0) + 1;
+  })();
+
+  db.prepare(
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
+     VALUES (?, ?, ?, 'review-decision', 'pending', ?, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    decisionDispatchId,
+    card.assignee_agent_id,
+    card.assignee_agent_id,
+    handoff.title,
+    review.review_dispatch_id,
+    chainDepth,
+    now,
+  );
+
+  // Write handoff file
+  const fileName = `${now}-${decisionDispatchId}.json`;
+  const filePath = path.join(PCD_HANDOFF_DIR, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
+
+  console.log(`[kanban-review] Dispatched review decision to ${originalProvider}: card=${cardId}, review=${reviewId}`);
 }
 
 /**
