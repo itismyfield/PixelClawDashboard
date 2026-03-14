@@ -335,6 +335,81 @@ router.get("/api/agents/:id/skills", (req, res) => {
   });
 });
 
+// ── Agent channel map (role_id/alias → channel IDs by provider) ──
+router.get("/api/agent-channels", (_req, res) => {
+  const db = getDb();
+  const agents = db
+    .prepare(
+      `SELECT id, role_id, name, name_ko, alias,
+              discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+       FROM agents`,
+    )
+    .all() as Array<{
+    id: string;
+    role_id: string | null;
+    name: string;
+    name_ko: string;
+    alias: string | null;
+    discord_channel_id: string | null;
+    discord_channel_id_alt: string | null;
+    discord_channel_id_codex: string | null;
+    discord_prefer_alt: number;
+  }>;
+
+  // Collect role_map bindings keyed by roleId → channelIds
+  const roleMapChannels = new Map<string, string[]>();
+  for (const binding of listRoleBindings()) {
+    if (!binding.channelId) continue;
+    const list = roleMapChannels.get(binding.roleId) ?? [];
+    list.push(binding.channelId);
+    roleMapChannels.set(binding.roleId, list);
+  }
+
+  const channels: Record<
+    string,
+    {
+      agent_id: string;
+      name: string;
+      name_ko: string;
+      claude: string | null;
+      codex: string | null;
+    }
+  > = {};
+
+  for (const a of agents) {
+    // Determine claude channel: prefer role_map binding, then DB columns
+    const roleBindings = a.role_id ? roleMapChannels.get(a.role_id) ?? [] : [];
+    const claudeChannel =
+      (a.discord_prefer_alt ? a.discord_channel_id_alt : a.discord_channel_id)
+      || roleBindings[0]
+      || a.discord_channel_id
+      || a.discord_channel_id_alt
+      || null;
+
+    const codexChannel = a.discord_channel_id_codex || null;
+
+    // Skip agents with no channels at all
+    if (!claudeChannel && !codexChannel) continue;
+
+    // Index by role_id (primary key for lookups)
+    const key = a.role_id || a.id;
+    channels[key] = {
+      agent_id: a.id,
+      name: a.name,
+      name_ko: a.name_ko,
+      claude: claudeChannel,
+      codex: codexChannel,
+    };
+
+    // Also index by alias if present (for convenience)
+    if (a.alias && a.alias !== key) {
+      channels[a.alias] = channels[key];
+    }
+  }
+
+  res.json({ channels });
+});
+
 // ── Discord channel mapping (reads role_map + agent channel columns) ──
 router.get("/api/discord-bindings", async (_req, res) => {
   try {
