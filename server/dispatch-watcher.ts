@@ -277,7 +277,10 @@ function processHandoffFile(filePath: string): void {
     ? sendToAgentChannel(toAgent, msg, handoff.delivery_channel_id)
     : sendAgentMessage(toAgent, msg);
   deliveryPromise.then((delivered) => {
-    if (!delivered) {
+    if (delivered) {
+      db.prepare("UPDATE task_dispatches SET delivered_at = ? WHERE id = ?")
+        .run(Date.now(), handoff.dispatch_id);
+    } else {
       db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(
         handoff.dispatch_id,
       );
@@ -505,12 +508,15 @@ function runGitHubIssueSync(): void {
   }
 }
 
-// ── Recover pending dispatches that were archived but never completed ──
-// This handles the race condition where the process is killed between
-// archiving the handoff file and updating the DB / sending the message.
+// ── Recover dispatches that were never delivered to Discord ──
+// Handles two race conditions on process crash:
+// 1. status = 'pending' (DB updated but handoff not yet archived/delivered)
+// 2. status = 'dispatched' + delivered_at IS NULL (archived but delivery fire-and-forget lost)
 
 function recoverPendingDispatches(): void {
   const db = getDb();
+
+  // Case 1: pending dispatches (not yet dispatched at all)
   const pending = db
     .prepare(
       `SELECT id, to_agent_id, title
@@ -519,83 +525,105 @@ function recoverPendingDispatches(): void {
     )
     .all() as Array<{ id: string; to_agent_id: string | null; title: string }>;
 
-  if (pending.length === 0) return;
-
   for (const row of pending) {
-    // Look for archived handoff file matching this dispatch id
-    let archivedPath: string | null = null;
+    recoverDispatch(db, row, "pending");
+  }
+
+  // Case 2: dispatched but never delivered (process crashed between archive and delivery)
+  const undelivered = db
+    .prepare(
+      `SELECT id, to_agent_id, title
+       FROM task_dispatches
+       WHERE status = 'dispatched' AND delivered_at IS NULL AND dispatched_at IS NOT NULL`,
+    )
+    .all() as Array<{ id: string; to_agent_id: string | null; title: string }>;
+
+  for (const row of undelivered) {
+    recoverDispatch(db, row, "undelivered");
+  }
+}
+
+function recoverDispatch(
+  db: ReturnType<typeof getDb>,
+  row: { id: string; to_agent_id: string | null; title: string },
+  reason: string,
+): void {
+  // Look for archived handoff file matching this dispatch id
+  let archivedPath: string | null = null;
+  try {
+    const archiveEntries = fs.readdirSync(PCD_HANDOFF_ARCHIVE_DIR);
+    const match = archiveEntries.find((name) => name.includes(row.id));
+    if (match) {
+      archivedPath = path.join(PCD_HANDOFF_ARCHIVE_DIR, match);
+    }
+  } catch {
+    // archive dir may not exist yet
+  }
+
+  // If file is still in handoff dir, pollOnce() will handle it
+  try {
+    const handoffEntries = fs.readdirSync(PCD_HANDOFF_DIR);
+    const stillPending = handoffEntries.find(
+      (name) => name.endsWith(".json") && name.includes(row.id),
+    );
+    if (stillPending) return;
+  } catch {
+    // ignore
+  }
+
+  if (!archivedPath && reason === "pending") {
+    console.log(`[PCD-dispatch] Recovery: no handoff file for ${reason} dispatch ${row.id}, marking failed`);
+    db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
+      .run(Date.now(), row.id);
+    emitDispatchUpdated(row.id);
+    return;
+  }
+
+  // Resolve target agent
+  let toAgent = row.to_agent_id;
+  if (!toAgent && archivedPath) {
     try {
-      const archiveEntries = fs.readdirSync(PCD_HANDOFF_ARCHIVE_DIR);
-      const match = archiveEntries.find((name) => name.includes(row.id));
-      if (match) {
-        archivedPath = path.join(PCD_HANDOFF_ARCHIVE_DIR, match);
-      }
+      const raw = fs.readFileSync(archivedPath, "utf-8");
+      const handoff = JSON.parse(raw) as HandoffFile;
+      toAgent = handoff.to || resolveAgent(handoff.type, handoff.from);
     } catch {
-      // archive dir may not exist yet
+      // ignore parse errors
     }
+  }
 
-    // Also check if the handoff file is still in the handoff dir (not yet picked up)
-    // — if so, pollOnce() will handle it normally, skip recovery
-    try {
-      const handoffEntries = fs.readdirSync(PCD_HANDOFF_DIR);
-      const stillPending = handoffEntries.find(
-        (name) => name.endsWith(".json") && name.includes(row.id),
-      );
-      if (stillPending) continue;
-    } catch {
-      // ignore
-    }
+  if (!toAgent) {
+    console.log(`[PCD-dispatch] Recovery: no target agent for ${reason} dispatch ${row.id}, marking failed`);
+    db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
+      .run(Date.now(), row.id);
+    emitDispatchUpdated(row.id);
+    return;
+  }
 
-    if (!archivedPath) {
-      // No handoff file found anywhere — mark as failed
-      console.log(`[PCD-dispatch] Recovery: no handoff file for pending dispatch ${row.id}, marking failed`);
-      db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
-        .run(Date.now(), row.id);
-      emitDispatchUpdated(row.id);
-      continue;
-    }
-
-    // Read the archived handoff to get target agent
-    let toAgent = row.to_agent_id;
-    if (!toAgent) {
-      try {
-        const raw = fs.readFileSync(archivedPath, "utf-8");
-        const handoff = JSON.parse(raw) as HandoffFile;
-        toAgent = handoff.to || resolveAgent(handoff.type, handoff.from);
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    if (!toAgent) {
-      console.log(`[PCD-dispatch] Recovery: no target agent for dispatch ${row.id}, marking failed`);
-      db.prepare("UPDATE task_dispatches SET status = 'failed', completed_at = ? WHERE id = ?")
-        .run(Date.now(), row.id);
-      emitDispatchUpdated(row.id);
-      continue;
-    }
-
-    // Update DB to dispatched
+  // For pending dispatches, update to dispatched
+  if (reason === "pending") {
     const now = Date.now();
     db.prepare(
       `UPDATE task_dispatches SET status = 'dispatched', context_file = ?, dispatched_at = ? WHERE id = ?`,
     ).run(archivedPath, now, row.id);
-
-    // Re-send the dispatch message
-    const msg = `DISPATCH:${row.id} - ${row.title}`;
-    sendAgentMessage(toAgent, msg).then((delivered) => {
-      if (!delivered) {
-        db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(row.id);
-        sendCeoAlert(
-          `Recovery: failed to deliver dispatch "${row.title}" to ${toAgent} after ${getRuntimeConfig().maxRetries} retries.`,
-        );
-        emitDispatchUpdated(row.id);
-      }
-    });
-
-    emitDispatchUpdated(row.id);
-    console.log(`[PCD-dispatch] Recovered pending dispatch: ${row.id} → ${toAgent} ("${row.title}")`);
   }
+
+  // Re-send the dispatch message
+  const msg = `DISPATCH:${row.id} - ${row.title}`;
+  sendAgentMessage(toAgent, msg).then((delivered) => {
+    if (delivered) {
+      db.prepare("UPDATE task_dispatches SET delivered_at = ? WHERE id = ?")
+        .run(Date.now(), row.id);
+    } else {
+      db.prepare("UPDATE task_dispatches SET status = 'failed' WHERE id = ?").run(row.id);
+      sendCeoAlert(
+        `Recovery: failed to deliver ${reason} dispatch "${row.title}" to ${toAgent} after ${getRuntimeConfig().maxRetries} retries.`,
+      );
+      emitDispatchUpdated(row.id);
+    }
+  });
+
+  emitDispatchUpdated(row.id);
+  console.log(`[PCD-dispatch] Recovered ${reason} dispatch: ${row.id} → ${toAgent} ("${row.title}")`);
 }
 
 // ── Public API ──

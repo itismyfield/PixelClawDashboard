@@ -506,6 +506,14 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE dispatched_sessions ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0");
   }
 
+  // delivered_at: tracks when dispatch message was actually sent to Discord
+  const dispatchCols = db.prepare("PRAGMA table_info(task_dispatches)").all() as Array<{ name: string }>;
+  if (!dispatchCols.some((c) => c.name === "delivered_at")) {
+    db.exec("ALTER TABLE task_dispatches ADD COLUMN delivered_at INTEGER DEFAULT NULL");
+    // Backfill: assume all existing dispatched/in_progress/completed rows were delivered
+    db.exec("UPDATE task_dispatches SET delivered_at = dispatched_at WHERE dispatched_at IS NOT NULL AND status != 'pending'");
+  }
+
   // One-time migration: reset all XP/token data to 0 (PCD #5)
   const tokenMigDone = db.prepare("SELECT value FROM kv_meta WHERE key = 'token_migration_v1'").get() as { value: string } | undefined;
   if (!tokenMigDone) {
