@@ -109,16 +109,22 @@ getDb();
 const server = createServer(app);
 createWsServer(server);
 
+const isPreview = PORT === 8792;
+
 server.listen(PORT, HOST, () => {
-  console.log(`[PCD] PixelClawDashboard listening on http://${HOST}:${PORT}`);
+  console.log(`[PCD] PixelClawDashboard listening on http://${HOST}:${PORT}${isPreview ? " (preview — dispatch/triage disabled)" : ""}`);
   startXpSync();
   startAgentSync();
   startSkillSync();
   startDispatchedSync();
-  startDispatchWatcher();
-  startIssueTriage();
+  if (!isPreview) {
+    // These produce external side-effects (Discord messages, dispatch delivery)
+    // and must only run on prod to avoid duplicate dispatches
+    startDispatchWatcher();
+    startIssueTriage();
+    startAutoQueueCheck();
+  }
   startRateLimitPolling();
-  startAutoQueueCheck();
 });
 
 // Graceful shutdown
