@@ -368,13 +368,22 @@ export function getQueueStatus(db: DatabaseSync, repo?: string | null): {
   ) as unknown as AutoQueueRun | undefined;
 
   const entries = run
-    ? (db.prepare(
-        `SELECT dq.*, kc.title as card_title, kc.github_issue_number, kc.github_repo
-         FROM dispatch_queue dq
-         JOIN kanban_cards kc ON kc.id = dq.card_id
-         WHERE dq.created_at >= ?
-         ORDER BY dq.agent_id, dq.priority_rank`,
-      ).all(run.created_at) as unknown as (DispatchQueueEntry & { card_title: string; github_issue_number: number | null; github_repo: string | null })[])
+    ? (repo
+        ? db.prepare(
+            `SELECT dq.*, kc.title as card_title, kc.github_issue_number, kc.github_repo
+             FROM dispatch_queue dq
+             JOIN kanban_cards kc ON kc.id = dq.card_id
+             WHERE dq.created_at >= ? AND kc.github_repo = ?
+             ORDER BY dq.agent_id, dq.priority_rank`,
+          ).all(run.created_at, repo)
+        : db.prepare(
+            `SELECT dq.*, kc.title as card_title, kc.github_issue_number, kc.github_repo
+             FROM dispatch_queue dq
+             JOIN kanban_cards kc ON kc.id = dq.card_id
+             WHERE dq.created_at >= ?
+             ORDER BY dq.agent_id, dq.priority_rank`,
+          ).all(run.created_at)
+      ) as unknown as (DispatchQueueEntry & { card_title: string; github_issue_number: number | null; github_repo: string | null })[]
     : [];
 
   const agents: Record<string, { pending: number; dispatched: number; done: number; skipped: number }> = {};
