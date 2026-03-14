@@ -876,6 +876,15 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
 
   const updatedCard = emitKanbanCard(db, card.id, "kanban_card_updated");
 
+  // Trigger counter-model review when dispatch completion moves card to review
+  if (nextStatus === "review" && card.status !== "review") {
+    try {
+      triggerCounterModelReview(db, card.id);
+    } catch (e) {
+      console.error(`[kanban] syncKanbanCard triggerCounterModelReview error:`, (e as Error).message);
+    }
+  }
+
   // Auto-queue: progress to next card when this card reaches terminal state
   if (["done", "failed", "cancelled"].includes(nextStatus) && !["done", "failed", "cancelled"].includes(card.status)) {
     import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
