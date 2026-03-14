@@ -876,8 +876,17 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
 
   const updatedCard = emitKanbanCard(db, card.id, "kanban_card_updated");
 
-  // Trigger counter-model review when dispatch completion moves card to review
-  if (nextStatus === "review" && card.status !== "review") {
+  // ── Side-effects mirrored from PATCH /api/kanban-cards/:id ──
+
+  const statusChanged = nextStatus !== card.status;
+
+  // review → trigger counter-model review + GitHub comment
+  if (statusChanged && nextStatus === "review") {
+    try {
+      updateGitHubChecklistOnReview(updatedCard ?? card);
+    } catch (e) {
+      console.error(`[kanban] syncKanbanCard updateGitHubChecklistOnReview error:`, (e as Error).message);
+    }
     try {
       triggerCounterModelReview(db, card.id);
     } catch (e) {
@@ -885,8 +894,39 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
     }
   }
 
+  // done → reward + GitHub issue close
+  if (statusChanged && nextStatus === "done") {
+    try {
+      rewardKanbanCompletion(db, card.id);
+    } catch (e) {
+      console.error(`[kanban] syncKanbanCard rewardKanbanCompletion error:`, (e as Error).message);
+    }
+    try {
+      closeGitHubIssueOnDone(updatedCard ?? card);
+    } catch (e) {
+      console.error(`[kanban] syncKanbanCard closeGitHubIssueOnDone error:`, (e as Error).message);
+    }
+  }
+
+  // Pipeline stage transitions (dynamic import to avoid circular dep)
+  if (statusChanged && card.github_repo && card.pipeline_stage_id) {
+    if (nextStatus === "review") {
+      import("./pipeline.js").then(({ onPipelineStageComplete }) => {
+        try { onPipelineStageComplete(db, card.id); } catch (e) {
+          console.error(`[kanban] syncKanbanCard pipeline stage complete error:`, (e as Error).message);
+        }
+      }).catch(() => {});
+    } else if (nextStatus === "failed") {
+      import("./pipeline.js").then(({ onPipelineStageFailure }) => {
+        try { onPipelineStageFailure(db, card.id); } catch (e) {
+          console.error(`[kanban] syncKanbanCard pipeline stage failure error:`, (e as Error).message);
+        }
+      }).catch(() => {});
+    }
+  }
+
   // Auto-queue: progress to next card when this card reaches terminal state
-  if (["done", "failed", "cancelled"].includes(nextStatus) && !["done", "failed", "cancelled"].includes(card.status)) {
+  if (statusChanged && ["done", "failed", "cancelled"].includes(nextStatus) && !["done", "failed", "cancelled"].includes(card.status)) {
     import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
       try {
         oct(db, card.id, nextStatus);
@@ -1222,7 +1262,13 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
       "Timed out waiting for agent acceptance",
       "requested",
     );
-    if (updated) timedOutRequested.push(updated);
+    if (updated) {
+      timedOutRequested.push(updated);
+      // Progress auto-queue to next card
+      import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
+        try { oct(db, card.id, "failed"); } catch {}
+      }).catch(() => {});
+    }
   }
 
   const progressRows = db.prepare(
