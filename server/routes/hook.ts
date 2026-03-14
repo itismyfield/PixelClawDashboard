@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getDb } from "../db/runtime.js";
 import { broadcast } from "../ws.js";
 import { reconcileAgentStatusOnce, syncAgentsOnce } from "../agent-sync.js";
-import { emitKanbanCard, commentBlockedOnGitHub, updateGitHubChecklistOnReview, triggerCounterModelReview } from "../kanban-cards.js";
+import { emitKanbanCard, commentBlockedOnGitHub, updateGitHubChecklistOnReview, triggerCounterModelReview, rewardKanbanCompletion, syncKanbanCardWithDispatch } from "../kanban-cards.js";
 import { sendDiscordMessage } from "../discord-announce.js";
 import { inferRemoteCcProvider, parseRemoteCcSessionKey } from "../remotecc-session.js";
 import { resolveRoleIdByChannelName } from "../role-map.js";
@@ -90,12 +90,13 @@ function promoteKanbanForDispatch(
   const db = getDb();
 
   const card = db.prepare(
-    `SELECT kc.id, kc.status, kc.title, kc.github_repo, kc.github_issue_number, kc.assignee_agent_id, kc.metadata_json
+    `SELECT kc.id, kc.status, kc.title, kc.github_repo, kc.github_issue_number, kc.assignee_agent_id, kc.metadata_json, kc.parent_card_id
      FROM kanban_cards kc WHERE kc.latest_dispatch_id = ? LIMIT 1`,
   ).get(dispatchId) as {
     id: string; status: string; title: string;
     github_repo: string | null; github_issue_number: number | null;
     assignee_agent_id: string | null; metadata_json: string | null;
+    parent_card_id: string | null;
   } | undefined;
   if (!card) return;
 
@@ -144,21 +145,44 @@ function promoteKanbanForDispatch(
     ).get(dispatchId) as { cnt: number };
     if (otherWorking.cnt > 0) return;
 
-    db.prepare(
-      `UPDATE kanban_cards SET status = 'review', updated_at = ? WHERE id = ?`,
-    ).run(now, card.id);
+    // Check if this is a review/decision child card — skip review cycle, go straight to done
+    const dispatch = db.prepare(
+      `SELECT dispatch_type FROM task_dispatches WHERE id = ?`,
+    ).get(dispatchId) as { dispatch_type: string | null } | undefined;
+    const isReviewChild = card.parent_card_id &&
+      (dispatch?.dispatch_type === "review" || dispatch?.dispatch_type === "review-decision");
+
+    const nextStatus = isReviewChild ? "done" : "review";
+
+    if (isReviewChild) {
+      db.prepare(
+        `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE id = ?`,
+      ).run(now, now, card.id);
+    } else {
+      db.prepare(
+        `UPDATE kanban_cards SET status = 'review', updated_at = ? WHERE id = ?`,
+      ).run(now, card.id);
+    }
     db.prepare(
       `UPDATE task_dispatches SET status = 'completed', result_summary = COALESCE(result_summary, 'Session completed'), completed_at = COALESCE(completed_at, ?) WHERE id = ? AND status IN ('pending', 'dispatched', 'in_progress')`,
     ).run(now, dispatchId);
     emitKanbanCard(db, card.id, "kanban_card_updated");
-    console.log(`[PCD] kanban dispatch-promote: ${card.id} → review (dispatch ${dispatchId} completed)`);
-    // Update GitHub issue DoD checklist + add review-pending comment
-    updateGitHubChecklistOnReview(card);
-    // Trigger counter-model review if DoD all done and counter channel exists
-    try {
-      triggerCounterModelReview(getDb(), card.id);
-    } catch (e) {
-      console.error(`[PCD] counter-model review trigger failed for card ${card.id}:`, (e as Error).message);
+    console.log(`[PCD] kanban dispatch-promote: ${card.id} → ${nextStatus} (dispatch ${dispatchId} completed)`);
+
+    if (!isReviewChild) {
+      // Update GitHub issue DoD checklist + add review-pending comment
+      updateGitHubChecklistOnReview(card);
+      // Trigger counter-model review if DoD all done and counter channel exists
+      try {
+        triggerCounterModelReview(getDb(), card.id);
+      } catch (e) {
+        console.error(`[PCD] counter-model review trigger failed for card ${card.id}:`, (e as Error).message);
+      }
+    } else {
+      // Reward XP for review child completion
+      try { rewardKanbanCompletion(db, card.id); } catch { /* ignore */ }
+      // Process review verdict for parent card (missing-verdict fallback in syncKanbanCardWithDispatch)
+      try { syncKanbanCardWithDispatch(db, dispatchId); } catch { /* ignore */ }
     }
   }
 }
