@@ -874,7 +874,20 @@ export function syncKanbanCardWithDispatch(db: DatabaseSync, dispatchId: string)
     }
   }
 
-  return emitKanbanCard(db, card.id, "kanban_card_updated");
+  const updatedCard = emitKanbanCard(db, card.id, "kanban_card_updated");
+
+  // Auto-queue: progress to next card when this card reaches terminal state
+  if (["done", "failed", "cancelled"].includes(nextStatus) && !["done", "failed", "cancelled"].includes(card.status)) {
+    import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
+      try {
+        oct(db, card.id, nextStatus);
+      } catch (e) {
+        console.error(`[kanban] syncKanbanCard auto-queue onCardTerminal error:`, (e as Error).message);
+      }
+    }).catch(() => {});
+  }
+
+  return updatedCard;
 }
 
 function ensureChildKanbanCardForDispatch(
