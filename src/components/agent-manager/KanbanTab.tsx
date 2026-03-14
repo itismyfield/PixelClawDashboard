@@ -1395,9 +1395,9 @@ export default function KanbanTab({
                             )}
                           </div>
 
-                          {/* Mobile-only quick transition buttons (PC uses drag & drop) */}
+                          {/* Quick transition buttons (always visible; DnD is desktop bonus) */}
                           {(STATUS_TRANSITIONS[card.status] ?? []).length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5 sm:hidden">
+                            <div className="mt-2 flex flex-wrap gap-1.5">
                               {(STATUS_TRANSITIONS[card.status] ?? []).map((target) => {
                                 const style = TRANSITION_STYLE[target] ?? TRANSITION_STYLE.backlog;
                                 return (
