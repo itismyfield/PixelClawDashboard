@@ -412,7 +412,7 @@ export default function App() {
   return (
     <div className="flex fixed inset-0 bg-gray-900">
       {/* Sidebar (hidden on mobile) */}
-      <nav className="hidden sm:flex w-14 bg-gray-950 border-r border-gray-800 flex-col items-center py-4 gap-2">
+      <nav className="hidden sm:flex w-[4.5rem] bg-gray-950 border-r border-gray-800 flex-col items-center py-4 gap-1">
         <div className="text-2xl mb-4">🐾</div>
         {navItems.map((item) => (
           <NavBtn
@@ -648,15 +648,16 @@ function NavBtn({
     <button
       onClick={onClick}
       title={label}
-      className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+      className={`relative w-14 rounded-lg flex flex-col items-center justify-center gap-0.5 py-1.5 transition-colors ${
         active
           ? "bg-indigo-600 text-white"
           : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"
       }`}
     >
       {icon}
+      <span className="text-[10px] leading-tight">{label}</span>
       {badge !== undefined && badge > 0 && (
-        <span className={`absolute -top-1 -right-1 ${badgeColor || "bg-emerald-500"} text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center`}>
+        <span className={`absolute -top-1 -right-0.5 ${badgeColor || "bg-emerald-500"} text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center`}>
           {badge}
         </span>
       )}
