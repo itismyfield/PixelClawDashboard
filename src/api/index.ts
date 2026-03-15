@@ -58,6 +58,7 @@ export {
   startRoundTableMeeting,
   getSkillCatalog,
   dryRunAutoQueue,
+  confirmAutoQueue,
   generateAutoQueue,
   activateAutoQueue,
   getAutoQueueStatus,

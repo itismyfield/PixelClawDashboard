@@ -3,6 +3,7 @@ import { getDb } from "../db/runtime.js";
 import {
   generateQueue,
   dryRunQueue,
+  confirmDryRunQueue,
   activateQueue,
   getQueueStatus,
   onCardTerminal,
@@ -25,6 +26,25 @@ router.post("/api/auto-queue/dry-run", async (req, res) => {
     } else {
       res.status(500).json({ error: "dry_run_failed", message: msg });
     }
+  }
+});
+
+// Confirm dry-run results: create queue from previewed entries without re-running AI
+router.post("/api/auto-queue/confirm", (req, res) => {
+  const db = getDb();
+  const repo = typeof req.body?.repo === "string" ? req.body.repo : null;
+  const entries = req.body?.entries;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    res.status(400).json({ error: "entries required" });
+    return;
+  }
+
+  try {
+    const result = confirmDryRunQueue(db, repo, entries);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: "confirm_failed", message: (e as Error).message });
   }
 });
 

@@ -888,6 +888,16 @@ export async function dryRunAutoQueue(repo?: string | null): Promise<{
   });
 }
 
+export async function confirmAutoQueue(repo: string | null, entries: DryRunEntry[]): Promise<{
+  run: AutoQueueRun;
+  entries: DispatchQueueEntry[];
+}> {
+  return request("/api/auto-queue/confirm", {
+    method: "POST",
+    body: JSON.stringify({ repo: repo ?? null, entries }),
+  });
+}
+
 export async function generateAutoQueue(repo?: string | null): Promise<{
   run: AutoQueueRun;
   entries: DispatchQueueEntry[];

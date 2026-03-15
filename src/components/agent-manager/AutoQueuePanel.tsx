@@ -259,10 +259,11 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
   };
 
   const handleConfirmGenerate = async () => {
+    if (!dryRunResult) return;
     setGenerating(true);
     setError(null);
     try {
-      await api.generateAutoQueue(selectedRepo || null);
+      await api.confirmAutoQueue(selectedRepo || null, dryRunResult);
       setDryRunResult(null);
       await fetchStatus();
     } catch (e) {
@@ -482,9 +483,12 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
                 {items.sort((a, b) => a.rank - b.rank).map((e) => (
                   <div key={e.card_id} className="flex items-start gap-2 text-[11px]" style={{ color: "var(--th-text-primary)" }}>
                     <span className="shrink-0 w-4 text-right" style={{ color: "#a78bfa" }}>{e.rank}.</span>
-                    <span className="flex-1">
-                      {e.github_issue_number ? `#${e.github_issue_number} ` : ""}{e.card_title}
-                    </span>
+                    <div className="flex-1">
+                      <div>{e.github_issue_number ? `#${e.github_issue_number} ` : ""}{e.card_title}</div>
+                      {e.reason && (
+                        <div className="text-[10px] mt-0.5" style={{ color: "var(--th-text-muted)" }}>{e.reason}</div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

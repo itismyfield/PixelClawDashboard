@@ -211,7 +211,69 @@ export async function dryRunQueue(
   });
 }
 
-// ── Queue generation ──
+// ── Confirm dry-run results (no AI re-calculation) ──
+
+export function confirmDryRunQueue(
+  db: DatabaseSync,
+  repo: string | null,
+  dryRunEntries: DryRunEntry[],
+): { run: AutoQueueRun; entries: DispatchQueueEntry[] } {
+  if (dryRunEntries.length === 0) throw new Error("no_entries");
+
+  const runId = crypto.randomUUID();
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO auto_queue_runs (id, repo, status, ai_model, ai_rationale, timeout_minutes, created_at)
+     VALUES (?, ?, 'active', 'claude-sonnet-4', ?, 100, ?)`,
+  ).run(runId, repo, JSON.stringify(dryRunEntries.map((r) => ({ card_id: r.card_id, reason: r.reason }))), now);
+
+  db.prepare(
+    `UPDATE auto_queue_runs SET status = 'completed', completed_at = ? WHERE repo IS ? AND status = 'active' AND id != ?`,
+  ).run(now, repo, runId);
+
+  db.prepare(
+    `UPDATE dispatch_queue SET status = 'skipped', completed_at = ?
+     WHERE status = 'pending'
+       AND card_id IN (SELECT id FROM kanban_cards WHERE github_repo IS ?)`,
+  ).run(now, repo);
+
+  const entries: DispatchQueueEntry[] = [];
+  for (const item of dryRunEntries) {
+    const entryId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO dispatch_queue (id, agent_id, card_id, priority_rank, reason, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    ).run(entryId, item.agent_id, item.card_id, item.rank, item.reason, now);
+
+    entries.push({
+      id: entryId,
+      agent_id: item.agent_id,
+      card_id: item.card_id,
+      priority_rank: item.rank,
+      reason: item.reason,
+      status: "pending",
+      created_at: now,
+      dispatched_at: null,
+      completed_at: null,
+    });
+  }
+
+  const run: AutoQueueRun = {
+    id: runId,
+    repo,
+    status: "active",
+    ai_model: "claude-sonnet-4",
+    ai_rationale: null,
+    timeout_minutes: 100,
+    created_at: now,
+    completed_at: null,
+  };
+
+  broadcast("auto_queue_generated", { run, entries });
+  return { run, entries };
+}
+
+// ── Queue generation (with AI re-calculation) ──
 
 export async function generateQueue(
   db: DatabaseSync,
