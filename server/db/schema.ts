@@ -312,7 +312,8 @@ export function initSchema(db: DatabaseSync): void {
       items_json TEXT DEFAULT NULL,
       github_comment_id TEXT DEFAULT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      completed_at INTEGER DEFAULT NULL
+      completed_at INTEGER DEFAULT NULL,
+      reminded_at INTEGER DEFAULT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_reviews_card ON kanban_reviews (card_id, round DESC);
     CREATE INDEX IF NOT EXISTS idx_kanban_reviews_dispatch ON kanban_reviews (review_dispatch_id);
@@ -567,5 +568,11 @@ function migrate(db: DatabaseSync): void {
         ins.run("main", a.id, a.department_id);
       }
     }
+  }
+
+  // Add reminded_at column to kanban_reviews
+  const reviewCols = db.prepare("PRAGMA table_info(kanban_reviews)").all() as Array<{ name: string }>;
+  if (reviewCols.length > 0 && !reviewCols.some((c) => c.name === "reminded_at")) {
+    db.exec("ALTER TABLE kanban_reviews ADD COLUMN reminded_at INTEGER DEFAULT NULL");
   }
 }

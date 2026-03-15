@@ -8,6 +8,8 @@ import {
   triggerCounterModelReview,
   type KanbanCardRow,
 } from "./kanban-cards.js";
+import { getRuntimeConfig } from "./runtime-config.js";
+import { sendDiscordMessage } from "./discord-announce.js";
 
 interface ReadyCardRow {
   id: string;
@@ -541,6 +543,45 @@ function checkAutoQueueTimeouts(): void {
       `UPDATE dispatch_queue SET status = 'done', completed_at = ? WHERE id = ?`,
     ).run(now, entry.id);
     console.log(`[auto-queue] Advanced stale entry ${entry.id} (card ${entry.card_id} is ${entry.card_status})`);
+  }
+
+  // Send review reminder for stale reviewing cards
+  const config = getRuntimeConfig();
+  const reminderMs = config.reviewReminderMin * 60_000;
+  if (reminderMs > 0) {
+    const staleReviews = db.prepare(
+      `SELECT kr.id, kr.review_dispatch_id, kr.card_id, kr.created_at, kr.reminded_at,
+              td.title as dispatch_title,
+              a.discord_channel_id, a.discord_channel_id_codex, a.cli_provider,
+              kc.title as card_title
+       FROM kanban_reviews kr
+       JOIN kanban_cards kc ON kc.id = kr.card_id
+       LEFT JOIN task_dispatches td ON td.id = kr.review_dispatch_id
+       LEFT JOIN agents a ON a.id = kr.reviewer_agent_id
+       WHERE kr.verdict = 'pending'
+         AND kr.created_at < ?
+         AND (kr.reminded_at IS NULL OR kr.reminded_at < ?)`,
+    ).all(now - reminderMs, now - reminderMs) as unknown as Array<{
+      id: string; review_dispatch_id: string | null; card_id: string;
+      created_at: number; reminded_at: number | null;
+      dispatch_title: string | null;
+      discord_channel_id: string | null; discord_channel_id_codex: string | null;
+      cli_provider: string | null; card_title: string;
+    }>;
+
+    for (const review of staleReviews) {
+      const channelId = review.cli_provider === "codex"
+        ? review.discord_channel_id_codex
+        : review.discord_channel_id;
+      if (!channelId) continue;
+
+      const elapsed = Math.round((now - review.created_at) / 60_000);
+      const msg = `⏰ 리뷰 리마인드: "${review.card_title}" 리뷰가 ${elapsed}분째 대기 중입니다. 리뷰 결과를 회신해주세요.`;
+      sendDiscordMessage(channelId, msg).catch(() => {});
+
+      db.prepare("UPDATE kanban_reviews SET reminded_at = ? WHERE id = ?").run(now, review.id);
+      console.log(`[auto-queue] Review reminder sent for card ${review.card_id} (${elapsed}min elapsed)`);
+    }
   }
 
   // Check if all entries are done/skipped → complete the run

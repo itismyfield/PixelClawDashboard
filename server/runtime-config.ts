@@ -27,6 +27,7 @@ export interface RuntimeConfig {
 
   // Review
   maxReviewRounds: number;
+  reviewReminderMin: number;
 
   // Rate Limit Thresholds (percent)
   rateLimitWarningPct: number;
@@ -53,6 +54,7 @@ export const RUNTIME_CONFIG_DEFAULTS: RuntimeConfig = {
   maxRetries: 3,
 
   maxReviewRounds: 2,
+  reviewReminderMin: 15,
 
   rateLimitWarningPct: 80,
   rateLimitDangerPct: 90,

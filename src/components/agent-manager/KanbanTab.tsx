@@ -1477,7 +1477,17 @@ export default function KanbanTab({
                               border: `1px solid ${(card.review_status === "dilemma_pending" || card.review_status === "suggestion_pending") ? "rgba(234,179,8,0.3)" : card.review_status === "improve_rework" ? "rgba(249,115,22,0.3)" : "rgba(20,184,166,0.3)"}`,
                               color: (card.review_status === "dilemma_pending" || card.review_status === "suggestion_pending") ? "#fde047" : card.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
                             }}>
-                              {card.review_status === "reviewing" && tr("카운터 모델 리뷰 중", "Counter-model reviewing")}
+                              {card.review_status === "reviewing" && (() => {
+                                const reviewDispatch = latestDispatch?.parent_dispatch_id
+                                  ? dispatches.find((d) => d.parent_dispatch_id === latestDispatch?.id && d.dispatch_type === "review")
+                                  : dispatches.find((d) => d.parent_dispatch_id === card.latest_dispatch_id && d.dispatch_type === "review");
+                                const verdictLabel = !reviewDispatch
+                                  ? tr("verdict 대기중", "verdict pending")
+                                  : reviewDispatch.status === "completed"
+                                    ? tr("verdict 전달됨", "verdict delivered")
+                                    : tr("verdict 미전달", "verdict not delivered");
+                                return <>{tr("카운터 모델 리뷰 중", "Counter-model reviewing")} · <span style={{ opacity: 0.7 }}>{verdictLabel}</span></>;
+                              })()}
                               {card.review_status === "awaiting_dod" && tr("DoD 완료 대기", "Awaiting DoD completion")}
                               {card.review_status === "improve_rework" && tr("개선 재작업 중", "Improvement rework")}
                               {card.review_status === "suggestion_pending" && tr("리뷰 제안 결정 대기", "Review suggestions pending")}
@@ -1797,7 +1807,17 @@ export default function KanbanTab({
                 <div className="text-sm" style={{
                   color: (selectedCard.review_status === "dilemma_pending" || selectedCard.review_status === "suggestion_pending") ? "#fde047" : selectedCard.review_status === "improve_rework" ? "#fdba74" : "#5eead4",
                 }}>
-                  {selectedCard.review_status === "reviewing" && tr("카운터 모델이 코드를 리뷰하고 있습니다...", "Counter model is reviewing...")}
+                  {selectedCard.review_status === "reviewing" && (() => {
+                    const reviewDispatch = dispatches.find(
+                      (d) => d.parent_dispatch_id === selectedCard.latest_dispatch_id && d.dispatch_type === "review",
+                    );
+                    const verdictStatus = !reviewDispatch
+                      ? tr("verdict 대기중", "verdict pending")
+                      : reviewDispatch.status === "completed"
+                        ? tr("verdict 전달됨", "verdict delivered")
+                        : tr("verdict 미전달 — 에이전트가 아직 회신하지 않음", "verdict not delivered — agent hasn't responded");
+                    return <>{tr("카운터 모델이 코드를 리뷰하고 있습니다...", "Counter model is reviewing...")} <span style={{ opacity: 0.7 }}>({verdictStatus})</span></>;
+                  })()}
                   {selectedCard.review_status === "awaiting_dod" && tr("DoD 항목이 모두 완료되면 자동 리뷰가 시작됩니다.", "Auto review starts when all DoD items are complete.")}
                   {selectedCard.review_status === "improve_rework" && tr("개선 사항이 발견되어 원본 모델에 재작업을 요청했습니다.", "Improvements needed — rework dispatched to original model.")}
                   {selectedCard.review_status === "suggestion_pending" && tr("카운터 모델이 검토 항목을 추출했습니다. 수용/불수용을 결정해 주세요.", "Counter model extracted review findings. Decide accept/reject for each.")}
