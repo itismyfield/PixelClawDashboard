@@ -40,7 +40,12 @@ export interface PipelineHistoryEntry {
 
 // ── Stage CRUD ──
 
-export function listPipelineStages(db: DatabaseSync, repo: string): PipelineStage[] {
+export function listPipelineStages(db: DatabaseSync, repo: string, triggerAfter?: "ready" | "review_pass"): PipelineStage[] {
+  if (triggerAfter) {
+    return db.prepare(
+      `SELECT * FROM pipeline_stages WHERE repo = ? AND trigger_after = ? ORDER BY stage_order`,
+    ).all(repo, triggerAfter) as unknown as PipelineStage[];
+  }
   return db.prepare(
     `SELECT * FROM pipeline_stages WHERE repo = ? ORDER BY stage_order`,
   ).all(repo) as unknown as PipelineStage[];
@@ -186,7 +191,8 @@ export function startPipeline(db: DatabaseSync, cardId: string): boolean {
   const card = getRawKanbanCardById(db, cardId);
   if (!card || !card.github_repo) return false;
 
-  const stages = listPipelineStages(db, card.github_repo);
+  // Only start 'ready' trigger stages — review_pass stages are started by processReviewVerdict
+  const stages = listPipelineStages(db, card.github_repo, "ready");
   if (stages.length === 0) return false;
 
   enterStage(db, cardId, stages[0], stages);
@@ -282,7 +288,8 @@ export function onPipelineStageComplete(db: DatabaseSync, cardId: string): void 
   const stage = getPipelineStage(db, card.pipeline_stage_id);
   if (!stage) return;
 
-  const allStages = listPipelineStages(db, card.github_repo);
+  // Use same trigger_after group as the current stage
+  const allStages = listPipelineStages(db, card.github_repo, stage.trigger_after);
   const now = Date.now();
 
   // Complete active history entry
@@ -362,7 +369,7 @@ export function onPipelineStageFailure(db: DatabaseSync, cardId: string, reason?
   const stage = getPipelineStage(db, card.pipeline_stage_id);
   if (!stage) return;
 
-  const allStages = listPipelineStages(db, card.github_repo);
+  const allStages = listPipelineStages(db, card.github_repo, stage.trigger_after);
   handleStageFailure(db, cardId, stage, allStages, reason ?? "Stage failed");
 }
 
@@ -420,6 +427,16 @@ function handleStageFailure(
           enterStage(db, cardId, prevStage, allStages);
           return;
         }
+        // No previous stage in this group (e.g. first QA stage after review_pass)
+        // → reset card to ready for original assignee to rework
+        db.prepare(
+          `UPDATE kanban_cards SET status = 'ready', pipeline_stage_id = NULL, review_status = NULL,
+                  requested_at = NULL, started_at = NULL, completed_at = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).run(now, cardId);
+        emitKanbanCard(db, cardId, "kanban_card_updated");
+        console.log(`[pipeline] Card ${cardId} QA failed → reset to ready for rework`);
+        return;
       }
       break;
     }
