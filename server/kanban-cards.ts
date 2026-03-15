@@ -1353,28 +1353,17 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
       const hasExistingDecision = items.some((i) => i.decision === "accept" || i.decision === "reject");
       if (hasExistingDecision) continue;
 
-      // Decision dispatch completed without API calls → agent already processed it
-      // Move card directly to done instead of triggering rework
-      const card = getRawKanbanCardById(db, sd.card_id);
-      if (!card) continue;
+      // Auto-accept all items → triggers rework (accept = agree with reviewer = fix needed)
+      const undecidedItems = items.filter((i) => i.category !== "pass" && !i.decision);
+      const decisions = undecidedItems.map((i) => ({ item_id: i.id, decision: "accept" as const }));
 
-      db.prepare(
-        `UPDATE kanban_reviews SET verdict = 'decided', completed_at = ? WHERE id = ?`,
-      ).run(now, sd.review_id);
-      db.prepare(
-        `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
-      ).run(now, now, sd.card_id);
-      if (card.latest_dispatch_id) {
-        db.prepare(
-          `UPDATE task_dispatches SET status = 'completed', result_summary = 'Decision auto-resolved', completed_at = COALESCE(completed_at, ?) WHERE id = ?`,
-        ).run(now, card.latest_dispatch_id);
+      if (decisions.length > 0) {
+        saveReviewDecisions(db, sd.review_id, decisions);
       }
-      emitKanbanCard(db, sd.card_id, "kanban_card_updated");
-      rewardKanbanCompletion(db, sd.card_id);
-      closeGitHubIssueOnDone(card);
-      console.warn(`[kanban-timeout] Auto-resolved decision for review ${sd.review_id} (card ${sd.card_id}) → done`);
+      triggerDecidedRework(db, sd.review_id);
+      console.warn(`[kanban-timeout] Auto-accepted decision for review ${sd.review_id} (card ${sd.card_id}) → rework`);
     } catch (e) {
-      console.error(`[kanban-timeout] Auto-resolve decision failed for review ${sd.review_id}:`, (e as Error).message);
+      console.error(`[kanban-timeout] Auto-accept decision failed for review ${sd.review_id}:`, (e as Error).message);
     }
   }
 
@@ -1930,8 +1919,8 @@ function dispatchReviewDecision(
     itemsDesc || "(항목 없음)",
     ``,
     `### 판단 기준`,
-    `- 코드에 실제 문제가 있는 지적이면 **reject** (rework 발생)`,
-    `- 스타일/선호 차이이거나 이미 의도된 설계이면 **accept**`,
+    `- 리뷰어의 지적이 맞다면 **accept** (수정 필요 → rework 발생)`,
+    `- 스타일/선호 차이이거나 이미 의도된 설계이면 **reject** (수정 불필요)`,
     `- 확신이 없으면 코드를 직접 확인한 뒤 판단`,
     ``,
     `### 처리 절차`,
@@ -1945,9 +1934,9 @@ function dispatchReviewDecision(
     "```",
     ``,
     `**2. 결과에 따른 후속:**`,
-    `- 모든 항목 accept → 카드 자동 done 전환 → \`bash scripts/runtime/deploy-stable-release.sh\` 실행`,
-    `- reject 항목 있음 → 카드 rework_pending 전환 → rework API 호출:`,
-    `  \`curl -X POST http://127.0.0.1:8791/api/kanban-reviews/${reviewId}/trigger-rework -H "Authorization: Bearer $SESSION_AUTH_TOKEN"\``,
+    `- accept 항목 있음 → 해당 항목 rework dispatch 발생`,
+    `- 모든 항목 reject → 지적 불수용, 카드 자동 done 전환`,
+    `- API 미호출 시 → 자동으로 전체 accept 처리되어 rework 진행`,
     ``,
     `### 대상 이슈`,
     `- ${card.github_issue_url ?? card.title}`,
