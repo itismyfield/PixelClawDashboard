@@ -342,78 +342,96 @@ router.get("/api/agents/:id/timeline", (req, res) => {
   const agentId = req.params.id;
   const limit = Math.min(Number(req.query.limit) || 30, 100);
 
-  // Merge dispatches, sessions, and kanban transitions into a unified timeline
+  type TlEvent = {
+    id: string; source: string; type: string; title: string;
+    status: string; timestamp: number; duration_ms: number | null;
+    detail?: Record<string, unknown>;
+  };
+  const events: TlEvent[] = [];
+
+  // 1. Dispatches — direct from task_dispatches
   const dispatches = db.prepare(
-    `SELECT id, dispatch_type as type, title, status, created_at, dispatched_at, completed_at,
-            'dispatch' as source
+    `SELECT id, dispatch_type, title, status, created_at, dispatched_at, completed_at
      FROM task_dispatches
      WHERE to_agent_id = ? OR from_agent_id = ?
      ORDER BY created_at DESC LIMIT ?`,
   ).all(agentId, agentId, limit) as unknown as Array<{
-    id: string; type: string; title: string; status: string;
+    id: string; dispatch_type: string; title: string; status: string;
     created_at: number; dispatched_at: number | null; completed_at: number | null;
-    source: string;
   }>;
-
-  const sessions = db.prepare(
-    `SELECT id, session_key, status, started_at as created_at, ended_at as completed_at,
-            stats_turns, stats_tokens, stats_xp, provider,
-            'session' as source
-     FROM dispatched_sessions
-     WHERE agent_id = ?
-     ORDER BY started_at DESC LIMIT ?`,
-  ).all(agentId, limit) as unknown as Array<{
-    id: string; session_key: string; status: string;
-    created_at: number; completed_at: number | null;
-    stats_turns: number; stats_tokens: number; stats_xp: number;
-    provider: string; source: string;
-  }>;
-
-  const kanbanEvents = db.prepare(
-    `SELECT id, title, status, review_status, created_at, started_at, completed_at,
-            github_issue_number, github_repo,
-            'kanban' as source
-     FROM kanban_cards
-     WHERE assignee_agent_id = ?
-     ORDER BY updated_at DESC LIMIT ?`,
-  ).all(agentId, limit) as unknown as Array<{
-    id: string; title: string; status: string; review_status: string | null;
-    created_at: number; started_at: number | null; completed_at: number | null;
-    github_issue_number: number | null; github_repo: string | null;
-    source: string;
-  }>;
-
-  // Build unified events sorted by timestamp desc
-  const events: Array<{
-    id: string; source: string; type: string; title: string;
-    status: string; timestamp: number; duration_ms: number | null;
-    detail?: Record<string, unknown>;
-  }> = [];
 
   for (const d of dispatches) {
     events.push({
-      id: d.id, source: "dispatch", type: d.type, title: d.title,
+      id: d.id, source: "dispatch", type: d.dispatch_type, title: d.title,
       status: d.status, timestamp: d.created_at,
       duration_ms: d.completed_at && d.created_at ? d.completed_at - d.created_at : null,
     });
   }
 
+  // 2. Sessions — use correct dispatched_sessions schema
+  const sessions = db.prepare(
+    `SELECT id, session_key, status, connected_at, last_seen_at, tokens, stats_xp, provider
+     FROM dispatched_sessions
+     WHERE linked_agent_id = ?
+     ORDER BY connected_at DESC LIMIT ?`,
+  ).all(agentId, limit) as unknown as Array<{
+    id: string; session_key: string; status: string;
+    connected_at: number; last_seen_at: number | null;
+    tokens: number; stats_xp: number; provider: string;
+  }>;
+
   for (const s of sessions) {
     events.push({
       id: s.id, source: "session", type: s.provider ?? "claude",
-      title: s.session_key, status: s.status, timestamp: s.created_at,
-      duration_ms: s.completed_at && s.created_at ? s.completed_at - s.created_at : null,
-      detail: { turns: s.stats_turns, tokens: s.stats_tokens, xp: s.stats_xp },
+      title: s.session_key, status: s.status, timestamp: s.connected_at,
+      duration_ms: s.last_seen_at && s.connected_at ? s.last_seen_at - s.connected_at : null,
+      detail: { tokens: s.tokens, xp: s.stats_xp },
     });
   }
 
-  for (const k of kanbanEvents) {
+  // 3. Kanban — expand each card into multiple transition events using timestamp columns
+  const kanbanCards = db.prepare(
+    `SELECT id, title, status, review_status, created_at, requested_at, started_at, completed_at,
+            github_issue_number, github_repo
+     FROM kanban_cards
+     WHERE assignee_agent_id = ?
+     ORDER BY updated_at DESC LIMIT ?`,
+  ).all(agentId, limit) as unknown as Array<{
+    id: string; title: string; status: string; review_status: string | null;
+    created_at: number; requested_at: number | null; started_at: number | null; completed_at: number | null;
+    github_issue_number: number | null; github_repo: string | null;
+  }>;
+
+  for (const k of kanbanCards) {
+    const issueDetail = k.github_issue_number ? { issue: k.github_issue_number, repo: k.github_repo } : undefined;
+    // Created event
     events.push({
-      id: k.id, source: "kanban", type: k.status, title: k.title,
-      status: k.review_status ?? k.status, timestamp: k.created_at,
-      duration_ms: k.completed_at && k.created_at ? k.completed_at - k.created_at : null,
-      detail: k.github_issue_number ? { issue: k.github_issue_number, repo: k.github_repo } : undefined,
+      id: `${k.id}-created`, source: "kanban", type: "created", title: k.title,
+      status: "created", timestamp: k.created_at, duration_ms: null, detail: issueDetail,
     });
+    // Requested event
+    if (k.requested_at) {
+      events.push({
+        id: `${k.id}-requested`, source: "kanban", type: "requested", title: k.title,
+        status: "requested", timestamp: k.requested_at, duration_ms: null, detail: issueDetail,
+      });
+    }
+    // Started event (in_progress)
+    if (k.started_at) {
+      events.push({
+        id: `${k.id}-started`, source: "kanban", type: "in_progress", title: k.title,
+        status: "in_progress", timestamp: k.started_at,
+        duration_ms: (k.completed_at ?? Date.now()) - k.started_at, detail: issueDetail,
+      });
+    }
+    // Completed event (terminal status)
+    if (k.completed_at) {
+      events.push({
+        id: `${k.id}-completed`, source: "kanban", type: k.status, title: k.title,
+        status: k.review_status ?? k.status, timestamp: k.completed_at,
+        duration_ms: k.started_at ? k.completed_at - k.started_at : null, detail: issueDetail,
+      });
+    }
   }
 
   events.sort((a, b) => b.timestamp - a.timestamp);
