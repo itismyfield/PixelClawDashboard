@@ -942,11 +942,14 @@ export async function generateAutoQueue(repo?: string | null): Promise<{
   });
 }
 
-export async function activateAutoQueue(): Promise<{
+export async function activateAutoQueue(repo?: string | null): Promise<{
   dispatched: KanbanCard[];
   count: number;
 }> {
-  return request("/api/auto-queue/activate", { method: "POST" });
+  return request("/api/auto-queue/activate", {
+    method: "POST",
+    body: JSON.stringify(repo ? { repo } : {}),
+  });
 }
 
 export async function getAutoQueueStatus(repo?: string | null): Promise<AutoQueueStatus> {

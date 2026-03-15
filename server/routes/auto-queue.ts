@@ -68,11 +68,22 @@ router.post("/api/auto-queue/generate", async (req, res) => {
   }
 });
 
-// Activate queue: dispatch first pending per agent
-router.post("/api/auto-queue/activate", (_req, res) => {
+// Activate queue: dispatch first pending per agent (requires active run)
+router.post("/api/auto-queue/activate", (req, res) => {
   const db = getDb();
+
+  // Require an active run
+  const activeRun = db.prepare(
+    `SELECT id FROM auto_queue_runs WHERE status = 'active' LIMIT 1`,
+  ).get() as { id: string } | undefined;
+  if (!activeRun) {
+    res.status(409).json({ error: "no_active_run", message: "No active auto-queue run. Generate a queue first." });
+    return;
+  }
+
+  const repo = typeof req.body?.repo === "string" ? req.body.repo : null;
   try {
-    const dispatched = activateQueue(db);
+    const dispatched = activateQueue(db, repo);
     res.json({ dispatched, count: dispatched.length });
   } catch (e) {
     res.status(500).json({ error: "auto_queue_activate_failed", message: (e as Error).message });

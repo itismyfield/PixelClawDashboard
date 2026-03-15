@@ -343,17 +343,24 @@ export async function generateQueue(
   return { run, entries };
 }
 
-// ── Activate: dispatch first pending per agent ──
+// ── Activate: dispatch first pending per agent (optionally filtered by repo) ──
 
-export function activateQueue(db: DatabaseSync): KanbanCardRow[] {
+export function activateQueue(db: DatabaseSync, repo?: string | null): KanbanCardRow[] {
   const dispatched: KanbanCardRow[] = [];
 
-  // Find agents with pending queue entries but no active (requested/in_progress) cards
-  const agentsWithPending = db.prepare(
-    `SELECT DISTINCT dq.agent_id
-     FROM dispatch_queue dq
-     WHERE dq.status = 'pending'`,
-  ).all() as unknown as Array<{ agent_id: string }>;
+  // Find agents with pending queue entries, optionally filtered by repo
+  const query = repo
+    ? `SELECT DISTINCT dq.agent_id
+       FROM dispatch_queue dq
+       JOIN kanban_cards kc ON kc.id = dq.card_id
+       WHERE dq.status = 'pending' AND kc.github_repo = ?`
+    : `SELECT DISTINCT dq.agent_id
+       FROM dispatch_queue dq
+       WHERE dq.status = 'pending'`;
+
+  const agentsWithPending = repo
+    ? (db.prepare(query).all(repo) as unknown as Array<{ agent_id: string }>)
+    : (db.prepare(query).all() as unknown as Array<{ agent_id: string }>);
 
   for (const { agent_id } of agentsWithPending) {
     const card = dispatchNextForAgent(db, agent_id);

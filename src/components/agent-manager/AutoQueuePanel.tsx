@@ -277,7 +277,7 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
     setActivating(true);
     setError(null);
     try {
-      await api.activateAutoQueue();
+      await api.activateAutoQueue(selectedRepo || null);
       await fetchStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("활성화 실패", "Activation failed"));
