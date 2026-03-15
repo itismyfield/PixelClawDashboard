@@ -434,10 +434,7 @@ export function onCardTerminal(
     `SELECT id FROM auto_queue_runs WHERE status = 'active' LIMIT 1`,
   ).get() as { id: string } | undefined;
 
-  if (!activeRun) return null;
-
-  // Dispatch next for this agent
-  return dispatchNextForAgent(db, entry.agent_id);
+  return null;
 }
 
 // ── Queue status ──
@@ -527,9 +524,6 @@ function checkAutoQueueTimeouts(): void {
     ).run(now, entry.id);
     console.log(`[auto-queue] Timed out entry ${entry.id} for card ${entry.card_id}`);
     broadcast("auto_queue_timeout", { entry_id: entry.id, card_id: entry.card_id, agent_id: entry.agent_id });
-
-    // Try dispatching next for this agent
-    dispatchNextForAgent(db, entry.agent_id);
   }
 
   // Advance dispatched entries whose cards left requested/in_progress (e.g. moved to review)
@@ -547,35 +541,6 @@ function checkAutoQueueTimeouts(): void {
       `UPDATE dispatch_queue SET status = 'done', completed_at = ? WHERE id = ?`,
     ).run(now, entry.id);
     console.log(`[auto-queue] Advanced stale entry ${entry.id} (card ${entry.card_id} is ${entry.card_status})`);
-
-    // Try dispatching next for this agent
-    dispatchNextForAgent(db, entry.agent_id);
-  }
-
-  // Detect idle agents with pending entries that weren't dispatched
-  // This covers the gap where onCardTerminal can't find the queue entry
-  // because stale-check already marked it done before the card reached terminal
-  const idleAgentsWithPending = db.prepare(
-    `SELECT DISTINCT dq.agent_id
-     FROM dispatch_queue dq
-     WHERE dq.status = 'pending'
-       AND NOT EXISTS (
-         SELECT 1 FROM kanban_cards kc
-         WHERE kc.assignee_agent_id = dq.agent_id
-           AND kc.status IN ('requested', 'in_progress')
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM dispatch_queue dq2
-         WHERE dq2.agent_id = dq.agent_id
-           AND dq2.status = 'dispatched'
-       )`,
-  ).all() as unknown as Array<{ agent_id: string }>;
-
-  for (const { agent_id } of idleAgentsWithPending) {
-    const dispatched = dispatchNextForAgent(db, agent_id);
-    if (dispatched) {
-      console.log(`[auto-queue] Resumed idle agent ${agent_id} with pending entries`);
-    }
   }
 
   // Check if all entries are done/skipped → complete the run
