@@ -219,6 +219,8 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("agent");
+  const [dryRunning, setDryRunning] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<api.DryRunEntry[] | null>(null);
 
   const agentMap = new Map(agents.map((a) => [a.id, a]));
 
@@ -242,11 +244,26 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
     return agent ? localeName(locale, agent) : agentId.slice(0, 8);
   };
 
-  const handleGenerate = async () => {
+  const handleDryRun = async () => {
+    setDryRunning(true);
+    setError(null);
+    setDryRunResult(null);
+    try {
+      const result = await api.dryRunAutoQueue(selectedRepo || null);
+      setDryRunResult(result.entries);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tr("미리보기 실패", "Dry run failed"));
+    } finally {
+      setDryRunning(false);
+    }
+  };
+
+  const handleConfirmGenerate = async () => {
     setGenerating(true);
     setError(null);
     try {
       await api.generateAutoQueue(selectedRepo || null);
+      setDryRunResult(null);
       await fetchStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("큐 생성 실패", "Queue generation failed"));
@@ -377,10 +394,10 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
               {activating ? "…" : tr("디스패치", "Dispatch")}
             </button>
           )}
-          {(!run || run.status === "completed") && (
+          {(!run || run.status === "completed") && !dryRunResult && (
             <button
-              onClick={() => void handleGenerate()}
-              disabled={generating}
+              onClick={() => void handleDryRun()}
+              disabled={dryRunning}
               className="text-[11px] px-2.5 py-1 rounded-lg border font-medium"
               style={{
                 borderColor: "rgba(139,92,246,0.4)",
@@ -388,8 +405,31 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
                 backgroundColor: "rgba(139,92,246,0.1)",
               }}
             >
-              {generating ? tr("AI 분석 중…", "Analyzing…") : tr("큐 생성", "Generate")}
+              {dryRunning ? tr("AI 분석 중…", "Analyzing…") : tr("미리보기", "Preview")}
             </button>
+          )}
+          {dryRunResult && (
+            <>
+              <button
+                onClick={() => void handleConfirmGenerate()}
+                disabled={generating}
+                className="text-[11px] px-2.5 py-1 rounded-lg border font-medium"
+                style={{
+                  borderColor: "rgba(34,197,94,0.4)",
+                  color: "#4ade80",
+                  backgroundColor: "rgba(34,197,94,0.1)",
+                }}
+              >
+                {generating ? "…" : tr("확정", "Confirm")}
+              </button>
+              <button
+                onClick={() => setDryRunResult(null)}
+                className="text-[11px] px-2 py-1 rounded-lg border"
+                style={{ borderColor: "rgba(148,163,184,0.22)", color: "var(--th-text-muted)" }}
+              >
+                {tr("취소", "Cancel")}
+              </button>
+            </>
           )}
           {run?.status === "active" && (
             <button
@@ -418,6 +458,38 @@ export default function AutoQueuePanel({ tr, locale, agents, selectedRepo }: Pro
           style={{ borderColor: "rgba(248,113,113,0.4)", color: "#fecaca", backgroundColor: "rgba(127,29,29,0.2)" }}
         >
           {error}
+        </div>
+      )}
+
+      {/* Dry-run preview */}
+      {dryRunResult && (
+        <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: "rgba(139,92,246,0.3)", backgroundColor: "rgba(139,92,246,0.05)" }}>
+          <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#a78bfa" }}>
+            {tr("미리보기", "Preview")} — {dryRunResult.length}{tr("건", " items")}
+          </div>
+          {(() => {
+            const byAgent = new Map<string, typeof dryRunResult>();
+            for (const e of dryRunResult) {
+              const list = byAgent.get(e.agent_id) ?? [];
+              list.push(e);
+              byAgent.set(e.agent_id, list);
+            }
+            return Array.from(byAgent.entries()).map(([agentId, items]) => (
+              <div key={agentId} className="space-y-1">
+                <div className="text-[10px] font-medium" style={{ color: "var(--th-text-secondary)" }}>
+                  {items[0].agent_name ?? getAgentLabel(agentId)}
+                </div>
+                {items.sort((a, b) => a.rank - b.rank).map((e) => (
+                  <div key={e.card_id} className="flex items-start gap-2 text-[11px]" style={{ color: "var(--th-text-primary)" }}>
+                    <span className="shrink-0 w-4 text-right" style={{ color: "#a78bfa" }}>{e.rank}.</span>
+                    <span className="flex-1">
+                      {e.github_issue_number ? `#${e.github_issue_number} ` : ""}{e.card_title}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
         </div>
       )}
 

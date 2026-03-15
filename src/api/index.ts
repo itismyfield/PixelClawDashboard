@@ -57,6 +57,7 @@ export {
   createRoundTableIssues,
   startRoundTableMeeting,
   getSkillCatalog,
+  dryRunAutoQueue,
   generateAutoQueue,
   activateAutoQueue,
   getAutoQueueStatus,
@@ -102,6 +103,7 @@ export type {
   KanbanReview,
   ChatMessage,
   RuntimeConfigResponse,
+  DryRunEntry,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──

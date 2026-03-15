@@ -2,12 +2,31 @@ import { Router } from "express";
 import { getDb } from "../db/runtime.js";
 import {
   generateQueue,
+  dryRunQueue,
   activateQueue,
   getQueueStatus,
   onCardTerminal,
 } from "../auto-queue.js";
 
 const router = Router();
+
+// Dry run: preview AI prioritization without creating a real queue
+router.post("/api/auto-queue/dry-run", async (req, res) => {
+  const db = getDb();
+  const repo = typeof req.body?.repo === "string" ? req.body.repo : null;
+
+  try {
+    const entries = await dryRunQueue(db, repo);
+    res.json({ entries, count: entries.length });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === "no_ready_cards" || msg === "no_assigned_ready_cards") {
+      res.status(400).json({ error: msg });
+    } else {
+      res.status(500).json({ error: "dry_run_failed", message: msg });
+    }
+  }
+});
 
 // Generate a new auto-queue run (AI prioritization)
 router.post("/api/auto-queue/generate", async (req, res) => {

@@ -867,6 +867,27 @@ export interface AutoQueueStatus {
   agents: Record<string, { pending: number; dispatched: number; done: number; skipped: number }>;
 }
 
+export interface DryRunEntry {
+  card_id: string;
+  card_title: string;
+  agent_id: string;
+  agent_name: string | null;
+  rank: number;
+  reason: string;
+  github_issue_number: number | null;
+  github_repo: string | null;
+}
+
+export async function dryRunAutoQueue(repo?: string | null): Promise<{
+  entries: DryRunEntry[];
+  count: number;
+}> {
+  return request("/api/auto-queue/dry-run", {
+    method: "POST",
+    body: JSON.stringify({ repo: repo ?? null }),
+  });
+}
+
 export async function generateAutoQueue(repo?: string | null): Promise<{
   run: AutoQueueRun;
   entries: DispatchQueueEntry[];

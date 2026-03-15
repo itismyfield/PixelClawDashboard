@@ -125,13 +125,23 @@ Rank 1 = highest priority (dispatch first).`;
   }
 }
 
-// ── Queue generation ──
+// ── Shared prioritization logic ──
 
-export async function generateQueue(
+export interface DryRunEntry {
+  card_id: string;
+  card_title: string;
+  agent_id: string;
+  agent_name: string | null;
+  rank: number;
+  reason: string;
+  github_issue_number: number | null;
+  github_repo: string | null;
+}
+
+async function buildPrioritizedQueue(
   db: DatabaseSync,
   repo: string | null,
-): Promise<{ run: AutoQueueRun; entries: DispatchQueueEntry[] }> {
-  // Get all ready cards (optionally filtered by repo)
+): Promise<{ cards: ReadyCardRow[]; ranked: AIPriorityResult[]; byAgent: Map<string, AIPriorityResult[]> }> {
   const readyCards = (
     repo
       ? db.prepare(
@@ -142,27 +152,11 @@ export async function generateQueue(
         ).all()
   ) as unknown as ReadyCardRow[];
 
-  if (readyCards.length === 0) {
-    throw new Error("no_ready_cards");
-  }
+  if (readyCards.length === 0) throw new Error("no_ready_cards");
 
-  // Filter only cards with assignee
   const assignedCards = readyCards.filter((c) => c.assignee_agent_id);
-  if (assignedCards.length === 0) {
-    throw new Error("no_assigned_ready_cards");
-  }
+  if (assignedCards.length === 0) throw new Error("no_assigned_ready_cards");
 
-  // Group cards by assignee agent for per-agent sub-queue prioritization
-  const cardsByAgent = new Map<string, typeof assignedCards>();
-  for (const card of assignedCards) {
-    const agentId = card.assignee_agent_id!;
-    const list = cardsByAgent.get(agentId) ?? [];
-    list.push(card);
-    cardsByAgent.set(agentId, list);
-  }
-
-  // AI prioritization — one call for all cards, then split ranks per agent
-  // This avoids N API calls (one per agent) while still yielding per-agent ordering.
   const ranked = await prioritizeCards(
     assignedCards.map((c) => ({
       id: c.id,
@@ -175,23 +169,55 @@ export async function generateQueue(
     })),
   );
 
-  // Build per-agent ranked list with local 1-based ranks
-  const rankedByAgent = new Map<string, AIPriorityResult[]>();
+  const byAgent = new Map<string, AIPriorityResult[]>();
   for (const item of ranked) {
     const card = assignedCards.find((c) => c.id === item.card_id);
     if (!card?.assignee_agent_id) continue;
-    const agentId = card.assignee_agent_id;
-    const list = rankedByAgent.get(agentId) ?? [];
+    const list = byAgent.get(card.assignee_agent_id) ?? [];
     list.push(item);
-    rankedByAgent.set(agentId, list);
+    byAgent.set(card.assignee_agent_id, list);
   }
-  // Re-number ranks per agent (1-based within each sub-queue)
-  for (const [, agentList] of rankedByAgent) {
+  for (const [, agentList] of byAgent) {
     agentList.sort((a, b) => a.rank - b.rank);
     agentList.forEach((item, idx) => { item.rank = idx + 1; });
   }
 
-  const allRanked = Array.from(rankedByAgent.values()).flat();
+  return { cards: assignedCards, ranked: Array.from(byAgent.values()).flat(), byAgent };
+}
+
+// ── Dry run (preview without side effects) ──
+
+export async function dryRunQueue(
+  db: DatabaseSync,
+  repo: string | null,
+): Promise<DryRunEntry[]> {
+  const { cards, ranked } = await buildPrioritizedQueue(db, repo);
+
+  return ranked.map((item) => {
+    const card = cards.find((c) => c.id === item.card_id);
+    const agent = card?.assignee_agent_id
+      ? (db.prepare("SELECT name FROM agents WHERE id = ?").get(card.assignee_agent_id) as { name: string } | undefined)
+      : null;
+    return {
+      card_id: item.card_id,
+      card_title: card?.title ?? "",
+      agent_id: card?.assignee_agent_id ?? "",
+      agent_name: agent?.name ?? null,
+      rank: item.rank,
+      reason: item.reason,
+      github_issue_number: card?.github_issue_number ?? null,
+      github_repo: card?.github_repo ?? null,
+    };
+  });
+}
+
+// ── Queue generation ──
+
+export async function generateQueue(
+  db: DatabaseSync,
+  repo: string | null,
+): Promise<{ run: AutoQueueRun; entries: DispatchQueueEntry[] }> {
+  const { cards: assignedCards, ranked: allRanked } = await buildPrioritizedQueue(db, repo);
 
   // Create run
   const runId = crypto.randomUUID();
