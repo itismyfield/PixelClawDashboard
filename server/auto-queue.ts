@@ -6,6 +6,7 @@ import { broadcast } from "./ws.js";
 import {
   createDispatchForKanbanCard,
   triggerCounterModelReview,
+  enforceKanbanTimeouts,
   type KanbanCardRow,
 } from "./kanban-cards.js";
 import { getRuntimeConfig } from "./runtime-config.js";
@@ -496,6 +497,11 @@ export function getQueueStatus(db: DatabaseSync, repo?: string | null): {
 function checkAutoQueueTimeouts(): void {
   const db = getDb();
   const now = Date.now();
+
+  // Run kanban timeouts (suggestion_pending auto-accept, stale review auto-pass, etc.)
+  try { enforceKanbanTimeouts(db); } catch (e) {
+    console.error("[auto-queue] enforceKanbanTimeouts error:", (e as Error).message);
+  }
 
   // Bypass DoD gate for cards stuck in review/awaiting_dod too long
   // Uses dispatch completed_at as anchor (not updated_at which gets reset by DoD mirror syncs)
