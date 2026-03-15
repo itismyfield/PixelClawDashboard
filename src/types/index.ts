@@ -388,7 +388,10 @@ export type KanbanCardStatus =
   | "blocked"
   | "done"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "qa_pending"
+  | "qa_in_progress"
+  | "qa_failed";
 
 export type KanbanCardPriority = "low" | "medium" | "high" | "urgent";
 
@@ -464,6 +467,8 @@ export interface PipelineStage {
   max_retries: number;
   skip_condition: string | null;
   parallel_with: string | null;
+  applies_to_agent_id: string | null;
+  trigger_after: "ready" | "review_pass";
   created_at: number;
 }
 

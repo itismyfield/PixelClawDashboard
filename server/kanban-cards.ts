@@ -18,6 +18,9 @@ export const KANBAN_CARD_STATUSES = [
   "done",
   "failed",
   "cancelled",
+  "qa_pending",
+  "qa_in_progress",
+  "qa_failed",
 ] as const;
 
 export const KANBAN_REVIEW_STATUSES = [
@@ -1795,24 +1798,53 @@ export function processReviewVerdict(
 
   switch (verdict.overall) {
     case "pass": {
-      // Auto-done: mark card as done
-      db.prepare(
-        `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
-      ).run(now, now, card.id);
-      // Complete the original dispatch
-      if (card.latest_dispatch_id) {
-        db.prepare(
-          `UPDATE task_dispatches SET status = 'completed', result_summary = 'Review passed', completed_at = ? WHERE id = ? AND status IN ('pending','dispatched','in_progress','completed')`,
-        ).run(now, card.latest_dispatch_id);
+      // Check for post-review pipeline stages (e.g. QA)
+      let startedPostReview = false;
+      if (card.github_repo) {
+        const postReviewStages = db.prepare(
+          `SELECT id FROM pipeline_stages
+           WHERE repo = ? AND trigger_after = 'review_pass'
+             AND (applies_to_agent_id IS NULL OR applies_to_agent_id = ?)
+           ORDER BY stage_order ASC LIMIT 1`,
+        ).get(card.github_repo, card.assignee_agent_id) as { id: string } | undefined;
+
+        if (postReviewStages) {
+          try {
+            import("./pipeline.js").then(({ startPostReviewPipeline: sprp }) => {
+              sprp(db, card.id);
+            }).catch(() => {});
+            startedPostReview = true;
+          } catch { /* pipeline module optional */ }
+        }
       }
-      emitKanbanCard(db, card.id, "kanban_card_updated");
-      // Reward + close issue + auto-queue
-      rewardKanbanCompletion(db, card.id);
-      closeGitHubIssueOnDone(card);
-      import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
-        try { oct(db, card.id, "done"); } catch {}
-      }).catch(() => {});
-      console.log(`[kanban-review] Card ${card.id} passed review → done`);
+
+      if (startedPostReview) {
+        // Pipeline takes over — don't mark as done yet
+        if (card.latest_dispatch_id) {
+          db.prepare(
+            `UPDATE task_dispatches SET status = 'completed', result_summary = 'Review passed → QA pipeline', completed_at = ? WHERE id = ? AND status IN ('pending','dispatched','in_progress','completed')`,
+          ).run(now, card.latest_dispatch_id);
+        }
+        emitKanbanCard(db, card.id, "kanban_card_updated");
+        console.log(`[kanban-review] Card ${card.id} passed review → post-review pipeline started`);
+      } else {
+        // No post-review pipeline: mark as done directly
+        db.prepare(
+          `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
+        ).run(now, now, card.id);
+        if (card.latest_dispatch_id) {
+          db.prepare(
+            `UPDATE task_dispatches SET status = 'completed', result_summary = 'Review passed', completed_at = ? WHERE id = ? AND status IN ('pending','dispatched','in_progress','completed')`,
+          ).run(now, card.latest_dispatch_id);
+        }
+        emitKanbanCard(db, card.id, "kanban_card_updated");
+        rewardKanbanCompletion(db, card.id);
+        closeGitHubIssueOnDone(card);
+        import("./auto-queue.js").then(({ onCardTerminal: oct }) => {
+          try { oct(db, card.id, "done"); } catch {}
+        }).catch(() => {});
+        console.log(`[kanban-review] Card ${card.id} passed review → done`);
+      }
       break;
     }
     case "improve":

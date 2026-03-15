@@ -160,7 +160,7 @@ export function initSchema(db: DatabaseSync): void {
       title TEXT NOT NULL,
       description TEXT DEFAULT NULL,
       status TEXT NOT NULL DEFAULT 'backlog'
-        CHECK(status IN ('backlog','ready','requested','in_progress','review','blocked','done','failed','cancelled')),
+        CHECK(status IN ('backlog','ready','requested','in_progress','review','blocked','done','failed','cancelled','qa_pending','qa_in_progress','qa_failed')),
       github_repo TEXT DEFAULT NULL,
       owner_agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
       requester_agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
@@ -278,6 +278,9 @@ export function initSchema(db: DatabaseSync): void {
       max_retries INTEGER NOT NULL DEFAULT 3,
       skip_condition TEXT DEFAULT NULL,
       parallel_with TEXT DEFAULT NULL,
+      applies_to_agent_id TEXT DEFAULT NULL,
+      trigger_after TEXT NOT NULL DEFAULT 'ready'
+        CHECK(trigger_after IN ('ready','review_pass')),
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_pipeline_stages_repo ON pipeline_stages (repo, stage_order);
@@ -574,5 +577,14 @@ function migrate(db: DatabaseSync): void {
   const reviewCols = db.prepare("PRAGMA table_info(kanban_reviews)").all() as Array<{ name: string }>;
   if (reviewCols.length > 0 && !reviewCols.some((c) => c.name === "reminded_at")) {
     db.exec("ALTER TABLE kanban_reviews ADD COLUMN reminded_at INTEGER DEFAULT NULL");
+  }
+
+  // Add pipeline stage columns for conditional pipelines
+  const pipelineCols = db.prepare("PRAGMA table_info(pipeline_stages)").all() as Array<{ name: string }>;
+  if (pipelineCols.length > 0 && !pipelineCols.some((c) => c.name === "applies_to_agent_id")) {
+    db.exec("ALTER TABLE pipeline_stages ADD COLUMN applies_to_agent_id TEXT DEFAULT NULL");
+  }
+  if (pipelineCols.length > 0 && !pipelineCols.some((c) => c.name === "trigger_after")) {
+    db.exec("ALTER TABLE pipeline_stages ADD COLUMN trigger_after TEXT NOT NULL DEFAULT 'ready'");
   }
 }

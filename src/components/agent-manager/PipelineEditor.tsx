@@ -28,6 +28,8 @@ interface StageEditor {
   max_retries: number;
   skip_condition: string;
   parallel_with: string;
+  applies_to_agent_id: string;
+  trigger_after: "ready" | "review_pass";
 }
 
 function emptyStage(): StageEditor {
@@ -42,6 +44,8 @@ function emptyStage(): StageEditor {
     max_retries: 3,
     skip_condition: "",
     parallel_with: "",
+    applies_to_agent_id: "",
+    trigger_after: "ready",
   };
 }
 
@@ -57,6 +61,8 @@ function stageFromApi(s: PipelineStage): StageEditor {
     max_retries: s.max_retries,
     skip_condition: s.skip_condition ?? "",
     parallel_with: s.parallel_with ?? "",
+    applies_to_agent_id: s.applies_to_agent_id ?? "",
+    trigger_after: s.trigger_after ?? "ready",
   };
 }
 
@@ -102,6 +108,8 @@ export default function PipelineEditor({ tr, locale, repo, agents }: Props) {
           max_retries: s.max_retries,
           skip_condition: s.skip_condition.trim() || null,
           parallel_with: s.parallel_with.trim() || null,
+          applies_to_agent_id: s.applies_to_agent_id || null,
+          trigger_after: s.trigger_after,
         }));
       const result = await api.savePipelineStages(repo, input);
       setSavedStages(result);
@@ -240,6 +248,32 @@ export default function PipelineEditor({ tr, locale, repo, agents }: Props) {
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>{a.avatar_emoji} {localeName(locale, a)}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ color: "var(--th-text-muted)" }}>{tr("적용 에이전트", "Applies to agent")}</label>
+                  <select
+                    className="w-full bg-transparent border rounded px-1.5 py-0.5 outline-none text-[11px]"
+                    style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-primary)" }}
+                    value={stage.applies_to_agent_id}
+                    onChange={(e) => updateStage(idx, { applies_to_agent_id: e.target.value })}
+                  >
+                    <option value="">{tr("전체", "All agents")}</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.avatar_emoji} {localeName(locale, a)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ color: "var(--th-text-muted)" }}>{tr("트리거", "Trigger")}</label>
+                  <select
+                    className="w-full bg-transparent border rounded px-1.5 py-0.5 outline-none text-[11px]"
+                    style={{ borderColor: "rgba(148,163,184,0.2)", color: "var(--th-text-primary)" }}
+                    value={stage.trigger_after}
+                    onChange={(e) => updateStage(idx, { trigger_after: e.target.value as "ready" | "review_pass" })}
+                  >
+                    <option value="ready">{tr("카드 준비 시", "On card ready")}</option>
+                    <option value="review_pass">{tr("리뷰 통과 후", "After review pass")}</option>
                   </select>
                 </div>
                 <div>

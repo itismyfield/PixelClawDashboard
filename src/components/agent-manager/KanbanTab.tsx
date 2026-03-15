@@ -30,6 +30,9 @@ const COLUMN_DEFS: Array<{
   { status: "requested", labelKo: "요청됨", labelEn: "Requested", accent: "#8b5cf6" },
   { status: "in_progress", labelKo: "진행 중", labelEn: "In Progress", accent: "#f59e0b" },
   { status: "review", labelKo: "검토", labelEn: "Review", accent: "#14b8a6" },
+  { status: "qa_pending", labelKo: "QA 대기", labelEn: "QA Pending", accent: "#e879f9" },
+  { status: "qa_in_progress", labelKo: "QA 진행", labelEn: "QA In Progress", accent: "#c084fc" },
+  { status: "qa_failed", labelKo: "QA 실패", labelEn: "QA Failed", accent: "#fb7185" },
   { status: "blocked", labelKo: "막힘", labelEn: "Blocked", accent: "#ef4444" },
   { status: "done", labelKo: "완료", labelEn: "Done", accent: "#22c55e" },
   { status: "failed", labelKo: "실패", labelEn: "Failed", accent: "#f97316" },
@@ -54,6 +57,9 @@ const STATUS_TRANSITIONS: Record<KanbanCardStatus, KanbanCardStatus[]> = {
   done: ["backlog"],
   failed: ["backlog"],
   cancelled: ["backlog"],
+  qa_pending: ["qa_in_progress", "done", "cancelled"],
+  qa_in_progress: ["done", "qa_failed"],
+  qa_failed: ["ready", "cancelled"],
 };
 
 const TRANSITION_STYLE: Record<string, { bg: string; text: string }> = {
@@ -66,6 +72,9 @@ const TRANSITION_STYLE: Record<string, { bg: string; text: string }> = {
   backlog: { bg: "rgba(100,116,139,0.18)", text: "#94a3b8" },
   cancelled: { bg: "rgba(107,114,128,0.18)", text: "#9ca3af" },
   failed: { bg: "rgba(249,115,22,0.18)", text: "#fb923c" },
+  qa_pending: { bg: "rgba(232,121,249,0.18)", text: "#e879f9" },
+  qa_in_progress: { bg: "rgba(192,132,252,0.18)", text: "#c084fc" },
+  qa_failed: { bg: "rgba(251,113,133,0.18)", text: "#fb7185" },
 };
 
 interface KanbanTabProps {

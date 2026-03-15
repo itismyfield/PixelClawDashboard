@@ -20,6 +20,8 @@ export interface PipelineStage {
   max_retries: number;
   skip_condition: string | null;
   parallel_with: string | null;
+  applies_to_agent_id: string | null;
+  trigger_after: "ready" | "review_pass";
   created_at: number;
 }
 
@@ -66,15 +68,17 @@ export function upsertPipelineStages(
     db.prepare(
       `INSERT INTO pipeline_stages (id, repo, stage_name, stage_order, entry_skill, provider,
         agent_override_id, timeout_minutes, on_failure, on_failure_target, max_retries,
-        skip_condition, parallel_with, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        skip_condition, parallel_with, applies_to_agent_id, trigger_after, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id, repo, stage.stage_name, idx,
       stage.entry_skill ?? null, stage.provider ?? null,
       stage.agent_override_id ?? null, stage.timeout_minutes ?? 60,
       stage.on_failure ?? "fail", stage.on_failure_target ?? null,
       stage.max_retries ?? 3, stage.skip_condition ?? null,
-      stage.parallel_with ?? null, now,
+      stage.parallel_with ?? null,
+      stage.applies_to_agent_id ?? null, stage.trigger_after ?? "ready",
+      now,
     );
     result.push({
       id, repo, stage_name: stage.stage_name, stage_order: idx,
@@ -86,6 +90,8 @@ export function upsertPipelineStages(
       max_retries: stage.max_retries ?? 3,
       skip_condition: stage.skip_condition ?? null,
       parallel_with: stage.parallel_with ?? null,
+      applies_to_agent_id: stage.applies_to_agent_id ?? null,
+      trigger_after: stage.trigger_after ?? "ready",
       created_at: now,
     });
   }
@@ -489,4 +495,31 @@ export function getCardPipelineStatus(
     : null;
 
   return { stages, history, current_stage: currentStage };
+}
+
+// ── Post-review pipeline: stages triggered after review pass ──
+
+export function getPostReviewStages(
+  db: DatabaseSync,
+  repo: string,
+  assigneeAgentId: string | null,
+): PipelineStage[] {
+  return listPipelineStages(db, repo).filter(
+    (s) => s.trigger_after === "review_pass"
+      && (!s.applies_to_agent_id || s.applies_to_agent_id === assigneeAgentId),
+  );
+}
+
+export function startPostReviewPipeline(
+  db: DatabaseSync,
+  cardId: string,
+): boolean {
+  const card = getRawKanbanCardById(db, cardId);
+  if (!card || !card.github_repo) return false;
+
+  const stages = getPostReviewStages(db, card.github_repo, card.assignee_agent_id);
+  if (stages.length === 0) return false;
+
+  enterStage(db, cardId, stages[0], stages);
+  return true;
 }
