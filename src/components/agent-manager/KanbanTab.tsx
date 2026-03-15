@@ -38,6 +38,10 @@ const COLUMN_DEFS: Array<{
 
 const TERMINAL_STATUSES = new Set<KanbanCardStatus>(["done", "failed", "cancelled"]);
 const PRIORITY_OPTIONS: KanbanCardPriority[] = ["low", "medium", "high", "urgent"];
+const REVIEW_DISPATCH_TYPES = new Set(["review", "review-decision"]);
+function isReviewCard(card: KanbanCard): boolean {
+  return !!(card.latest_dispatch_type && REVIEW_DISPATCH_TYPES.has(card.latest_dispatch_type)) || !!card.parent_card_id;
+}
 
 /** Quick-transition targets per status. Order = button order (primary first). */
 const STATUS_TRANSITIONS: Record<KanbanCardStatus, KanbanCardStatus[]> = {
@@ -307,6 +311,7 @@ export default function KanbanTab({
   const [issues, setIssues] = useState<GitHubIssue[]>([]);
   const [agentFilter, setAgentFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
+  const [cardTypeFilter, setCardTypeFilter] = useState<"all" | "issue" | "review">("all");
   const [search, setSearch] = useState("");
   const [showClosed, setShowClosed] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -521,6 +526,8 @@ export default function KanbanTab({
       if (deptFilter !== "all" && agentMap.get(card.assignee_agent_id ?? "")?.department_id !== deptFilter) {
         return false;
       }
+      if (cardTypeFilter === "issue" && isReviewCard(card)) return false;
+      if (cardTypeFilter === "review" && !isReviewCard(card)) return false;
       if (!needle) return true;
       return (
         card.title.toLowerCase().includes(needle) ||
@@ -528,7 +535,7 @@ export default function KanbanTab({
         getAgentLabel(card.assignee_agent_id).toLowerCase().includes(needle)
       );
     });
-  }, [agentFilter, agentMap, deptFilter, getAgentLabel, repoCards, search, showClosed]);
+  }, [agentFilter, agentMap, cardTypeFilter, deptFilter, getAgentLabel, repoCards, search, showClosed]);
 
   const recentDoneCards = useMemo(() => {
     return repoCards
@@ -1015,6 +1022,16 @@ export default function KanbanTab({
                   <option key={department.id} value={department.id}>{localeName(locale, department)}</option>
                 ))}
               </select>
+              <select
+                value={cardTypeFilter}
+                onChange={(event) => setCardTypeFilter(event.target.value as "all" | "issue" | "review")}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 border"
+                style={{ borderColor: "rgba(148,163,184,0.28)", color: "var(--th-text-primary)" }}
+              >
+                <option value="all">{tr("전체 카드", "All cards")}</option>
+                <option value="issue">{tr("이슈만", "Issues only")}</option>
+                <option value="review">{tr("리뷰만", "Reviews only")}</option>
+              </select>
             </div>
           </div>
         )}
@@ -1399,13 +1416,19 @@ export default function KanbanTab({
                           className="rounded-2xl border p-3 cursor-pointer transition-transform hover:-translate-y-0.5"
                           style={{
                             borderColor: dragOverCardId === card.id ? column.accent : "rgba(148,163,184,0.2)",
-                            backgroundColor: "rgba(2,6,23,0.82)",
+                            backgroundColor: isReviewCard(card) ? "rgba(139,92,246,0.08)" : "rgba(2,6,23,0.82)",
+                            borderLeft: isReviewCard(card) ? "3px solid rgba(139,92,246,0.6)" : undefined,
                             opacity: draggingCardId === card.id ? 0.45 : 1,
                           }}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-1.5">
+                                {isReviewCard(card) && (
+                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" style={{ backgroundColor: "rgba(139,92,246,0.25)", color: "#a78bfa" }}>
+                                    {card.latest_dispatch_type === "review-decision" ? "Decision" : "Review"}
+                                  </span>
+                                )}
                                 <span className="px-2 py-0.5 rounded-full text-[11px]" style={{ color: "white", backgroundColor: column.accent }}>
                                   {priorityLabel(card.priority, tr)}
                                 </span>
