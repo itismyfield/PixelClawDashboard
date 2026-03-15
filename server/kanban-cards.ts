@@ -1329,6 +1329,41 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
     }
   }
 
+  // Auto-accept suggestion_pending cards whose decision dispatch completed
+  // This unblocks the chain when agents don't call saveReviewDecisions API
+  const stalledDecisions = db.prepare(
+    `SELECT kr.id as review_id, kr.card_id, kr.items_json
+     FROM kanban_reviews kr
+     JOIN kanban_cards kc ON kc.id = kr.card_id
+     WHERE kc.review_status = 'suggestion_pending'
+       AND kr.verdict IN ('improve', 'mixed', 'dilemma')
+       AND EXISTS (
+         SELECT 1 FROM task_dispatches td
+         WHERE td.parent_dispatch_id = kr.review_dispatch_id
+           AND td.dispatch_type = 'review-decision'
+           AND td.status IN ('completed', 'failed')
+       )`,
+  ).all() as unknown as Array<{ review_id: string; card_id: string; items_json: string | null }>;
+
+  for (const sd of stalledDecisions) {
+    try {
+      // Auto-accept all items
+      const items: Array<{ id: string; category: string; decision?: string }> = sd.items_json
+        ? JSON.parse(sd.items_json) : [];
+      const decisions = items
+        .filter((i) => i.category !== "pass")
+        .map((i) => ({ item_id: i.id, decision: "accept" as const }));
+
+      if (decisions.length > 0) {
+        saveReviewDecisions(db, sd.review_id, decisions);
+      }
+      triggerDecidedRework(db, sd.review_id);
+      console.warn(`[kanban-timeout] Auto-accepted decision for review ${sd.review_id} (card ${sd.card_id})`);
+    } catch (e) {
+      console.error(`[kanban-timeout] Auto-accept decision failed for review ${sd.review_id}:`, (e as Error).message);
+    }
+  }
+
   return { timedOutRequested, stalledInProgress };
 }
 
