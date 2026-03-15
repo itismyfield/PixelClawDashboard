@@ -278,7 +278,8 @@ function processHandoffFile(filePath: string): void {
     .run(archivedPath, handoff.dispatch_id);
 
   // Deliver message to target agent (fire-and-forget, non-blocking)
-  const msg = `DISPATCH:${handoff.dispatch_id} - ${handoff.title}`;
+  const typePrefix = handoff.type === "review" ? "⚠️ 검토 전용 — " : "";
+  const msg = `DISPATCH:${handoff.dispatch_id} - ${typePrefix}${handoff.title}`;
   const deliveryPromise = handoff.delivery_channel_id
     ? sendToAgentChannel(toAgent, msg, handoff.delivery_channel_id)
     : sendAgentMessage(toAgent, msg);
@@ -525,11 +526,11 @@ function recoverPendingDispatches(): void {
   // Case 1: pending dispatches (not yet dispatched at all)
   const pending = db
     .prepare(
-      `SELECT id, to_agent_id, title
+      `SELECT id, to_agent_id, title, dispatch_type
        FROM task_dispatches
        WHERE status = 'pending' AND dispatched_at IS NULL`,
     )
-    .all() as Array<{ id: string; to_agent_id: string | null; title: string }>;
+    .all() as Array<{ id: string; to_agent_id: string | null; title: string; dispatch_type: string }>;
 
   for (const row of pending) {
     recoverDispatch(db, row, "pending");
@@ -538,11 +539,11 @@ function recoverPendingDispatches(): void {
   // Case 2: dispatched but never delivered (process crashed between archive and delivery)
   const undelivered = db
     .prepare(
-      `SELECT id, to_agent_id, title
+      `SELECT id, to_agent_id, title, dispatch_type
        FROM task_dispatches
        WHERE status = 'dispatched' AND delivered_at IS NULL AND dispatched_at IS NOT NULL`,
     )
-    .all() as Array<{ id: string; to_agent_id: string | null; title: string }>;
+    .all() as Array<{ id: string; to_agent_id: string | null; title: string; dispatch_type: string }>;
 
   for (const row of undelivered) {
     recoverDispatch(db, row, "undelivered");
@@ -551,7 +552,7 @@ function recoverPendingDispatches(): void {
 
 function recoverDispatch(
   db: ReturnType<typeof getDb>,
-  row: { id: string; to_agent_id: string | null; title: string },
+  row: { id: string; to_agent_id: string | null; title: string; dispatch_type: string },
   reason: string,
 ): void {
   // Look for archived handoff file matching this dispatch id
@@ -614,7 +615,8 @@ function recoverDispatch(
   }
 
   // Re-send the dispatch message
-  const msg = `DISPATCH:${row.id} - ${row.title}`;
+  const resendPrefix = row.dispatch_type === "review" ? "⚠️ 검토 전용 — " : "";
+  const msg = `DISPATCH:${row.id} - ${resendPrefix}${row.title}`;
   sendAgentMessage(toAgent, msg).then((delivered) => {
     if (delivered) {
       db.prepare("UPDATE task_dispatches SET delivered_at = ? WHERE id = ?")
