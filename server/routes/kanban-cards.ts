@@ -23,6 +23,7 @@ import {
   listKanbanReviews,
   saveReviewDecisions,
   triggerDecidedRework,
+  processReviewVerdict,
 } from "../kanban-cards.js";
 import { broadcast } from "../ws.js";
 import { onCardTerminal } from "../auto-queue.js";
@@ -677,6 +678,43 @@ router.patch("/api/kanban-reviews/:reviewId/decisions", (req, res) => {
     res.json({ review });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "save_decisions_failed" });
+  }
+});
+
+// Submit review verdict via API (alternative to writing .result.json file)
+router.post("/api/review-result", (req, res) => {
+  const db = getDb();
+  const { dispatch_id, summary, review_verdict } = req.body ?? {};
+  if (!dispatch_id || typeof dispatch_id !== "string") {
+    res.status(400).json({ error: "dispatch_id required" });
+    return;
+  }
+
+  const dispatch = db.prepare(
+    "SELECT id, dispatch_type, status, result_file FROM task_dispatches WHERE id = ?",
+  ).get(dispatch_id) as { id: string; dispatch_type: string; status: string; result_file: string | null } | undefined;
+
+  if (!dispatch) {
+    res.status(404).json({ error: "dispatch_not_found" });
+    return;
+  }
+  if (dispatch.dispatch_type !== "review") {
+    res.status(400).json({ error: "not_a_review_dispatch" });
+    return;
+  }
+
+  const now = Date.now();
+  const verdict = review_verdict ?? { overall: "pass", items: [] };
+
+  db.prepare(
+    "UPDATE task_dispatches SET status = 'completed', result_summary = ?, completed_at = COALESCE(completed_at, ?) WHERE id = ?",
+  ).run(summary ?? verdict.overall, now, dispatch_id);
+
+  try {
+    processReviewVerdict(db, dispatch_id, verdict);
+    res.json({ ok: true, dispatch_id, verdict: verdict.overall });
+  } catch (e) {
+    res.status(500).json({ error: "verdict_processing_failed", message: (e as Error).message });
   }
 });
 
