@@ -1347,20 +1347,34 @@ export function enforceKanbanTimeouts(db: DatabaseSync): {
 
   for (const sd of stalledDecisions) {
     try {
-      // Auto-accept all items
+      // Skip if user already made any decisions (don't overwrite)
       const items: Array<{ id: string; category: string; decision?: string }> = sd.items_json
         ? JSON.parse(sd.items_json) : [];
-      const decisions = items
-        .filter((i) => i.category !== "pass")
-        .map((i) => ({ item_id: i.id, decision: "accept" as const }));
+      const hasExistingDecision = items.some((i) => i.decision === "accept" || i.decision === "reject");
+      if (hasExistingDecision) continue;
 
-      if (decisions.length > 0) {
-        saveReviewDecisions(db, sd.review_id, decisions);
+      // Decision dispatch completed without API calls → agent already processed it
+      // Move card directly to done instead of triggering rework
+      const card = getRawKanbanCardById(db, sd.card_id);
+      if (!card) continue;
+
+      db.prepare(
+        `UPDATE kanban_reviews SET verdict = 'decided', completed_at = ? WHERE id = ?`,
+      ).run(now, sd.review_id);
+      db.prepare(
+        `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = ?, updated_at = ? WHERE id = ?`,
+      ).run(now, now, sd.card_id);
+      if (card.latest_dispatch_id) {
+        db.prepare(
+          `UPDATE task_dispatches SET status = 'completed', result_summary = 'Decision auto-resolved', completed_at = COALESCE(completed_at, ?) WHERE id = ?`,
+        ).run(now, card.latest_dispatch_id);
       }
-      triggerDecidedRework(db, sd.review_id);
-      console.warn(`[kanban-timeout] Auto-accepted decision for review ${sd.review_id} (card ${sd.card_id})`);
+      emitKanbanCard(db, sd.card_id, "kanban_card_updated");
+      rewardKanbanCompletion(db, sd.card_id);
+      closeGitHubIssueOnDone(card);
+      console.warn(`[kanban-timeout] Auto-resolved decision for review ${sd.review_id} (card ${sd.card_id}) → done`);
     } catch (e) {
-      console.error(`[kanban-timeout] Auto-accept decision failed for review ${sd.review_id}:`, (e as Error).message);
+      console.error(`[kanban-timeout] Auto-resolve decision failed for review ${sd.review_id}:`, (e as Error).message);
     }
   }
 
