@@ -349,5 +349,11 @@ export function formatInstructionsFromInput(input: DispatchInput): string {
     );
   }
 
+  if (input.checklist.length > 0 && input.issue_url) {
+    parts.push(
+      `## DoD 체크 필수\n작업 완료 시 GitHub 이슈 본문의 DoD 체크박스를 반드시 체크하세요.\n\`gh api\`로 이슈 body의 \`- [ ]\` → \`- [x]\`로 PATCH (DoD 섹션만 치환).\n미체크 시 리뷰 파이프라인이 지연됩니다.`,
+    );
+  }
+
   return parts.join("\n\n");
 }

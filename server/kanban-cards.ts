@@ -1523,6 +1523,14 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string, opts
   const card = getRawKanbanCardById(db, cardId);
   if (!card || card.status !== "review") return false;
 
+  // Sync DoD from GitHub before checking (GitHub is source of truth)
+  if (card.github_repo && card.github_issue_number) {
+    mirrorGitHubDodToChecklist(db, cardId, card.github_repo, card.github_issue_number);
+    // Re-read card after mirror update
+    const refreshed = getRawKanbanCardById(db, cardId);
+    if (refreshed) Object.assign(card, refreshed);
+  }
+
   // Check DoD — all must be done (unless bypassed by timeout)
   const metadata = parseKanbanCardMetadata(card.metadata_json);
   if (!opts?.bypassDod && (!metadata.review_checklist || metadata.review_checklist.some((item) => !item.done))) {
