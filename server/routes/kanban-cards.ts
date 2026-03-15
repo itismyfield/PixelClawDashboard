@@ -240,7 +240,7 @@ router.post("/api/kanban-cards/bulk-action", (req, res) => {
           ).run(now, card.latest_dispatch_id);
         }
         db.prepare(
-          `UPDATE kanban_cards SET status = 'done', review_status = NULL, done_at = COALESCE(done_at, ?), updated_at = ? WHERE id = ?`,
+          `UPDATE kanban_cards SET status = 'done', review_status = NULL, completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE id = ?`,
         ).run(now, now, cardId);
         const updated = emitKanbanCard(db, cardId, "kanban_card_updated");
         if (updated) {
@@ -249,10 +249,18 @@ router.post("/api/kanban-cards/bulk-action", (req, res) => {
           onCardTerminal(db, cardId, "done");
         }
       } else if (action === "reset") {
+        // Cancel any pending/in-progress review dispatches to prevent stale verdicts
+        if (card.latest_dispatch_id) {
+          db.prepare(
+            `UPDATE task_dispatches SET status = 'cancelled', completed_at = ?
+             WHERE parent_dispatch_id = ? AND dispatch_type IN ('review', 'review-decision')
+               AND status IN ('pending', 'dispatched', 'in_progress')`,
+          ).run(now, card.latest_dispatch_id);
+        }
         db.prepare(
           `UPDATE kanban_cards
            SET status = 'ready', review_status = NULL, latest_dispatch_id = NULL,
-               in_progress_at = NULL, review_at = NULL, done_at = NULL, updated_at = ?
+               started_at = NULL, requested_at = NULL, completed_at = NULL, updated_at = ?
            WHERE id = ?`,
         ).run(now, cardId);
         emitKanbanCard(db, cardId, "kanban_card_updated");
