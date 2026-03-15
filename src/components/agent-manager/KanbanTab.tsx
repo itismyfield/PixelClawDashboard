@@ -548,9 +548,15 @@ export default function KanbanTab({
 
   const recentDoneCards = useMemo(() => {
     return repoCards
-      .filter((c) => (c.status === "done" || c.status === "cancelled") && !c.parent_card_id)
+      .filter((c) => {
+        if (c.status !== "done" && c.status !== "cancelled") return false;
+        if (c.parent_card_id) return false;
+        if (cardTypeFilter === "issue" && isReviewCard(c)) return false;
+        if (cardTypeFilter === "review" && !isReviewCard(c)) return false;
+        return true;
+      })
       .sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
-  }, [repoCards]);
+  }, [repoCards, cardTypeFilter]);
 
   useEffect(() => { setRecentDonePage(0); }, [selectedRepo]);
 
