@@ -40,7 +40,7 @@ const TERMINAL_STATUSES = new Set<KanbanCardStatus>(["done", "failed", "cancelle
 const PRIORITY_OPTIONS: KanbanCardPriority[] = ["low", "medium", "high", "urgent"];
 const REVIEW_DISPATCH_TYPES = new Set(["review", "review-decision"]);
 function isReviewCard(card: KanbanCard): boolean {
-  return !!(card.latest_dispatch_type && REVIEW_DISPATCH_TYPES.has(card.latest_dispatch_type)) || !!card.parent_card_id;
+  return !!(card.latest_dispatch_type && REVIEW_DISPATCH_TYPES.has(card.latest_dispatch_type));
 }
 
 /** Quick-transition targets per status. Order = button order (primary first). */
@@ -574,7 +574,10 @@ export default function KanbanTab({
     return set;
   }, [repoCards]);
 
-  const backlogIssues = useMemo(() => issues.filter((issue) => !activeIssueNumbers.has(issue.number)), [issues, activeIssueNumbers]);
+  const backlogIssues = useMemo(() => {
+    if (cardTypeFilter === "review") return []; // backlog issues are never review cards
+    return issues.filter((issue) => !activeIssueNumbers.has(issue.number));
+  }, [issues, activeIssueNumbers, cardTypeFilter]);
 
   const totalVisible = filteredCards.length + backlogIssues.length;
   const openCount = filteredCards.filter((card) => !TERMINAL_STATUSES.has(card.status)).length + backlogIssues.length;
