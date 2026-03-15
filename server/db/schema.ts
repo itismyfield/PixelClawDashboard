@@ -514,6 +514,11 @@ function migrate(db: DatabaseSync): void {
     db.exec("UPDATE task_dispatches SET delivered_at = dispatched_at WHERE dispatched_at IS NOT NULL AND status != 'pending'");
   }
 
+  // Add provider column to task_dispatches — tracks which provider the dispatch was routed to
+  if (!dispatchCols.some((c) => c.name === "provider")) {
+    db.exec("ALTER TABLE task_dispatches ADD COLUMN provider TEXT DEFAULT NULL");
+  }
+
   // One-time migration: reset all XP/token data to 0 (PCD #5)
   const tokenMigDone = db.prepare("SELECT value FROM kv_meta WHERE key = 'token_migration_v1'").get() as { value: string } | undefined;
   if (!tokenMigDone) {

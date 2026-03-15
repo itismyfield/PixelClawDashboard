@@ -453,7 +453,16 @@ export function createDispatchForKanbanCard(db: DatabaseSync, cardId: string): K
     github_issue_number: card.github_issue_number,
   });
 
-  const handoff = {
+  // Resolve target channel based on assignee's cli_provider
+  const assigneeAgent = db.prepare(
+    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt, cli_provider
+     FROM agents WHERE id = ? LIMIT 1`,
+  ).get(card.assignee_agent_id) as AgentChannelInfo | undefined;
+
+  const providerRoute = assigneeAgent ? resolveProviderChannel(assigneeAgent) : null;
+  const dispatchProvider = providerRoute?.provider ?? assigneeAgent?.cli_provider ?? "claude";
+
+  const handoff: Record<string, unknown> = {
     dispatch_id: dispatchId,
     from: requesterAgentId,
     to: card.assignee_agent_id,
@@ -474,14 +483,19 @@ export function createDispatchForKanbanCard(db: DatabaseSync, cardId: string): K
     },
   };
 
+  // Route to the agent's preferred provider channel
+  if (providerRoute) {
+    handoff.delivery_channel_id = providerRoute.channelId;
+  }
+
   // Insert dispatch row BEFORE updating kanban card to satisfy FK constraint
   const chainDepth = parentDispatchId
     ? ((db.prepare("SELECT chain_depth FROM task_dispatches WHERE id = ? LIMIT 1").get(parentDispatchId) as { chain_depth: number } | undefined)?.chain_depth ?? 0) + 1
     : 0;
   db.prepare(
-    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at)
-     VALUES (?, ?, ?, 'generic', 'pending', ?, NULL, ?, ?, ?, NULL)`,
-  ).run(dispatchId, requesterAgentId, card.assignee_agent_id, card.title, parentDispatchId, chainDepth, now);
+    `INSERT INTO task_dispatches (id, from_agent_id, to_agent_id, dispatch_type, status, title, context_file, parent_dispatch_id, chain_depth, created_at, dispatched_at, provider)
+     VALUES (?, ?, ?, 'generic', 'pending', ?, NULL, ?, ?, ?, NULL, ?)`,
+  ).run(dispatchId, requesterAgentId, card.assignee_agent_id, card.title, parentDispatchId, chainDepth, now, dispatchProvider);
 
   fs.writeFileSync(filePath, JSON.stringify(handoff, null, 2));
 
@@ -1468,6 +1482,20 @@ interface AgentChannelInfo {
   discord_channel_id_alt: string | null;
   discord_channel_id_codex: string | null;
   discord_prefer_alt: number;
+  cli_provider: string;
+}
+
+/**
+ * Resolve the preferred Discord channel for an agent based on their cli_provider.
+ */
+function resolveProviderChannel(agent: AgentChannelInfo): { channelId: string; provider: string } | null {
+  if (agent.cli_provider === "codex") {
+    const ch = agent.discord_channel_id_codex;
+    return ch ? { channelId: ch, provider: "codex" } : null;
+  }
+  // Default: claude (or any other provider) → primary channel
+  const ch = agent.discord_prefer_alt ? agent.discord_channel_id_alt : agent.discord_channel_id;
+  return ch ? { channelId: ch, provider: agent.cli_provider } : null;
 }
 
 /**
@@ -1513,7 +1541,7 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string, opts
 
   // Get agent channel info
   const agent = db.prepare(
-    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt, cli_provider
      FROM agents WHERE id = ? LIMIT 1`,
   ).get(card.assignee_agent_id) as AgentChannelInfo | undefined;
   if (!agent) return false;
@@ -1808,7 +1836,7 @@ function dispatchReviewDecision(
     : [];
 
   const agent = db.prepare(
-    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt
+    `SELECT id, role_id, discord_channel_id, discord_channel_id_alt, discord_channel_id_codex, discord_prefer_alt, cli_provider
      FROM agents WHERE id = ? LIMIT 1`,
   ).get(card.assignee_agent_id) as AgentChannelInfo | undefined;
   if (!agent) return;

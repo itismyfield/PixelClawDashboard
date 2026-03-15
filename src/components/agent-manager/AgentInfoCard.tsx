@@ -138,6 +138,8 @@ export default function AgentInfoCard({
   const [savingAlias, setSavingAlias] = useState(false);
   const [selectedDeptId, setSelectedDeptId] = useState(agent.department_id ?? "");
   const [savingDept, setSavingDept] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string>(agent.cli_provider ?? "claude");
+  const [savingProvider, setSavingProvider] = useState(false);
   const [officeMemberships, setOfficeMemberships] = useState<AgentOfficeMembership[]>([]);
   const [loadingOffices, setLoadingOffices] = useState(true);
   const [savingOfficeIds, setSavingOfficeIds] = useState<Record<string, boolean>>({});
@@ -166,7 +168,8 @@ export default function AgentInfoCard({
   useEffect(() => {
     setAliasValue(agent.alias ?? "");
     setSelectedDeptId(agent.department_id ?? "");
-  }, [agent.alias, agent.department_id, agent.id]);
+    setSelectedProvider(agent.cli_provider ?? "claude");
+  }, [agent.alias, agent.department_id, agent.cli_provider, agent.id]);
 
   const saveDepartment = async (nextDeptId: string) => {
     const previousDeptId = selectedDeptId;
@@ -182,6 +185,22 @@ export default function AgentInfoCard({
       console.error("Department save failed:", e);
     } finally {
       setSavingDept(false);
+    }
+  };
+
+  const saveProvider = async (nextProvider: string) => {
+    if (nextProvider === selectedProvider) return;
+    const previousProvider = selectedProvider;
+    setSelectedProvider(nextProvider);
+    setSavingProvider(true);
+    try {
+      await api.updateAgent(agent.id, { cli_provider: nextProvider as Agent["cli_provider"] });
+      onAgentUpdated?.();
+    } catch (e) {
+      setSelectedProvider(previousProvider);
+      console.error("Provider save failed:", e);
+    } finally {
+      setSavingProvider(false);
     }
   };
 
@@ -482,6 +501,34 @@ export default function AgentInfoCard({
             </select>
             <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
               {savingDept ? tr("저장 중...", "Saving...") : null}
+            </span>
+          </div>
+        </div>
+
+        <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--th-card-border)" }}>
+          <div
+            className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: "var(--th-text-muted)" }}
+          >
+            {tr("메인 Provider", "Main Provider")}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedProvider}
+              onChange={(e) => void saveProvider(e.target.value)}
+              disabled={savingProvider}
+              className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
+              style={{
+                background: "var(--th-input-bg)",
+                border: "1px solid var(--th-input-border)",
+                color: "var(--th-text-primary)",
+              }}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+            <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+              {savingProvider ? tr("저장 중...", "Saving...") : null}
             </span>
           </div>
         </div>
