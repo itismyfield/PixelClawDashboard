@@ -460,6 +460,32 @@ function checkAutoQueueTimeouts(): void {
     dispatchNextForAgent(db, entry.agent_id);
   }
 
+  // Detect idle agents with pending entries that weren't dispatched
+  // This covers the gap where onCardTerminal can't find the queue entry
+  // because stale-check already marked it done before the card reached terminal
+  const idleAgentsWithPending = db.prepare(
+    `SELECT DISTINCT dq.agent_id
+     FROM dispatch_queue dq
+     WHERE dq.status = 'pending'
+       AND NOT EXISTS (
+         SELECT 1 FROM kanban_cards kc
+         WHERE kc.assignee_agent_id = dq.agent_id
+           AND kc.status IN ('requested', 'in_progress')
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM dispatch_queue dq2
+         WHERE dq2.agent_id = dq.agent_id
+           AND dq2.status = 'dispatched'
+       )`,
+  ).all() as unknown as Array<{ agent_id: string }>;
+
+  for (const { agent_id } of idleAgentsWithPending) {
+    const dispatched = dispatchNextForAgent(db, agent_id);
+    if (dispatched) {
+      console.log(`[auto-queue] Resumed idle agent ${agent_id} with pending entries`);
+    }
+  }
+
   // Check if all entries are done/skipped → complete the run
   const activeRun = db.prepare(
     `SELECT id FROM auto_queue_runs WHERE status = 'active' LIMIT 1`,
