@@ -145,6 +145,9 @@ export default function AgentInfoCard({
   const [savingOfficeIds, setSavingOfficeIds] = useState<Record<string, boolean>>({});
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(true);
+  const [timeline, setTimeline] = useState<api.TimelineEvent[]>([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(true);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   const saveAlias = async () => {
     const trimmed = aliasValue.trim();
@@ -287,6 +290,15 @@ export default function AgentInfoCard({
     }).catch(() => {
       setOfficeMemberships([]);
       setLoadingOffices(false);
+    });
+
+    setLoadingTimeline(true);
+    api.getAgentTimeline(agent.id, 30).then((events) => {
+      setTimeline(events);
+      setLoadingTimeline(false);
+    }).catch(() => {
+      setTimeline([]);
+      setLoadingTimeline(false);
     });
   }, [agent.id]);
 
@@ -1040,6 +1052,56 @@ export default function AgentInfoCard({
               </div>
             );
           })()}
+          {/* Activity Timeline */}
+          <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "var(--th-border-subtle)", background: "var(--th-bg-card)" }}>
+            <button
+              onClick={() => setTimelineOpen((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold"
+              style={{ color: "var(--th-text-heading)" }}
+            >
+              <span>{tr("활동 타임라인", "Activity Timeline")}</span>
+              <span style={{ color: "var(--th-text-muted)" }}>{timelineOpen ? "▲" : "▼"}</span>
+            </button>
+            {timelineOpen && (
+              <div className="px-4 pb-3 space-y-1.5 max-h-64 overflow-y-auto">
+                {loadingTimeline ? (
+                  <div className="text-xs py-2" style={{ color: "var(--th-text-muted)" }}>…</div>
+                ) : timeline.length === 0 ? (
+                  <div className="text-xs py-2" style={{ color: "var(--th-text-muted)" }}>{tr("활동 없음", "No activity")}</div>
+                ) : timeline.map((evt) => {
+                  const sourceColor = evt.source === "dispatch" ? "#a78bfa" : evt.source === "session" ? "#38bdf8" : "#4ade80";
+                  const sourceLabel = evt.source === "dispatch" ? "D" : evt.source === "session" ? "S" : "K";
+                  const durationStr = evt.duration_ms != null
+                    ? evt.duration_ms < 60_000
+                      ? `${Math.round(evt.duration_ms / 1000)}s`
+                      : `${Math.round(evt.duration_ms / 60_000)}m`
+                    : null;
+                  return (
+                    <div key={`${evt.source}-${evt.id}`} className="flex items-start gap-2 text-[11px]">
+                      <span
+                        className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold mt-0.5"
+                        style={{ backgroundColor: `${sourceColor}22`, color: sourceColor }}
+                      >
+                        {sourceLabel}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate" style={{ color: "var(--th-text-primary)" }}>{evt.title}</div>
+                        <div className="flex gap-2" style={{ color: "var(--th-text-muted)" }}>
+                          <span>{timeAgo(evt.timestamp, isKo)}</span>
+                          <span className="px-1 rounded" style={{ backgroundColor: `${sourceColor}15`, color: sourceColor }}>
+                            {evt.status}
+                          </span>
+                          {durationStr && <span>{durationStr}</span>}
+                          {evt.detail && "issue" in evt.detail && <span>#{String(evt.detail.issue)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               {agent.role_id && (

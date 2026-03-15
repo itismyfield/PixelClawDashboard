@@ -76,6 +76,7 @@ export {
   triggerDecidedRework,
   getStalledCards,
   bulkKanbanAction,
+  getAgentTimeline,
 } from "./client";
 
 export type {
@@ -107,6 +108,7 @@ export type {
   ChatMessage,
   RuntimeConfigResponse,
   DryRunEntry,
+  TimelineEvent,
 } from "./client";
 
 // ── Sprite processing (stub for PCD — no backend sprite processor) ──

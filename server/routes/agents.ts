@@ -335,6 +335,91 @@ router.get("/api/agents/:id/skills", (req, res) => {
   });
 });
 
+// ── Agent activity timeline ──
+
+router.get("/api/agents/:id/timeline", (req, res) => {
+  const db = getDb();
+  const agentId = req.params.id;
+  const limit = Math.min(Number(req.query.limit) || 30, 100);
+
+  // Merge dispatches, sessions, and kanban transitions into a unified timeline
+  const dispatches = db.prepare(
+    `SELECT id, dispatch_type as type, title, status, created_at, dispatched_at, completed_at,
+            'dispatch' as source
+     FROM task_dispatches
+     WHERE to_agent_id = ? OR from_agent_id = ?
+     ORDER BY created_at DESC LIMIT ?`,
+  ).all(agentId, agentId, limit) as unknown as Array<{
+    id: string; type: string; title: string; status: string;
+    created_at: number; dispatched_at: number | null; completed_at: number | null;
+    source: string;
+  }>;
+
+  const sessions = db.prepare(
+    `SELECT id, session_key, status, started_at as created_at, ended_at as completed_at,
+            stats_turns, stats_tokens, stats_xp, provider,
+            'session' as source
+     FROM dispatched_sessions
+     WHERE agent_id = ?
+     ORDER BY started_at DESC LIMIT ?`,
+  ).all(agentId, limit) as unknown as Array<{
+    id: string; session_key: string; status: string;
+    created_at: number; completed_at: number | null;
+    stats_turns: number; stats_tokens: number; stats_xp: number;
+    provider: string; source: string;
+  }>;
+
+  const kanbanEvents = db.prepare(
+    `SELECT id, title, status, review_status, created_at, started_at, completed_at,
+            github_issue_number, github_repo,
+            'kanban' as source
+     FROM kanban_cards
+     WHERE assignee_agent_id = ?
+     ORDER BY updated_at DESC LIMIT ?`,
+  ).all(agentId, limit) as unknown as Array<{
+    id: string; title: string; status: string; review_status: string | null;
+    created_at: number; started_at: number | null; completed_at: number | null;
+    github_issue_number: number | null; github_repo: string | null;
+    source: string;
+  }>;
+
+  // Build unified events sorted by timestamp desc
+  const events: Array<{
+    id: string; source: string; type: string; title: string;
+    status: string; timestamp: number; duration_ms: number | null;
+    detail?: Record<string, unknown>;
+  }> = [];
+
+  for (const d of dispatches) {
+    events.push({
+      id: d.id, source: "dispatch", type: d.type, title: d.title,
+      status: d.status, timestamp: d.created_at,
+      duration_ms: d.completed_at && d.created_at ? d.completed_at - d.created_at : null,
+    });
+  }
+
+  for (const s of sessions) {
+    events.push({
+      id: s.id, source: "session", type: s.provider ?? "claude",
+      title: s.session_key, status: s.status, timestamp: s.created_at,
+      duration_ms: s.completed_at && s.created_at ? s.completed_at - s.created_at : null,
+      detail: { turns: s.stats_turns, tokens: s.stats_tokens, xp: s.stats_xp },
+    });
+  }
+
+  for (const k of kanbanEvents) {
+    events.push({
+      id: k.id, source: "kanban", type: k.status, title: k.title,
+      status: k.review_status ?? k.status, timestamp: k.created_at,
+      duration_ms: k.completed_at && k.created_at ? k.completed_at - k.created_at : null,
+      detail: k.github_issue_number ? { issue: k.github_issue_number, repo: k.github_repo } : undefined,
+    });
+  }
+
+  events.sort((a, b) => b.timestamp - a.timestamp);
+  res.json({ events: events.slice(0, limit) });
+});
+
 // ── Agent channel map (role_id/alias → channel IDs by provider) ──
 router.get("/api/agent-channels", (_req, res) => {
   const db = getDb();

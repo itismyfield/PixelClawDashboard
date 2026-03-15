@@ -517,6 +517,26 @@ export async function getAgentSkills(agentId: string): Promise<AgentSkillsRespon
   return request(`/api/agents/${agentId}/skills`);
 }
 
+// ── Agent Timeline ──
+
+export interface TimelineEvent {
+  id: string;
+  source: "dispatch" | "session" | "kanban";
+  type: string;
+  title: string;
+  status: string;
+  timestamp: number;
+  duration_ms: number | null;
+  detail?: Record<string, unknown>;
+}
+
+export async function getAgentTimeline(agentId: string, limit = 30): Promise<TimelineEvent[]> {
+  const data = await request<{ events: TimelineEvent[] }>(
+    `/api/agents/${agentId}/timeline?limit=${limit}`,
+  );
+  return data.events;
+}
+
 // ── Discord Bindings ──
 
 export interface DiscordBinding {
