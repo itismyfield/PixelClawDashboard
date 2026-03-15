@@ -306,6 +306,20 @@ export async function assignKanbanIssue(payload: {
   });
 }
 
+export async function getStalledCards(): Promise<KanbanCard[]> {
+  return request("/api/kanban-cards/stalled");
+}
+
+export async function bulkKanbanAction(
+  action: "pass" | "reset" | "cancel",
+  card_ids: string[],
+): Promise<{ action: string; results: Array<{ id: string; ok: boolean; error?: string }> }> {
+  return request("/api/kanban-cards/bulk-action", {
+    method: "POST",
+    body: JSON.stringify({ action, card_ids }),
+  });
+}
+
 export async function getKanbanRepoSources(): Promise<KanbanRepoSource[]> {
   const data = await request<{ repos: KanbanRepoSource[] }>("/api/kanban-repos");
   return data.repos;

@@ -74,6 +74,8 @@ export {
   getKanbanReviews,
   saveReviewDecisions,
   triggerDecidedRework,
+  getStalledCards,
+  bulkKanbanAction,
 } from "./client";
 
 export type {

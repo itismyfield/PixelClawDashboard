@@ -196,6 +196,99 @@ router.post("/api/kanban-cards/assign-issue", (req, res) => {
   res.status(201).json(created);
 });
 
+// ── Stalled cards: cards stuck in review with problematic review_status ──
+
+router.get("/api/kanban-cards/stalled", (_req, res) => {
+  const db = getDb();
+  const all = listKanbanCards(db);
+  const stalled = all.filter(
+    (c) => c.status === "review" && ["awaiting_dod", "suggestion_pending", "dilemma_pending", "reviewing"].includes(c.review_status ?? ""),
+  );
+  res.json(stalled);
+});
+
+// ── Bulk action: pass/reset/cancel multiple cards at once ──
+
+router.post("/api/kanban-cards/bulk-action", (req, res) => {
+  const db = getDb();
+  const { action, card_ids } = req.body as { action: string; card_ids: string[] };
+
+  if (!action || !Array.isArray(card_ids) || card_ids.length === 0) {
+    res.status(400).json({ error: "action and card_ids[] required" });
+    return;
+  }
+  if (!["pass", "reset", "cancel"].includes(action)) {
+    res.status(400).json({ error: "action must be pass, reset, or cancel" });
+    return;
+  }
+
+  const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+  const now = Date.now();
+
+  for (const cardId of card_ids) {
+    try {
+      const card = getRawKanbanCardById(db, cardId);
+      if (!card) {
+        results.push({ id: cardId, ok: false, error: "not_found" });
+        continue;
+      }
+
+      if (action === "pass") {
+        if (card.latest_dispatch_id) {
+          db.prepare(
+            `UPDATE task_dispatches SET status = 'completed', completed_at = COALESCE(completed_at, ?) WHERE id = ?`,
+          ).run(now, card.latest_dispatch_id);
+        }
+        db.prepare(
+          `UPDATE kanban_cards SET status = 'done', review_status = NULL, done_at = COALESCE(done_at, ?), updated_at = ? WHERE id = ?`,
+        ).run(now, now, cardId);
+        const updated = emitKanbanCard(db, cardId, "kanban_card_updated");
+        if (updated) {
+          rewardKanbanCompletion(db, cardId);
+          closeGitHubIssueOnDone(updated);
+          onCardTerminal(db, cardId, "done");
+        }
+      } else if (action === "reset") {
+        db.prepare(
+          `UPDATE kanban_cards
+           SET status = 'ready', review_status = NULL, latest_dispatch_id = NULL,
+               in_progress_at = NULL, review_at = NULL, done_at = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).run(now, cardId);
+        emitKanbanCard(db, cardId, "kanban_card_updated");
+      } else if (action === "cancel") {
+        if (card.latest_dispatch_id) {
+          db.prepare(
+            `UPDATE task_dispatches SET status = 'cancelled', completed_at = COALESCE(completed_at, ?) WHERE id = ?`,
+          ).run(now, card.latest_dispatch_id);
+        }
+        db.prepare(
+          `UPDATE kanban_cards SET status = 'cancelled', review_status = NULL, updated_at = ? WHERE id = ?`,
+        ).run(now, cardId);
+        const updated = emitKanbanCard(db, cardId, "kanban_card_updated");
+        if (updated) {
+          closeGitHubIssueOnDone(updated);
+          onCardTerminal(db, cardId, "cancelled");
+        }
+      }
+
+      results.push({ id: cardId, ok: true });
+    } catch (e) {
+      results.push({ id: cardId, ok: false, error: (e as Error).message });
+    }
+  }
+
+  appendAuditLog({
+    actor: getAuditActor(req),
+    action: "bulk_action",
+    entityType: "kanban_card",
+    entityId: card_ids.join(","),
+    summary: `Bulk ${action}: ${results.filter((r) => r.ok).length}/${card_ids.length} succeeded`,
+  });
+
+  res.json({ action, results });
+});
+
 router.get("/api/kanban-cards/:id", (req, res) => {
   const db = getDb();
   const card = getKanbanCardById(db, req.params.id);

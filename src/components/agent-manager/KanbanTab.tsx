@@ -337,6 +337,9 @@ export default function KanbanTab({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [recentDonePage, setRecentDonePage] = useState(0);
   const [recentDoneOpen, setRecentDoneOpen] = useState(false);
+  const [stalledPopup, setStalledPopup] = useState(false);
+  const [stalledSelected, setStalledSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
@@ -370,6 +373,26 @@ export default function KanbanTab({
   }, [agents]);
 
   const selectedCard = selectedCardId ? cardsById.get(selectedCardId) ?? null : null;
+
+  const STALLED_REVIEW_STATUSES = new Set(["awaiting_dod", "suggestion_pending", "dilemma_pending", "reviewing"]);
+  const stalledCards = useMemo(
+    () => cards.filter((c) => c.status === "review" && c.review_status && STALLED_REVIEW_STATUSES.has(c.review_status)),
+    [cards],
+  );
+
+  const handleBulkAction = async (action: "pass" | "reset" | "cancel") => {
+    if (stalledSelected.size === 0) return;
+    setBulkBusy(true);
+    try {
+      await api.bulkKanbanAction(action, Array.from(stalledSelected));
+      setStalledSelected(new Set());
+      setStalledPopup(false);
+    } catch (e) {
+      setActionError((e as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   useEffect(() => {
     setEditor(coerceEditor(selectedCard));
@@ -829,6 +852,15 @@ export default function KanbanTab({
             <span className="text-xs shrink-0 px-2 py-0.5 rounded-full bg-white/8" style={{ color: "var(--th-text-muted)" }}>
               {initialLoading ? "…" : `${openCount}${tr("건", "")}`}
             </span>
+            {stalledCards.length > 0 && (
+              <button
+                onClick={() => { setStalledPopup(true); setStalledSelected(new Set()); }}
+                className="shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium animate-pulse"
+                style={{ backgroundColor: "rgba(239,68,68,0.2)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)" }}
+              >
+                {tr(`정체 ${stalledCards.length}건`, `${stalledCards.length} stalled`)}
+              </button>
+            )}
             {repoSources.length > 1 && (
               <div className="flex gap-1 overflow-x-auto min-w-0">
                 {repoSources.map((source) => (
@@ -990,6 +1022,85 @@ export default function KanbanTab({
         {actionError && (
           <div className="rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "rgba(248,113,113,0.45)", color: "#fecaca", backgroundColor: "rgba(127,29,29,0.22)" }}>
             {actionError}
+          </div>
+        )}
+
+        {stalledPopup && (
+          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: "rgba(239,68,68,0.35)", backgroundColor: "rgba(127,29,29,0.18)" }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: "#fca5a5" }}>
+                {tr(`정체 카드 ${stalledCards.length}건`, `${stalledCards.length} Stalled Cards`)}
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setStalledSelected(stalledSelected.size === stalledCards.length ? new Set() : new Set(stalledCards.map((c) => c.id)))}
+                  className="text-[11px] px-2 py-0.5 rounded border"
+                  style={{ borderColor: "rgba(148,163,184,0.3)", color: "var(--th-text-muted)" }}
+                >
+                  {stalledSelected.size === stalledCards.length ? tr("해제", "Deselect") : tr("전체 선택", "Select all")}
+                </button>
+                <button
+                  onClick={() => setStalledPopup(false)}
+                  className="text-[11px] px-2 py-0.5 rounded border"
+                  style={{ borderColor: "rgba(148,163,184,0.3)", color: "var(--th-text-muted)" }}
+                >
+                  {tr("닫기", "Close")}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 max-h-60 overflow-y-auto">
+              {stalledCards.map((card) => (
+                <label key={card.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-white/5 text-sm" style={{ color: "var(--th-text-primary)" }}>
+                  <input
+                    type="checkbox"
+                    checked={stalledSelected.has(card.id)}
+                    onChange={() => {
+                      setStalledSelected((prev) => {
+                        const next = new Set(prev);
+                        next.has(card.id) ? next.delete(card.id) : next.add(card.id);
+                        return next;
+                      });
+                    }}
+                    className="accent-red-400"
+                  />
+                  <span className="truncate flex-1">{card.title}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0" style={{ backgroundColor: "rgba(239,68,68,0.15)", color: "#f87171" }}>
+                    {card.review_status}
+                  </span>
+                  <span className="text-[10px] shrink-0" style={{ color: "var(--th-text-muted)" }}>
+                    {card.github_repo ? card.github_repo.split("/")[1] : ""}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {stalledSelected.size > 0 && (
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => void handleBulkAction("pass")}
+                  disabled={bulkBusy}
+                  className="text-[11px] px-3 py-1 rounded-lg border font-medium"
+                  style={{ borderColor: "rgba(34,197,94,0.4)", color: "#4ade80", backgroundColor: "rgba(34,197,94,0.12)" }}
+                >
+                  {bulkBusy ? "…" : tr(`일괄 Pass (${stalledSelected.size})`, `Pass All (${stalledSelected.size})`)}
+                </button>
+                <button
+                  onClick={() => void handleBulkAction("reset")}
+                  disabled={bulkBusy}
+                  className="text-[11px] px-3 py-1 rounded-lg border font-medium"
+                  style={{ borderColor: "rgba(14,165,233,0.4)", color: "#38bdf8", backgroundColor: "rgba(14,165,233,0.12)" }}
+                >
+                  {bulkBusy ? "…" : tr(`일괄 Reset (${stalledSelected.size})`, `Reset All (${stalledSelected.size})`)}
+                </button>
+                <button
+                  onClick={() => void handleBulkAction("cancel")}
+                  disabled={bulkBusy}
+                  className="text-[11px] px-3 py-1 rounded-lg border font-medium"
+                  style={{ borderColor: "rgba(107,114,128,0.4)", color: "#9ca3af", backgroundColor: "rgba(107,114,128,0.12)" }}
+                >
+                  {bulkBusy ? "…" : tr(`일괄 Cancel (${stalledSelected.size})`, `Cancel All (${stalledSelected.size})`)}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>
