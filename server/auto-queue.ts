@@ -551,8 +551,9 @@ function checkAutoQueueTimeouts(): void {
   if (reminderMs > 0) {
     const staleReviews = db.prepare(
       `SELECT kr.id, kr.review_dispatch_id, kr.card_id, kr.created_at, kr.reminded_at,
+              kr.reviewer_provider,
               td.title as dispatch_title,
-              a.discord_channel_id, a.discord_channel_id_codex, a.cli_provider,
+              a.discord_channel_id, a.discord_channel_id_codex,
               kc.title as card_title
        FROM kanban_reviews kr
        JOIN kanban_cards kc ON kc.id = kr.card_id
@@ -564,13 +565,14 @@ function checkAutoQueueTimeouts(): void {
     ).all(now - reminderMs, now - reminderMs) as unknown as Array<{
       id: string; review_dispatch_id: string | null; card_id: string;
       created_at: number; reminded_at: number | null;
-      dispatch_title: string | null;
+      reviewer_provider: string | null; dispatch_title: string | null;
       discord_channel_id: string | null; discord_channel_id_codex: string | null;
-      cli_provider: string | null; card_title: string;
+      card_title: string;
     }>;
 
     for (const review of staleReviews) {
-      const channelId = review.cli_provider === "codex"
+      // Use reviewer_provider from review time, not current cli_provider
+      const channelId = review.reviewer_provider === "codex"
         ? review.discord_channel_id_codex
         : review.discord_channel_id;
       if (!channelId) continue;

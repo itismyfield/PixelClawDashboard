@@ -55,6 +55,14 @@ const CATEGORIES: Array<{
     ],
   },
   {
+    titleKo: "리뷰",
+    titleEn: "Review",
+    fields: [
+      { key: "maxReviewRounds", labelKo: "최대 리뷰 라운드", labelEn: "Max review rounds", unit: "", min: 1, max: 5, step: 1 },
+      { key: "reviewReminderMin", labelKo: "리뷰 리마인드 간격", labelEn: "Review reminder interval", unit: "min", min: 5, max: 120, step: 5 },
+    ],
+  },
+  {
     titleKo: "알림 임계값",
     titleEn: "Alert Thresholds",
     fields: [
