@@ -40,6 +40,7 @@ const COLUMN_DEFS: Array<{
 ];
 
 const TERMINAL_STATUSES = new Set<KanbanCardStatus>(["done", "failed", "cancelled"]);
+const QA_STATUSES = new Set<KanbanCardStatus>(["qa_pending", "qa_in_progress", "qa_failed"]);
 const PRIORITY_OPTIONS: KanbanCardPriority[] = ["low", "medium", "high", "urgent"];
 const REVIEW_DISPATCH_TYPES = new Set(["review", "review-decision"]);
 function isReviewCard(card: KanbanCard): boolean {
@@ -596,9 +597,13 @@ export default function KanbanTab({
 
   const totalVisible = filteredCards.length + backlogIssues.length;
   const openCount = filteredCards.filter((card) => !TERMINAL_STATUSES.has(card.status)).length + backlogIssues.length;
+  const hasQaCards = filteredCards.some((c) => QA_STATUSES.has(c.status));
   const visibleColumns = compactBoard
     ? COLUMN_DEFS.filter((column) => column.status === mobileColumnStatus)
-    : COLUMN_DEFS.filter((column) => showClosed || !TERMINAL_STATUSES.has(column.status));
+    : COLUMN_DEFS.filter((column) =>
+        (showClosed || !TERMINAL_STATUSES.has(column.status))
+        && (!QA_STATUSES.has(column.status) || hasQaCards),
+      );
 
   const getCardMetadata = (card: KanbanCard) => parseCardMetadata(card.metadata_json);
 
