@@ -1252,7 +1252,7 @@ export default function KanbanTab({
           {compactBoard && (
             <>
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {COLUMN_DEFS.filter((column) => showClosed || !TERMINAL_STATUSES.has(column.status)).map((column) => (
+                {COLUMN_DEFS.filter((column) => (showClosed || !TERMINAL_STATUSES.has(column.status)) && (!QA_STATUSES.has(column.status) || hasQaCards)).map((column) => (
                   <button
                     key={column.status}
                     onClick={() => setMobileColumnStatus(column.status)}
