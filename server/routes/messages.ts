@@ -4,6 +4,7 @@ import { broadcast } from "../ws.js";
 import { sendDiscordTarget, sendToAgentChannel, type BotType } from "../discord-announce.js";
 import { listRoleBindings } from "../role-map.js";
 import { appendAuditLog, getAuditActor } from "../audit-log.js";
+import { processReviewVerdict, type ReviewVerdictItem } from "../kanban-cards.js";
 
 const router = Router();
 
@@ -234,6 +235,32 @@ router.post("/api/discord/send-target", async (req, res) => {
   }
 
   console.log(`[PCD→Discord] send-target source=${source} target=${target} bot=${botType}`);
+
+  // Intercept review verdict replies: [리뷰결과:{dispatch_id}] pass|improve — ...
+  const verdictMatch = content.match(/\[리뷰결과:([0-9a-f-]{36})\]\s*(pass|improve)\b/i);
+  if (verdictMatch) {
+    const [, dispatchId, overall] = verdictMatch;
+    const items: ReviewVerdictItem[] = [];
+    if (overall === "improve") {
+      // Extract bullet items after the verdict line
+      const lines = content.split("\n").filter((l: string) => /^\s*[-\d.]/.test(l.trim()));
+      lines.forEach((line: string, i: number) => {
+        const text = line.replace(/^\s*[-\d.)\s]+/, "").trim();
+        if (text) items.push({ id: `item-${i + 1}`, category: "improve" as const, summary: text });
+      });
+      if (items.length === 0) {
+        items.push({ id: "item-1", category: "improve" as const, summary: "리뷰 에이전트가 개선 필요로 판단 (상세 내용은 채널 확인)" });
+      }
+    }
+    try {
+      const db = getDb();
+      processReviewVerdict(db, dispatchId, { overall: overall as "pass" | "improve", items });
+      console.log(`[review-verdict] Processed via send-target: dispatch=${dispatchId}, verdict=${overall}, items=${items.length}`);
+    } catch (e) {
+      console.error(`[review-verdict] Failed to process verdict for ${dispatchId}:`, (e as Error).message);
+    }
+  }
+
   res.json({ ok: true, target, source, bot: botType });
 });
 
