@@ -1535,9 +1535,12 @@ export function triggerCounterModelReview(db: DatabaseSync, cardId: string, opts
   const metadata = parseKanbanCardMetadata(card.metadata_json);
   if (!opts?.bypassDod && (!metadata.review_checklist || metadata.review_checklist.some((item) => !item.done))) {
     // DoD not all done — set review_status = awaiting_dod
-    db.prepare("UPDATE kanban_cards SET review_status = 'awaiting_dod', updated_at = ? WHERE id = ?")
-      .run(Date.now(), cardId);
-    emitKanbanCard(db, cardId, "kanban_card_updated");
+    // Only update updated_at on first transition to avoid resetting the timeout clock
+    if (card.review_status !== "awaiting_dod") {
+      db.prepare("UPDATE kanban_cards SET review_status = 'awaiting_dod', updated_at = ? WHERE id = ?")
+        .run(Date.now(), cardId);
+      emitKanbanCard(db, cardId, "kanban_card_updated");
+    }
     return false;
   }
 

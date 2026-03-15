@@ -404,14 +404,18 @@ function checkAutoQueueTimeouts(): void {
   const now = Date.now();
 
   // Bypass DoD gate for cards stuck in review/awaiting_dod too long
+  // Uses dispatch completed_at as anchor (not updated_at which gets reset by DoD mirror syncs)
   const stuckAwaitingDod = db.prepare(
-    `SELECT id, updated_at FROM kanban_cards
-     WHERE status = 'review' AND review_status = 'awaiting_dod'
-       AND updated_at < ?`,
-  ).all(now - DOD_AWAIT_TIMEOUT_MS) as unknown as Array<{ id: string; updated_at: number }>;
+    `SELECT kc.id, td.completed_at as dispatch_completed_at
+     FROM kanban_cards kc
+     JOIN task_dispatches td ON td.id = kc.latest_dispatch_id
+     WHERE kc.status = 'review' AND kc.review_status = 'awaiting_dod'
+       AND td.completed_at IS NOT NULL
+       AND td.completed_at < ?`,
+  ).all(now - DOD_AWAIT_TIMEOUT_MS) as unknown as Array<{ id: string; dispatch_completed_at: number }>;
 
   for (const card of stuckAwaitingDod) {
-    console.log(`[auto-queue] DoD timeout for card ${card.id} (${Math.round((now - card.updated_at) / 60000)}min), bypassing DoD gate`);
+    console.log(`[auto-queue] DoD timeout for card ${card.id} (${Math.round((now - card.dispatch_completed_at) / 60000)}min since dispatch completed), bypassing DoD gate`);
     try {
       triggerCounterModelReview(db, card.id, { bypassDod: true });
     } catch (e) {
