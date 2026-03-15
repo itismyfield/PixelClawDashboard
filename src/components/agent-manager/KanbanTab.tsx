@@ -1233,7 +1233,7 @@ export default function KanbanTab({
             </>
           )}
 
-          <div className={compactBoard ? "" : "pb-2"} style={compactBoard ? undefined : { overflowX: "auto", overflowY: "clip" }}>
+          <div className={compactBoard ? "" : "pb-2"} style={compactBoard ? undefined : { overflowX: "auto" }}>
             <div className={compactBoard ? "space-y-4" : "flex items-start gap-4 min-w-max"}>
               {visibleColumns.map((column) => {
               const columnCards = cardsByStatus.get(column.status) ?? [];
